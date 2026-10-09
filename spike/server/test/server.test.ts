@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { hashAdminKey, adminKeyMatches } from '../src/accounts.js';
 import { buildApp } from '../src/app.js';
 import { allowBrowserOrigin } from '../src/cors.js';
+import { PhonePairs, phoneIdentity, phoneRoomName } from '../src/phone.js';
 import { formatFrequency, parseFrequency, validateFrequency } from '../src/freq.js';
 import { FileChannelStore, MemoryChannelStore } from '../src/store.js';
 
@@ -324,6 +325,49 @@ describe('browser CORS', () => {
     expect(local.headers['access-control-allow-origin']).toBe('http://127.0.0.1:5175');
     const evil = await preflight('https://evil.example');
     expect(evil.headers['access-control-allow-origin']).toBeUndefined();
+  });
+});
+
+describe('phone push-to-talk pairing', () => {
+  it('forgets an expired code and will not redeem it twice', () => {
+    let now = 1_000_000;
+    const pairs = new PhonePairs(() => now);
+    const issued = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby' }, 1000);
+    expect(pairs.take(issued.code)).toMatchObject({ sid: 'sid-1' });
+    expect(pairs.take(issued.code)).toBeNull();
+    const again = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby' }, 1000);
+    now += 1001;
+    expect(pairs.take(again.code)).toBeNull();
+    expect(phoneRoomName('dev', 'sid-1')).toBe('gdev.phone.sid-1');
+    expect(phoneIdentity('sid-1')).toBe('phone:sid-1');
+  });
+
+  it('gives the phone a data-only token for that visit and no API session', async () => {
+    const { app, member, cid, session } = await setup();
+    const claims = JSON.parse(Buffer.from(session.token.split('.')[0], 'base64url').toString('utf8')) as { sid: string };
+    expect((await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-pair` })).statusCode).toBe(401);
+    const host = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-host`, headers: member });
+    expect(host.statusCode).toBe(200);
+    expect(host.json().phoneIdentity).toBe(`phone:${claims.sid}`);
+    expect(host.json().room).toBe(phoneRoomName(cid, claims.sid));
+    const paired = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-pair`, headers: member });
+    const code = paired.json().code as string;
+    const redeemed = await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } });
+    expect(redeemed.statusCode).toBe(200);
+    expect(redeemed.json().token).not.toBe(session.token);
+    expect(redeemed.json().identity).toBe(`phone:${claims.sid}`);
+    expect((await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } })).statusCode).toBe(404);
+    const verifier = new TokenVerifier(cfg.apiKey, cfg.apiSecret);
+    const phoneClaims = await verifier.verify(redeemed.json().token);
+    const hostClaims = await verifier.verify(host.json().token);
+    for (const tokenClaims of [phoneClaims, hostClaims]) {
+      expect(tokenClaims.video).toMatchObject({
+        room: host.json().room, roomJoin: true, canSubscribe: true, canPublish: false, canPublishData: true,
+      });
+      expect(tokenClaims.video?.canPublishSources ?? []).toEqual([]);
+    }
+    expect(phoneClaims.sub).toBe(`phone:${claims.sid}`);
+    expect(hostClaims.sub).toBe(claims.sid);
   });
 });
 

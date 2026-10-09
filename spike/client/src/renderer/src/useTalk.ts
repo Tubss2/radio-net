@@ -10,24 +10,34 @@ export function useTalk(opts: {
   mode: 'hold' | 'voice';
   sensitivity: number;
   releaseMs: number;
+  /** Set while a phone or the helper is holding the mic, so leaving the tab does not cut that off. */
+  externalDown?: { current: boolean };
 }) {
   const mutedRef = useRef(false);
+  const pageHeld = useRef(false);
   const [hardwareMuted, setHardwareMuted] = useState(false);
   const engine = opts.engine;
+  const externalDown = opts.externalDown;
 
   const release = useCallback(() => { void engine.ptt(false); }, [engine]);
+  const releasePage = useCallback(() => {
+    if (!pageHeld.current) return;
+    pageHeld.current = false;
+    release();
+  }, [release]);
 
   useEffect(() => {
     if (!opts.enabled || opts.mode !== 'hold') return;
     const typing = (e: Event) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     const down = (e: KeyboardEvent) => {
-      if (e.repeat || typing(e) || e.code !== opts.talkKey || mutedRef.current || document.hidden) return;
+      if (e.repeat || typing(e) || e.code !== opts.talkKey || mutedRef.current || document.hidden || externalDown?.current) return;
       e.preventDefault();
+      pageHeld.current = true;
       void engine.unlock().then(() => engine.ptt(true));
     };
-    const up = (e: KeyboardEvent) => { if (e.code === opts.talkKey) release(); };
-    const stop = () => release();
-    const vis = () => { if (document.hidden) release(); };
+    const up = (e: KeyboardEvent) => { if (e.code === opts.talkKey) releasePage(); };
+    const stop = () => releasePage();
+    const vis = () => { if (document.hidden) releasePage(); };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', stop);
@@ -37,15 +47,16 @@ export function useTalk(opts: {
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', stop);
       document.removeEventListener('visibilitychange', vis);
-      release();
+      releasePage();
     };
-  }, [opts.enabled, opts.mode, opts.talkKey, engine, release]);
+  }, [opts.enabled, opts.mode, opts.talkKey, engine, releasePage, externalDown]);
 
   useEffect(() => {
     if (!opts.enabled || opts.mode !== 'voice') return;
     let open = false;
     let belowSince: number | null = null;
     const stop = engine.monitorMic((rms) => {
+      if (externalDown?.current) return;
       if (mutedRef.current || document.hidden) {
         if (open) { open = false; belowSince = null; release(); }
         return;
@@ -55,7 +66,7 @@ export function useTalk(opts: {
       if (next.open !== open) { open = next.open; void engine.ptt(open); }
     });
     return () => { stop(); release(); };
-  }, [opts.enabled, opts.mode, opts.sensitivity, opts.releaseMs, engine, release]);
+  }, [opts.enabled, opts.mode, opts.sensitivity, opts.releaseMs, engine, release, externalDown]);
 
   useEffect(() => {
     if (!opts.enabled) return;
@@ -71,9 +82,11 @@ export function useTalk(opts: {
   }, [opts.enabled, release]);
 
   const pointerDown = () => {
-    if (!opts.enabled || opts.mode !== 'hold' || mutedRef.current) return;
+    if (!opts.enabled || opts.mode !== 'hold' || mutedRef.current || externalDown?.current) return;
+    pageHeld.current = true;
     void engine.unlock().then(() => engine.ptt(true));
   };
+  const pointerUp = () => releasePage();
 
-  return { hardwareMuted, pointerDown, pointerUp: release };
+  return { hardwareMuted, pointerDown, pointerUp };
 }
