@@ -1,0 +1,23 @@
+{
+  "name": "radio-net-e2e",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "e2e": "tsx radio-e2e.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@livekit/rtc-node": "^1.1.0",
+    "livekit-server-sdk": "^2.19.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "playwright-core": "^1.64.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "type": "module"
+}
