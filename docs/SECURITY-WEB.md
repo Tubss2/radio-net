@@ -4,7 +4,7 @@ The desktop installer review is [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md). This
 
 End-to-end encryption of the voice is out of scope. The server operator can still hear the radio. Say that on the join screen.
 
-The Pages app, the phone routes, and the Rust helper are on the product branch. The controls below are what that code has to keep. A pull request that drops one of them should not ship. The helper listens on `127.0.0.1:47321`.
+The Pages app, the phone routes, and the Rust helper are on main. The controls below are what that code has to keep. A pull request that drops one of them should not ship. The helper listens on `127.0.0.1:47321`.
 
 ## Plain English
 
@@ -65,7 +65,7 @@ The Pages CSP has to list `ws://127.0.0.1:47321` and `http://127.0.0.1:47321` (t
 ## Checklist
 
 - [x] Session token in `sessionStorage`. Invite code may stay in `localStorage`.
-- [ ] Admin key in `localStorage` only if the user ticks a box, with a warning and Forget. That is [#21](https://github.com/Tubss2/radio-net/pull/21).
+- [x] Admin key in `localStorage` only if the user ticks a box, with a warning and Forget ([#21](https://github.com/Tubss2/radio-net/pull/21), on main).
 - [x] Meta CSP on the real app pins Sydney and `127.0.0.1:47321`. The mock stays on `/preview/`. `connect-src 'none'` for that build is [#23](https://github.com/Tubss2/radio-net/pull/23).
 - [x] API CORS allowlist includes `https://tubss2.github.io` and still allows a missing origin for Electron. Not deployed.
 - [x] In-page push-to-talk releases on key-up, blur, and hidden. A phone or helper hold is allowed to keep talking when the game is in front. Voice activation waits for a click ([#23](https://github.com/Tubss2/radio-net/pull/23)).
@@ -82,11 +82,11 @@ The Pages CSP has to list `ws://127.0.0.1:47321` and `http://127.0.0.1:47321` (t
 
 ## Where the controls landed
 
-[#18](https://github.com/Tubss2/radio-net/pull/18), [#19](https://github.com/Tubss2/radio-net/pull/19), [#20](https://github.com/Tubss2/radio-net/pull/20), and [#22](https://github.com/Tubss2/radio-net/pull/22) are merged into `cursor/local-callsign-keybinds-3d59`. [#15](https://github.com/Tubss2/radio-net/pull/15), [#16](https://github.com/Tubss2/radio-net/pull/16), and [#17](https://github.com/Tubss2/radio-net/pull/17) were earlier designs and are closed. The product did not use that Node helper or that HMAC pairing module.
+[#18](https://github.com/Tubss2/radio-net/pull/18), [#19](https://github.com/Tubss2/radio-net/pull/19), [#20](https://github.com/Tubss2/radio-net/pull/20), and [#22](https://github.com/Tubss2/radio-net/pull/22) are on main, via `cursor/local-callsign-keybinds-3d59`. [#15](https://github.com/Tubss2/radio-net/pull/15), [#16](https://github.com/Tubss2/radio-net/pull/16), and [#17](https://github.com/Tubss2/radio-net/pull/17) were earlier designs and are closed. The product did not use that Node helper or that HMAC pairing module.
 
 | Control | Where it is | Still open |
 |---|---|---|
-| Session token in `sessionStorage` | Product branch | Admin key is still stored until [#21](https://github.com/Tubss2/radio-net/pull/21). |
+| Session token in `sessionStorage` | main | Admin key is stored only when the user ticks the box ([#21](https://github.com/Tubss2/radio-net/pull/21)). |
 | Pages CSP pins Sydney and port `47321` | [#23](https://github.com/Tubss2/radio-net/pull/23) | `frame-ancestors` cannot be set on GitHub Pages. |
 | Mock at `/preview/` with `connect-src 'none'` | Workflow is on the product branch. The CSP meta tag is [#23](https://github.com/Tubss2/radio-net/pull/23). | None for the path. |
 | API CORS allowlist | [#19](https://github.com/Tubss2/radio-net/pull/19), merged | Not deployed to Sydney. |
