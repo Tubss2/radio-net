@@ -3,7 +3,10 @@ import type { Keybinds } from '../../shared/types';
 import { bridge, inElectron } from './bridge';
 import { Api, type ChannelInfo, type CommunityInfo } from './lib/api';
 import { RadioEngine, type TunedChannel } from './lib/radioEngine';
+import { matchChannel } from '../../shared/radialWheel';
 import { parseFreqInput } from './lib/freq';
+import { RadialWheel } from './RadialWheel';
+import { useChannelWheel } from './useChannelWheel';
 
 const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
@@ -112,6 +115,9 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
     return () => { alive = false; clearInterval(t); void engine.dispose(); };
   }, [api, community.id, engine, load, storeKey]);
 
+  // Registered after the dispose effect so a pending tune is cancelled before the engine shuts down.
+  const wheel = useChannelWheel(engine, channels);
+
   // Persist radio state.
   useEffect(() => {
     localStorage.setItem(storeKey, JSON.stringify({ tuned: engine.tuned.map((t) => t.channel.id), tx: engine.txId }));
@@ -125,13 +131,18 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
       if (e.type === 'cycle') engine.cycle();
       if (e.type === 'overlay') setOverlayOn((v) => !v);
       if (e.type === 'direct') void engine.ptt(e.down, e.channelId);
+      if (e.type === 'wheel') wheel.onKey(e.down, e.heldMs);
+      if (e.type === 'wheel-scroll') wheel.onFallbackScroll(e.steps, e.shift);
+      if (e.type === 'wheel-number') wheel.onNumber(e.n);
+      if (e.type === 'wheel-cancel') wheel.close();
     });
+    const offWheel = bridge.onWheelInput(wheel.onInput);
     // Browser fallback: hold Space to talk while the window is focused.
     const kd = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space' && !e.repeat && !(e.target instanceof HTMLInputElement)) void engine.ptt(true); };
     const ku = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space') void engine.ptt(false); };
     window.addEventListener('keydown', kd); window.addEventListener('keyup', ku);
-    return () => { off(); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
-  }, [engine]);
+    return () => { off(); offWheel(); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
+  }, [engine, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close]);
 
   const tuned = engine.tuned;
   const tx = tuned.find((t) => t.channel.id === engine.txId) ?? null;
@@ -144,9 +155,13 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
     return names.map((name) => ({ name, channel: t.channel.name, freq: t.channel.freq }));
   });
 
-  // Overlay window state. Hidden while nobody is transmitting, so the corner stays empty.
+  // Talker rows hide while nobody is transmitting. The wheel can open on top of that.
   useEffect(() => {
-    bridge.setOverlay({ visible: overlayOn && overlaySpeakers.length > 0, speakers: overlaySpeakers });
+    bridge.setOverlay({
+      visible: overlayOn && overlaySpeakers.length > 0,
+      speakers: overlaySpeakers,
+      wheel: wheel.view,
+    });
   });
 
   const tuneQuery = async () => {
@@ -154,8 +169,7 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
     const q = query.trim();
     if (!q) return;
     const kHz = parseFreqInput(q);
-    const hit = channels.find((c) => c.freqKHz === kHz) ?? channels.find((c) => c.name.toLowerCase() === q.toLowerCase())
-      ?? (channels.filter((c) => c.name.toLowerCase().startsWith(q.toLowerCase())).length === 1 ? channels.find((c) => c.name.toLowerCase().startsWith(q.toLowerCase())) : undefined);
+    const hit = channels.find((c) => c.id === matchChannel(q, channels)?.id);
     if (!hit) { setErr(kHz ? `Nothing on ${q} MHz yet${isAdmin ? ' — create it?' : ''}` : `No channel matches “${q}”`); return; }
     setQuery('');
     await engine.tune(hit).catch((e) => setErr(e.message));
@@ -202,7 +216,7 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
           </div>
           <div className="nm">{tx?.channel.name ?? 'Tune a channel to talk'}</div>
           <div className="keys">
-            Talk <kbd>{binds?.ptt?.label ?? '—'}</kbd> Switch <kbd>{binds?.cycle?.label ?? '—'}</kbd> Overlay <kbd>{binds?.overlay?.label ?? '—'}</kbd>
+            Talk <kbd>{binds?.ptt?.label ?? '—'}</kbd> Wheel <kbd>{binds?.wheel?.label ?? '—'}</kbd> Overlay <kbd>{binds?.overlay?.label ?? '—'}</kbd>
           </div>
         </div>
         <div className="grid">
@@ -213,6 +227,9 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
         </div>
       </main>
       {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => { await api.createChannel(community.id, f, n); await load(); setNewCh(false); }} />}
+      {!inElectron && wheel.open && (
+        <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} onInput={wheel.onInput} />
+      )}
     </>
   );
 }

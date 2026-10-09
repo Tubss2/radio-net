@@ -1,4 +1,5 @@
-import { UiohookKey, uIOhook } from 'uiohook-napi';
+import { UiohookKey, WheelDirection, uIOhook } from 'uiohook-napi';
+import { digitFromKeycode, scrollSteps } from '../shared/radialWheel';
 import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
 
 /**
@@ -7,9 +8,10 @@ import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
  * Caveat (Windows): if the game runs as administrator and we don't, Windows hides its input from us.
  */
 export class Hotkeys {
-  private binds: Keybinds = { ptt: null, cycle: null, overlay: null, direct: {} };
+  private binds: Keybinds = { ptt: null, cycle: null, overlay: null, wheel: null, direct: {} };
   private held = new Set<string>(); // de-dupe OS key-repeat
   private recording: ((b: Bind) => void) | null = null;
+  private wheelDownAt: number | null = null;
 
   constructor(private emit: (e: HotkeyEvent) => void) {}
 
@@ -18,10 +20,17 @@ export class Hotkeys {
     uIOhook.on('keyup', (e) => this.handle({ kind: 'key', keycode: e.keycode, label: '' }, false));
     uIOhook.on('mousedown', (e) => this.handle({ kind: 'mouse', button: Number(e.button), label: `Mouse ${e.button}` }, true));
     uIOhook.on('mouseup', (e) => this.handle({ kind: 'mouse', button: Number(e.button), label: '' }, false));
+    uIOhook.on('wheel', (e) => {
+      // Fallback path: hold the wheel key and scroll, without the wheel window having focus.
+      // Scroll while the wheel is focused is delivered to that window and ignored here.
+      if (this.wheelDownAt == null || e.direction !== WheelDirection.VERTICAL) return;
+      const steps = scrollSteps(e.rotation);
+      if (steps) this.emit({ type: 'wheel-scroll', steps, shift: e.shiftKey });
+    });
     uIOhook.start();
   }
   stop() { uIOhook.stop(); }
-  setBinds(b: Keybinds) { this.binds = b; this.held.clear(); }
+  setBinds(b: Keybinds) { this.binds = b; this.held.clear(); this.wheelDownAt = null; }
   /** Next key/mouse press is captured as a bind (keybind recorder UI). Left/right click are ignored. */
   record(): Promise<Bind> {
     return new Promise((resolve) => { this.recording = resolve; });
@@ -39,6 +48,19 @@ export class Hotkeys {
     if (down && is(this.binds.cycle)) this.emit({ type: 'cycle' });
     if (down && is(this.binds.overlay)) this.emit({ type: 'overlay' });
     for (const [channelId, b] of Object.entries(this.binds.direct)) if (is(b)) this.emit({ type: 'direct', channelId, down });
+    if (is(this.binds.wheel)) {
+      if (down) { this.wheelDownAt = Date.now(); this.emit({ type: 'wheel', down: true, heldMs: 0 }); }
+      else {
+        const heldMs = this.wheelDownAt == null ? 0 : Date.now() - this.wheelDownAt;
+        this.wheelDownAt = null;
+        this.emit({ type: 'wheel', down: false, heldMs });
+      }
+    }
+    if (down && input.kind === 'key' && input.keycode === UiohookKey.Escape) this.emit({ type: 'wheel-cancel' });
+    if (down && this.wheelDownAt != null && !is(this.binds.wheel) && input.kind === 'key') {
+      const n = digitFromKeycode(input.keycode);
+      if (n) this.emit({ type: 'wheel-number', n });
+    }
   }
 }
 
@@ -50,5 +72,6 @@ export const DEFAULT_BINDS: Keybinds = {
   ptt: { kind: 'mouse', button: 4, label: 'Mouse 4' },
   cycle: { kind: 'mouse', button: 5, label: 'Mouse 5' },
   overlay: { kind: 'key', keycode: UiohookKey.F10, label: 'F10' },
+  wheel: { kind: 'key', keycode: UiohookKey.G, label: 'G' },
   direct: {},
 };

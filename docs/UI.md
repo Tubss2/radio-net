@@ -15,7 +15,7 @@
 **Layout (main window, ~1120×760, min 880×600)**
 ```
 ┌────┬──────────────────────┬───────────────────────────────────────────────┐
-│ WD │ War Dogs NZ          │ ● ON AIR  62.100  Alpha FT     Talk[M4] Sw[G] │
+│ WD │ War Dogs NZ          │ ● ON AIR  62.100  Alpha FT   Talk[M4] Wheel[G] │
 │ 5R │ Toby · owner · K7QM… │───────────────────────────────────────────────│
 │ +  │ [📻 Tune: 59.5 or …] │ ┌41.250 Arty─┐ ┌59.500 Command┐ ┌62.100 Alpha┐ │
 │    │ CHANNELS      [+New] │ │5 tuned     │ │◉ Rhys talking│ │you're on air│ │
@@ -28,5 +28,9 @@
 ```
 
 **Overlay:** always on by default. A small unobtrusive box in a screen corner (top-left in the spike). Click-through, semi-transparent. When nobody is transmitting it is empty and invisible. While someone transmits, one line per talker: their display name, then the channel frequency and name (`Rhys  59.500 Command`). Several talkers stack. `F10` hides it. Position, size and opacity in settings.
+
+**Channel wheel** ([`radial-wheel.png`](radial-wheel.png)): hold or press `G`. A ring opens in the centre of the screen, one slice per tuned channel plus a **+** slice. CH1 is the lowest frequency, at 12 o’clock, then clockwise. Each slice shows the channel label (`CH1`), the frequency (`41.250 MHz`), and the name. A green dot means live and unmuted. The transmit slice is gold with a speaker icon. A muted slice is grey, with a mute icon and no green dot. Hover selects. Left-click sets the transmit channel. Right-click mutes or unmutes. Scroll steps that frequency by 25 kHz inside 30.000–87.975 MHz. Shift+scroll changes that channel’s volume and shows a bar plus a percentage on the slice. The **+** slice (radio icon) opens a small field in the hole: type a frequency or a name and that channel is tuned. Release, `Esc`, or `G` again closes it. Push-to-talk stays a separate key (`Mouse 4` in the spike).
+
+Opening the wheel takes mouse focus from the game for that moment, so a click can land on a slice. If that fights the game, the fallback does not need focus: hold `G` and scroll, or press `1`–`9`. Those follow the global input path and apply to the slice under the cursor, or to the transmit slice if nothing is hovered.
 
 **Still to design (M3):** settings (devices, mic test meter, noise suppression, blips on/off), keybind recorder, members screen (promote, remove, rotate invite), tray menu, empty/error states (server down, mic blocked, channel deleted).
