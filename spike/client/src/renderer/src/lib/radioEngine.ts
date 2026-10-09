@@ -2,6 +2,7 @@ import {
   type LocalTrackPublication, type RemoteTrack, Room, RoomEvent, Track, createLocalAudioTrack, DisconnectReason,
 } from 'livekit-client';
 import type { Api, ChannelInfo } from './api';
+import { resolveLivekitUrl } from './livekitUrl';
 
 /**
  * The radio: one LiveKit Room per tuned channel.
@@ -20,6 +21,24 @@ export interface TunedChannel {
   listeners: number;
 }
 
+/** What the UI needs from a radio. The real engine and the browser preview both satisfy it. */
+export interface RadioControl {
+  subscribe: (fn: () => void) => () => void;
+  readonly version: number;
+  readonly tuned: TunedChannel[];
+  txId: string | null;
+  transmittingOn: string | null;
+  tune(channel: ChannelInfo): Promise<void>;
+  untune(channelId: string): Promise<void>;
+  setVolume(id: string, v: number): void;
+  setMuted(id: string, m: boolean): void;
+  setPan(id: string, p: number): void;
+  setTx(id: string): void;
+  cycle(): void;
+  ptt(down: boolean, channelId?: string): Promise<void>;
+  dispose(): Promise<void>;
+}
+
 interface Slot {
   info: TunedChannel;
   room: Room;
@@ -29,7 +48,7 @@ interface Slot {
   sinks: HTMLAudioElement[];
 }
 
-export class RadioEngine {
+export class RadioEngine implements RadioControl {
   private slots = new Map<string, Slot>();
   private ctx = new AudioContext({ latencyHint: 'interactive' });
   private micTrack: MediaStreamTrack | null = null;
@@ -97,7 +116,7 @@ export class RadioEngine {
         this.changed();
       });
 
-    await room.connect(livekitUrl, grant.token, { autoSubscribe: true });
+    await room.connect(resolveLivekitUrl(livekitUrl, import.meta.env.VITE_LIVEKIT_URL), grant.token, { autoSubscribe: true });
     slot.info.status = 'live';
     slot.info.listeners = room.numParticipants;
     if (grant.canTransmit) {

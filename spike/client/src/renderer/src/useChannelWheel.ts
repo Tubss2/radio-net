@@ -14,7 +14,7 @@ import {
 import type { WheelView } from '../../shared/types';
 import { inElectron } from './bridge';
 import type { ChannelInfo } from './lib/api';
-import type { RadioEngine } from './lib/radioEngine';
+import type { RadioControl } from './lib/radioEngine';
 
 /**
  * Wheel state lives next to the radio engine (the overlay window is only a view).
@@ -23,7 +23,7 @@ import type { RadioEngine } from './lib/radioEngine';
  * Frequency changes reconcile to the engine as a set, debounced, so a fast scroll
  * doesn't leave a stale room connected. Transmit, mute and volume apply immediately.
  */
-export function useChannelWheel(engine: RadioEngine, channels: ChannelInfo[]) {
+export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[]) {
   const engineRef = useRef(engine);
   engineRef.current = engine;
   const channelsRef = useRef(channels);

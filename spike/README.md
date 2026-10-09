@@ -25,7 +25,9 @@ Xvfb :99 -screen 0 1280x800x24 +extension RECORD &
 (cd tests && npx tsx electron-smoke.ts)    # 8 checks, screenshots -> shots/
 ```
 
-On Windows, for the M1 test: point `VITE_API_URL` at the API, run `npm run dev` in `client/`, and use `RN_USER_DATA=<dir>` to run two profiles on one PC.
+Browser UI preview (no Electron, no server): `npm run preview` in `client/`. See the root README for the wheel keys and the static-site build. The UI preview GitHub Action uploads that site as `ui-preview`.
+
+On Windows, for the M1 test: point `VITE_API_URL` at the API, run `npm run dev` in `client/`, and use `RN_USER_DATA=<dir>` to run two profiles on one PC. An unsigned NSIS installer is built by the Windows installer workflow (`RadioNet-Setup.exe`). SmartScreen: **More info**, then **Run anyway**. `RN_FAKE_MEDIA` is not set in that build.
 
 ## Results (Fri 9 Oct 2026)
 

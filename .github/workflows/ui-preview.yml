@@ -1,0 +1,27 @@
+name: UI preview
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: spike/client/package-lock.json
+      - name: Install client dependencies
+        working-directory: spike/client
+        run: npm ci
+      - name: Build the static preview
+        working-directory: spike/client
+        run: npm run preview:build
+      - name: Upload the preview site
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-preview
+          path: spike/client/preview-dist
+          if-no-files-found: error
