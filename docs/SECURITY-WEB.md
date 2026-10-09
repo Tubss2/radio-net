@@ -78,3 +78,16 @@ The Pages CSP has to list `ws://127.0.0.1:47391` and `http://127.0.0.1:47391` (t
 - Stay on GitHub Pages and accept clickjacking, or serve the app from Caddy so `frame-ancestors 'none'` is a real header.
 - Whether the phone may also listen, or only press the button. Listening means the phone holds a normal LiveKit token. This note assumes button only.
 - Code signing for the helper. An unsigned local EXE is the same SmartScreen problem as the desktop installer, on a smaller file.
+
+## Where the controls landed
+
+No web-app UI, pairing route, or Windows helper installer is in the tree yet. The other agent’s product pull requests were not open when this was written. The pieces below are the controls those pull requests have to use.
+
+| Control | Pull request | Still open |
+|---|---|---|
+| Session token in `sessionStorage`, opt-in admin key, browser push-to-talk release on blur and hidden | [#15](https://github.com/Tubss2/radio-net/pull/15) | The real Pages app is not built. `WEB_CSP` is the policy that build has to emit. It will conflict with the desktop trust pull request in `bridge.ts`. |
+| Mock preview `connect-src 'none'` on the production build | [#15](https://github.com/Tubss2/radio-net/pull/15) | The preview workflow still publishes the mock at the site root. It belongs at `/preview/`. |
+| API CORS allows `https://tubss2.github.io` and still allows a null origin | [#12](https://github.com/Tubss2/radio-net/pull/12) | Not deployed. Lookalike hosts are refused. |
+| Pairing secret, fragment URL, single use, 2 minutes, `ptt` scope, epoch | [#17](https://github.com/Tubss2/radio-net/pull/17) | No HTTP route calls it yet. A route that invents its own token should not ship. |
+| Helper origin, Host, Private Network Access, single-use secret, bind `127.0.0.1` | [#16](https://github.com/Tubss2/radio-net/pull/16) | No Windows UI and no message loop. The C filter is what that loop has to call before a key is logged. |
+| Raw Input inside the Electron app, replacing `uiohook-napi` | Not started | The desktop hook is unchanged. The helper filter is a separate process for the website. |
