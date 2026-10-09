@@ -1,4 +1,4 @@
-name: UI preview
+name: Web app
 
 on:
   push:
@@ -25,14 +25,25 @@ jobs:
       - name: Install client dependencies
         working-directory: spike/client
         run: npm ci
+      - name: Build the web app
+        working-directory: spike/client
+        env:
+          VITE_API_URL: https://radio-149-28-170-200.sslip.io
+          VITE_LIVEKIT_URL: wss://lk-149-28-170-200.sslip.io
+        run: npm run web:build
       - name: Build the static preview
         working-directory: spike/client
         run: npm run preview:build
-      - name: Upload the preview site
+      - name: Assemble the site
+        run: |
+          mkdir -p site/preview
+          cp -a spike/client/web-dist/. site/
+          cp -a spike/client/preview-dist/. site/preview/
+      - name: Upload the site
         uses: actions/upload-artifact@v4
         with:
-          name: ui-preview
-          path: spike/client/preview-dist
+          name: web-site
+          path: site
           if-no-files-found: error
 
   deploy:
@@ -43,11 +54,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Download the preview site
+      - name: Download the site
         uses: actions/download-artifact@v4
         with:
-          name: ui-preview
-          path: preview-site
+          name: web-site
+          path: site
       # Creating the Pages site needs a repo admin token. GITHUB_TOKEN cannot do it.
       # After Settings → Pages → Source is GitHub Actions, this configure step succeeds
       # and the same job publishes the site.
@@ -64,7 +75,7 @@ jobs:
         if: steps.pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: preview-site
+          path: site
       - name: Deploy to GitHub Pages
         id: deployment
         if: steps.pages.outcome == 'success'

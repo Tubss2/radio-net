@@ -56,5 +56,7 @@ describe('GitHub Releases updates', () => {
     expect(yml).toContain('id-token: write');
     expect(yml).toContain('actions/deploy-pages@v4');
     expect(yml).toContain('spike/client/preview-dist');
+    expect(yml).toContain('spike/client/web-dist');
+    expect(yml).toContain('name: web-site');
   });
 });

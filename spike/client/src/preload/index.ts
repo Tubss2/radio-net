@@ -36,6 +36,8 @@ const api = {
   },
   installUpdate: () => ipcRenderer.send('update:install'),
   log: (event: string, detail?: string) => ipcRenderer.send('log:event', event, detail),
+  /** Compact the main window. The radio stays in this window so there is one microphone. */
+  setSimpleWindow: (state: { compact: boolean; alwaysOnTop: boolean }) => ipcRenderer.send('window:simple', state),
 };
 export type RadioNetBridge = typeof api;
 contextBridge.exposeInMainWorld('radionet', api);

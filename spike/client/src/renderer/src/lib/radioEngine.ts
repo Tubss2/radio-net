@@ -40,6 +40,10 @@ export interface RadioControl {
   setTx(id: string): void;
   cycle(): void;
   ptt(down: boolean, channelId?: string): Promise<void>;
+  /** Resume audio and open the mic on a user gesture. The track stays published and muted until PTT. */
+  unlock(): Promise<void>;
+  /** RMS of the open mic, about 0..1. Used for voice activation. */
+  monitorMic(onLevel: (rms: number) => void): () => void;
   dispose(): Promise<void>;
 }
 
@@ -77,6 +81,39 @@ export class RadioEngine implements RadioControl {
       this.micTrack = t.mediaStreamTrack;
     }
     return this.micTrack;
+  }
+
+  async unlock() {
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    await this.mic();
+  }
+
+  monitorMic(onLevel: (rms: number) => void): () => void {
+    let stopped = false;
+    let raf = 0;
+    let detach = () => undefined;
+    void this.mic().then((track) => {
+      if (stopped) return;
+      const src = this.ctx.createMediaStreamSource(new MediaStream([track]));
+      const analyser = this.ctx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+      const tick = () => {
+        if (stopped) return;
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        onLevel(Math.sqrt(sum / buf.length));
+        raf = requestAnimationFrame(tick);
+      };
+      detach = () => { try { src.disconnect(); analyser.disconnect(); } catch { /* already stopped */ } };
+      tick();
+    }).catch(() => undefined);
+    return () => { stopped = true; cancelAnimationFrame(raf); detach(); };
   }
 
   async tune(channel: ChannelInfo) {

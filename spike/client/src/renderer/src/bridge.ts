@@ -1,4 +1,5 @@
 import type { RadioNetBridge } from '../../preload';
+import { profileForDisk, profileWithSessions, sessionsFromProfile } from '../../shared/browserProfile';
 import { DEFAULT_BINDS } from '../../shared/keybinds';
 import { emptyProfile, normaliseProfile, type Profile } from '../../shared/profile';
 import type { Bind, Keybinds, OverlayState, WheelInput } from '../../shared/types';
@@ -9,6 +10,8 @@ import { isPreview } from './lib/previewMode';
 declare global { interface Window { radionet?: RadioNetBridge } }
 
 const PROFILE_KEY = 'rn.profile';
+const SESSION_KEY = 'rn.sessions';
+const webBuild = import.meta.env.MODE === 'web';
 
 const fallbackBinds: Keybinds = {
   ...DEFAULT_BINDS,
@@ -83,14 +86,28 @@ export function captureBind(): Promise<Bind | null> {
 }
 
 function readLocalProfile(): Profile {
-  try { return normaliseProfile(JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null')); }
-  catch { return emptyProfile(); }
+  let raw: unknown = null;
+  try { raw = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); } catch { raw = null; }
+  const profile = normaliseProfile(raw);
+  if (!webBuild) return profile;
+  let sessions: Record<string, { token?: string; tokenExp?: number }> = {};
+  try { sessions = JSON.parse(sessionStorage.getItem(SESSION_KEY) || '{}') as typeof sessions; } catch { sessions = {}; }
+  return profileWithSessions(profile, sessions);
+}
+
+function writeLocalProfile(p: Profile) {
+  if (webBuild) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionsFromProfile(p)));
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profileForDisk(p)));
+    return;
+  }
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(p));
 }
 
 function previewBridge(): RadioNetBridge {
   return {
     getProfile: async () => readLocalProfile(),
-    setProfile: async (p) => { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); },
+    setProfile: async (p) => { writeLocalProfile(p); },
     setKeybinds: async () => undefined,
     defaultKeybinds: async () => previewBinds,
     recordBind: () => captureBind(),
@@ -103,12 +120,13 @@ function previewBridge(): RadioNetBridge {
     onUpdateReady: (cb) => onPreviewUpdate(cb),
     installUpdate: () => { document.documentElement.dataset.updateInstall = '1'; },
     log: () => undefined,
+    setSimpleWindow: () => undefined,
   };
 }
 
 const browserFallback: RadioNetBridge = {
   getProfile: async () => readLocalProfile(),
-  setProfile: async (p) => { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); },
+  setProfile: async (p) => { writeLocalProfile(p); },
   setKeybinds: async () => undefined,
   defaultKeybinds: async () => fallbackBinds,
   recordBind: () => captureBind(),
@@ -121,6 +139,7 @@ const browserFallback: RadioNetBridge = {
   onUpdateReady: () => () => undefined,
   installUpdate: () => undefined,
   log: () => undefined,
+  setSimpleWindow: () => undefined,
 };
 
 export const bridge: RadioNetBridge = window.radionet ?? (isPreview ? previewBridge() : browserFallback);

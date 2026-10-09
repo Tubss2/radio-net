@@ -1,6 +1,6 @@
 # Radio Net
 
-Windows companion radio-comms app for the game WARDOGS. There are no accounts: the first launch stores a callsign on that PC, then the user joins a community with its invite code (the app remembers servers and rejoins in one click). Creating a community returns an admin key, kept locally, which is what create/delete channel and invite rotation require. Channels are a frequency plus a name (for example `59.5 Command`). Frequencies are 0.5 MHz steps from 30.0 to 87.5, always shown to one decimal (`50.0`, `50.5`), and stored as integer kHz. Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with a keybind settings screen (keys and mouse buttons, including Mouse 4 and Mouse 5) and a click-through overlay.
+Group voice radio for WARDOGS. The primary product is the web app at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/), talking to the Sydney API and LiveKit. The Windows desktop app stays for the overlay and for push-to-talk while a game is in front. There are no accounts: the first launch stores a callsign in the browser or on that PC, then the user joins a community with its invite code (the app remembers servers and rejoins in one click). Creating a community returns an admin key, kept locally, which is what create/delete channel and invite rotation require. Channels are a frequency plus a name (for example `59.5 Command`). Frequencies are 0.5 MHz steps from 30.0 to 87.5, always shown to one decimal (`50.0`, `50.5`), and stored as integer kHz. Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with a keybind settings screen (keys and mouse buttons, including Mouse 4 and Mouse 5) and a click-through overlay. The web app uses the same screens.
 
 This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. The spike is a working local proof of the core, not the finished app.
 
@@ -52,7 +52,15 @@ npm run preview
 
 That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `F2` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the whole 30.0–87.5 grid (a frequency another slice already has is skipped), Shift+scroll for volume, and `+` to pick a channel that is not tuned yet (an admin can enter a frequency to create one). Tuning a channel plays a short squelch; settings can turn UI sounds off or change their volume. Hold Space to talk. `F10` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
 
-`npm run preview:build` writes a static site to `spike/client/preview-dist` with relative asset paths. The **UI preview** GitHub Action builds that on every push and uploads it as the `ui-preview` artifact. Pushes to `main` and the current feature branch also deploy GitHub Pages at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/) once the repository source is GitHub Actions. The Actions token cannot create that site: the first time, open **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**. Until then the artifact is still uploaded and the deploy job skips.
+`npm run preview:build` writes that mock to `spike/client/preview-dist` with relative asset paths. The product site is a different build:
+
+```bash
+VITE_API_URL=http://127.0.0.1:8787 npm run web
+```
+
+That serves the real radio on port 5175 (the API defaults to the Sydney host when `VITE_API_URL` is unset). Callsign, server history, and settings stay in `localStorage`. The join session stays in `sessionStorage` for this tab. Space or the large button holds push-to-talk, and both release when the tab is hidden. `npm run web:build` writes `spike/client/web-dist`.
+
+The **Web app** GitHub Action builds the web app and this mock on every push and uploads them as the `web-site` artifact. Pushes to `main` and `cursor/local-callsign-keybinds-3d59` deploy GitHub Pages at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/) when **Settings → Pages → Source** is **GitHub Actions**. The Actions token cannot create that site. If the configure step fails, the job prints that Settings path and skips the upload. The mock is [https://tubss2.github.io/radio-net/preview/](https://tubss2.github.io/radio-net/preview/).
 
 ## Windows installer
 
