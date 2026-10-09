@@ -44,11 +44,7 @@ jobs:
           $exe = "helper/target/release/RadioNetHelper.exe"
           if (-not (Test-Path $exe)) { throw "Missing $exe" }
           $tag = "helper-1"
-          $notes = @"
-Windows tray helper for the web app. It watches only the key or mouse button you assign. It does not see the microphone.
-
-Source: https://github.com/Tubss2/radio-net/tree/main/helper
-"@
+          $notes = "Windows tray helper for the web app. It watches only the key or mouse button you assign. It does not see the microphone. Source: https://github.com/Tubss2/radio-net/tree/main/helper"
           gh release view $tag --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $exe --clobber
