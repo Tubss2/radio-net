@@ -5,7 +5,7 @@ import { RoomServiceClient } from 'livekit-server-sdk';
 import { z } from 'zod';
 import {
   SESSION_TTL_SECONDS, adminKeyMatches, cleanLabel, hashAdminKey, newAdminKey, newInviteCode, normaliseInvite,
-  signSession, verifySession, type Session,
+  secretEquals, signSession, verifySession, type Session,
 } from './accounts.js';
 import { DEFAULT_BAND, formatFrequency } from './freq.js';
 import { type Channel, ChannelError, type ChannelStore, type Community, roomNameFor } from './store.js';
@@ -20,6 +20,10 @@ export interface AppConfig {
   communitySetupCode?: string;
   /** Join/create attempts allowed per IP per minute. */
   joinRateLimit?: number;
+  /** Other API calls allowed per IP per minute. Health checks are exempt. */
+  globalRateLimit?: number;
+  /** Cap on distinct IPs remembered by the rate limiters. */
+  maxTrackedIps?: number;
   /** Trust X-Forwarded-For from a local reverse proxy (Caddy) so rate limits see real client IPs. */
   trustProxy?: boolean;
   /** One line per request: method, path, status, latency. Must not include tokens. */
@@ -40,7 +44,7 @@ class HttpError extends Error {
 }
 
 export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
-  const app = Fastify({ logger: false, trustProxy: cfg.trustProxy ?? false });
+  const app = Fastify({ logger: false, trustProxy: cfg.trustProxy ?? false, bodyLimit: 64 * 1024 });
   // Fastify rejects an empty `application/json` body with 400. DELETE often carries that header and no body.
   app.removeContentTypeParser('application/json');
   app.addContentTypeParser(/^application\/json(?:;.*)?$/, { parseAs: 'string' }, (_req, body, done) => {
@@ -57,11 +61,25 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
       done(error, undefined);
     }
   });
-  // Bearer-token API (no cookies), so allowing any origin is safe; the desktop app loads from file://.
-  void app.register(cors, { origin: true, methods: ['GET', 'POST', 'DELETE'] });
+  // Bearer tokens, not cookies. The desktop app sends no Origin (or "null") from file://.
+  // Browser origins other than localhost are refused so a web page cannot call the API with a stolen token.
+  void app.register(cors, {
+    origin: (origin, cb) => {
+      if (!origin || origin === 'null') { cb(null, true); return; }
+      cb(null, /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin));
+    },
+    methods: ['GET', 'POST', 'DELETE'],
+    credentials: false,
+  });
   const rooms = new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
 
   const write = cfg.log ?? ((line: string) => console.log(line));
+  app.addHook('onSend', async (_req, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Cache-Control', 'no-store');
+  });
   app.addHook('onResponse', (req, reply, done) => {
     const path = (req.url ?? '/').split('?')[0];
     const ms = Math.max(0, Math.round(reply.elapsedTime));
@@ -69,15 +87,29 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     done();
   });
 
-  const hits = new Map<string, number[]>();
-  const limit = cfg.joinRateLimit ?? 10;
-  const rateLimit = (req: FastifyRequest) => {
-    const now = Date.now();
-    const arr = (hits.get(req.ip) ?? []).filter((t) => now - t < 60_000);
-    arr.push(now);
-    hits.set(req.ip, arr);
-    if (arr.length > limit) throw new HttpError(429, 'Too many attempts, wait a minute');
+  const makeLimiter = (max: number) => {
+    const hits = new Map<string, number[]>();
+    const cap = cfg.maxTrackedIps ?? 10_000;
+    return (req: FastifyRequest) => {
+      const now = Date.now();
+      const ip = req.ip;
+      if (hits.size >= cap && !hits.has(ip)) {
+        const oldest = hits.keys().next().value;
+        if (oldest) hits.delete(oldest);
+      }
+      const arr = (hits.get(ip) ?? []).filter((t) => now - t < 60_000);
+      arr.push(now);
+      hits.set(ip, arr);
+      if (arr.length > max) throw new HttpError(429, 'Too many attempts, wait a minute');
+    };
   };
+  const rateLimit = makeLimiter(cfg.joinRateLimit ?? 10);
+  const globalLimit = makeLimiter(cfg.globalRateLimit ?? 120);
+  app.addHook('onRequest', async (req) => {
+    const path = (req.url ?? '/').split('?')[0];
+    if (path === '/health') return;
+    globalLimit(req);
+  });
 
   const bearer = (req: FastifyRequest) => {
     const h = req.headers.authorization;
@@ -97,6 +129,7 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     const s = sessionFor(req);
     const community = store.getCommunity(cid);
     if (!community || s.cid !== cid) throw new HttpError(404, 'Community not found');
+    if ((s.epoch ?? 0) !== (community.sessionEpoch ?? 0)) throw new HttpError(401, 'This invite was rotated. Join again.');
     return { community, user: { id: s.sid, displayName: s.name, tags: [] } };
   };
 
@@ -105,19 +138,22 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     if (!community) throw new HttpError(404, 'Community not found');
     const key = req.headers['x-admin-key'];
     const presented = Array.isArray(key) ? key[0] : key;
-    if (!presented || !adminKeyMatches(presented, community.adminKeyHash))
+    if (typeof presented !== 'string' || presented.length === 0 || presented.length > 200 || !adminKeyMatches(presented, community.adminKeyHash))
       throw new HttpError(403, 'Admin key required');
     return community;
   };
 
   const checkSetup = (setupCode: string | undefined) => {
-    if (cfg.communitySetupCode && setupCode !== cfg.communitySetupCode)
+    if (cfg.communitySetupCode && !secretEquals(setupCode ?? '', cfg.communitySetupCode))
       throw new HttpError(403, 'That setup code is not right');
   };
 
   const issueSession = (community: Community, callsign: string) => {
     const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
-    const session: Session = { cid: community.id, name: callsign, sid: randomUUID(), exp };
+    const session: Session = {
+      cid: community.id, name: callsign, sid: randomUUID(), exp,
+      iat: Math.floor(Date.now() / 1000), scope: 'member', epoch: community.sessionEpoch ?? 0,
+    };
     return {
       token: signSession(session, cfg.apiSecret),
       expiresAt: new Date(exp * 1000).toISOString(),
@@ -146,7 +182,7 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
    */
   app.post('/api/communities', async (req, reply) => {
     rateLimit(req);
-    const body = z.object({ name: z.string(), setupCode: z.string().optional() }).parse(req.body);
+    const body = z.object({ name: z.string().max(64), setupCode: z.string().max(128).optional() }).parse(req.body);
     checkSetup(body.setupCode);
     const name = cleanLabel(body.name);
     if (!name) throw new HttpError(400, 'Community name must be 1-32 characters');
@@ -166,7 +202,7 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
   /** Join with an invite code and a callsign. Returns a short-lived session, not an account. */
   app.post('/api/join', async (req) => {
     rateLimit(req);
-    const body = z.object({ inviteCode: z.string(), callsign: z.string() }).parse(req.body);
+    const body = z.object({ inviteCode: z.string().min(1).max(64), callsign: z.string().max(64) }).parse(req.body);
     const community = store.communityByInvite(normaliseInvite(body.inviteCode));
     if (!community) throw new HttpError(404, "That invite code doesn't match any community");
     const callsign = cleanLabel(body.callsign);
@@ -177,7 +213,7 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
   /** Whoever has the server setup code can replace a lost admin key. The previous key stops working. */
   app.post<{ Params: { cid: string } }>('/api/communities/:cid/admin/rotate', async (req) => {
     rateLimit(req);
-    const body = z.object({ setupCode: z.string().optional() }).parse(req.body ?? {});
+    const body = z.object({ setupCode: z.string().max(128).optional() }).parse(req.body ?? {});
     if (!cfg.communitySetupCode) throw new HttpError(403, 'This server has no setup code, so the admin key cannot be rotated here');
     checkSetup(body.setupCode);
     const community = store.getCommunity(req.params.cid);
@@ -191,6 +227,7 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
   app.post<{ Params: { cid: string } }>('/api/communities/:cid/invite/rotate', async (req) => {
     const community = requireAdmin(req, req.params.cid);
     community.inviteCode = newInviteCode();
+    community.sessionEpoch = (community.sessionEpoch ?? 0) + 1;
     store.upsertCommunity(community);
     return { inviteCode: community.inviteCode };
   });
@@ -202,12 +239,14 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
 
   app.get<{ Params: { cid: string }; Querystring: { q?: string } }>('/api/communities/:cid/channels/resolve', async (req) => {
     member(req, req.params.cid);
-    return { matches: store.resolve(req.params.cid, req.query.q ?? '').map(publicChannel) };
+    const q = req.query.q ?? '';
+    if (q.length > 64) throw new HttpError(400, 'Bad request');
+    return { matches: store.resolve(req.params.cid, q).map(publicChannel) };
   });
 
   app.post<{ Params: { cid: string } }>('/api/communities/:cid/channels', async (req, reply) => {
     requireAdmin(req, req.params.cid);
-    const body = z.object({ freq: z.union([z.string(), z.number()]), name: z.string() }).parse(req.body);
+    const body = z.object({ freq: z.union([z.string().max(32), z.number()]), name: z.string().max(64) }).parse(req.body);
     const ch = store.create(req.params.cid, body, 'admin');
     return reply.code(201).send({ channel: publicChannel(ch) });
   });
@@ -230,8 +269,9 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
 
   /** Tune: tokens for the channels in my radio. Called on start and whenever the user tunes a new channel. */
   app.post<{ Params: { cid: string } }>('/api/communities/:cid/radio/tokens', async (req) => {
+    rateLimit(req);
     const { user } = member(req, req.params.cid);
-    const body = z.object({ channelIds: z.array(z.string()).max(16) }).parse(req.body);
+    const body = z.object({ channelIds: z.array(z.string().max(64)).max(16) }).parse(req.body);
     const chans = body.channelIds.map((id) => store.get(req.params.cid, id)).filter((c): c is Channel => Boolean(c));
     const grants = await mintChannelGrants({ apiKey: cfg.apiKey, apiSecret: cfg.apiSecret, user, channels: chans });
     return { livekitUrl: cfg.livekitUrl, grants };

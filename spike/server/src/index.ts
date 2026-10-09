@@ -1,11 +1,12 @@
 import { hashAdminKey } from './accounts.js';
 import { buildApp } from './app.js';
+import { assertProductionConfig } from './production.js';
 import { DEFAULT_BAND, FileChannelStore, MemoryChannelStore, type ChannelStore } from './store.js';
 
 const env = (k: string, d: string) => process.env[k] ?? d;
 
 const dataFile = process.env.RN_DATA_FILE;
-const store: ChannelStore = dataFile ? new FileChannelStore(dataFile) : new MemoryChannelStore();
+const store: ChannelStore = dataFile ? new FileChannelStore(dataFile, process.env.RN_STORE_MAC_KEY) : new MemoryChannelStore();
 
 /** Fixed dev admin key so a local client can create channels without fishing it out of a log each boot. Production sets SEED_DEV=0. */
 const DEV_ADMIN_KEY = 'rnk_dev';
@@ -39,9 +40,17 @@ const app = buildApp(store, {
   trustProxy: env('TRUST_PROXY', '0') === '1',
 });
 
+assertProductionConfig({
+  nodeEnv: process.env.NODE_ENV,
+  seedDev,
+  apiKey: env('LIVEKIT_API_KEY', 'devkey'),
+  apiSecret: env('LIVEKIT_API_SECRET', 'secret'),
+  setupCode: process.env.COMMUNITY_SETUP_CODE,
+});
+
 const port = Number(env('PORT', '8787'));
 const host = env('HOST', '127.0.0.1');
 app.listen({ port, host }).then(() => {
   console.log(`token server on http://${host}:${port}${dataFile ? ` (store ${dataFile})` : ''}`);
-  if (seededNow) console.log(`dev community invite code: DEVN-ET01  admin key: ${DEV_ADMIN_KEY}`);
+  if (seededNow) console.log('dev community seeded; invite DEVN-ET01 (admin key is the local dev key, not printed)');
 });

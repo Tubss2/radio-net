@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { DEFAULT_BAND, type Band, formatFrequency, parseFrequency, validateFrequency } from './freq.js';
 
 /** A community ("net group"): created in the app, joined with an invite code. No user accounts. */
@@ -12,6 +12,8 @@ export interface Community {
   /** SHA-256 hex of the admin key. The plaintext key is only returned once, to the creator. */
   adminKeyHash: string;
   createdAt: string;
+  /** Bumped when the invite rotates so existing session tokens stop working. Missing means 0. */
+  sessionEpoch?: number;
 }
 
 export interface Channel {
@@ -175,26 +177,66 @@ export class MemoryChannelStore implements ChannelStore {
   }
 }
 
-/** JSON file under a path such as /var/lib/radionet/store.json. Writes are atomic. */
+export function validateSnapshot(raw: unknown): StoreSnapshot {
+  if (!raw || typeof raw !== 'object') throw new Error('store.json is not an object');
+  const body = raw as { communities?: unknown; channels?: unknown };
+  if (!Array.isArray(body.communities) || !Array.isArray(body.channels)) throw new Error('store.json is missing communities or channels');
+  if (body.communities.length > 10_000 || body.channels.length > 100_000) throw new Error('store.json is too large');
+  for (const c of body.communities) {
+    if (!c || typeof c !== 'object') throw new Error('store.json has a bad community');
+    const community = c as Partial<Community>;
+    if (typeof community.id !== 'string' || typeof community.inviteCode !== 'string' || typeof community.adminKeyHash !== 'string') {
+      throw new Error('store.json has a bad community');
+    }
+  }
+  for (const ch of body.channels) {
+    if (!ch || typeof ch !== 'object') throw new Error('store.json has a bad channel');
+    const channel = ch as Partial<Channel>;
+    if (typeof channel.id !== 'string' || typeof channel.communityId !== 'string' || typeof channel.freqKHz !== 'number') {
+      throw new Error('store.json has a bad channel');
+    }
+  }
+  return { communities: body.communities as Community[], channels: body.channels as Channel[] };
+}
+
+/** MAC over the communities and channels only, so a `mac` field is not part of itself. */
+export function storeMac(snap: StoreSnapshot, key: string): string {
+  return createHmac('sha256', key).update(JSON.stringify({ communities: snap.communities, channels: snap.channels })).digest('hex');
+}
+
+/** JSON file under a path such as /var/lib/radionet/store.json. Writes are atomic. Optional HMAC when macKey is set. */
 export class FileChannelStore extends MemoryChannelStore {
   private ready = false;
 
-  constructor(private file: string) {
+  constructor(private file: string, private macKey?: string) {
     super();
     if (existsSync(file)) {
-      const snap = JSON.parse(readFileSync(file, 'utf8')) as StoreSnapshot;
-      this.restore({ communities: snap.communities ?? [], channels: snap.channels ?? [] });
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as { mac?: unknown };
+      const snap = validateSnapshot(parsed);
+      if (macKey && typeof parsed.mac === 'string' && !secretMacEqual(parsed.mac, storeMac(snap, macKey))) {
+        throw new Error('store.json failed its integrity check');
+      }
+      this.restore(snap);
     }
     this.ready = true;
   }
 
   protected override persist() {
     if (!this.ready) return;
-    mkdirSync(dirname(this.file), { recursive: true });
+    mkdirSync(dirname(this.file), { recursive: true, mode: 0o750 });
+    const snap = this.snapshot();
+    const body = this.macKey ? { ...snap, mac: storeMac(snap, this.macKey) } : snap;
     const tmp = `${this.file}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.snapshot(), null, 2));
+    writeFileSync(tmp, JSON.stringify(body, null, 2), { mode: 0o600 });
     renameSync(tmp, this.file);
+    chmodSync(this.file, 0o600);
   }
+}
+
+function secretMacEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 export { DEFAULT_BAND };
