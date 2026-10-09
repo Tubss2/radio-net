@@ -1,10 +1,10 @@
 name: Windows installer
 
 on:
-  # Manual runs can override the baked URLs once this file is on the default branch.
-  # Pull requests build the installer too: GitHub will not dispatch a workflow that
-  # exists only on a feature branch, and a pull request has no inputs, so it uses the defaults.
-  pull_request:
+  # Push is what actually runs this before the file is on the default branch.
+  # GitHub will not dispatch workflow_dispatch, and did not start a pull_request run, for a
+  # workflow that exists only on this branch. A manual run can still override the URLs later.
+  push:
   workflow_dispatch:
     inputs:
       api_url:
