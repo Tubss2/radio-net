@@ -36,6 +36,13 @@ export function hashAdminKey(key: string): string {
   return createHash('sha256').update(key).digest('hex');
 }
 
+/** Equal length is not required. Both sides are hashed so the compare does not leak the setup code. */
+export function secretEquals(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
 export function adminKeyMatches(key: string, hash: string): boolean {
   if (!key || hash.length !== 64) return false;
   const got = Buffer.from(hashAdminKey(key), 'hex');
@@ -50,6 +57,12 @@ export interface Session {
   name: string;
   sid: string;
   exp: number;
+  /** Unix seconds, informational. */
+  iat?: number;
+  /** Join sessions are members. Anything else is rejected. */
+  scope?: 'member';
+  /** Copied from the community. Invite rotation bumps the community and strands old tokens. */
+  epoch?: number;
 }
 
 export const SESSION_TTL_SECONDS = 12 * 60 * 60;
@@ -75,7 +88,10 @@ export function verifySession(token: string, secret: string): Session | null {
   } catch {
     return null;
   }
-  if (!session?.cid || !session.name || !session.sid) return null;
-  if (session.exp < Math.floor(Date.now() / 1000)) return null;
+  if (typeof session?.cid !== 'string' || typeof session.name !== 'string' || typeof session.sid !== 'string') return null;
+  if (session.cid.length > 64 || session.name.length > CALLSIGN_MAX || session.sid.length > 64) return null;
+  if (typeof session.exp !== 'number' || session.exp < Math.floor(Date.now() / 1000)) return null;
+  if (session.scope !== undefined && session.scope !== 'member') return null;
+  if (session.epoch !== undefined && (typeof session.epoch !== 'number' || !Number.isInteger(session.epoch) || session.epoch < 0)) return null;
   return session;
 }

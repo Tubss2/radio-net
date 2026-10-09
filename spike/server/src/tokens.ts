@@ -55,6 +55,11 @@ export async function mintChannelGrants(opts: {
     at.addGrant({
       room,
       roomJoin: true,
+      roomCreate: false,
+      roomAdmin: false,
+      roomRecord: false,
+      recorder: false,
+      hidden: false,
       canSubscribe: true,
       canPublish: tx,
       canPublishSources: tx ? [TrackSource.MICROPHONE] : [],

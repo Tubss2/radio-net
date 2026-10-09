@@ -1,14 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TokenVerifier } from 'livekit-server-sdk';
 import { describe, expect, it } from 'vitest';
 import { hashAdminKey, adminKeyMatches } from '../src/accounts.js';
 import { buildApp } from '../src/app.js';
-import { allowBrowserOrigin } from '../src/cors.js';
+import { isAllowedApiOrigin } from '../src/cors.js';
 import { PhonePairs, phoneIdentity, phoneRoomName } from '../src/phone.js';
 import { formatFrequency, parseFrequency, validateFrequency } from '../src/freq.js';
+import { assertProductionConfig } from '../src/production.js';
 import { FileChannelStore, MemoryChannelStore } from '../src/store.js';
 
 const cfg = { livekitUrl: 'ws://x', livekitHttpUrl: 'http://127.0.0.1:1', apiKey: 'devkey', apiSecret: 'secret-secret-secret-secret-secret' };
@@ -299,14 +300,14 @@ describe('deploy config', () => {
 
 describe('browser CORS', () => {
   it('allows the Pages origin and local dev, and keeps credentials off', async () => {
-    expect(allowBrowserOrigin(undefined)).toBe(true);
-    expect(allowBrowserOrigin('null')).toBe(true);
-    expect(allowBrowserOrigin('https://tubss2.github.io')).toBe(true);
-    expect(allowBrowserOrigin('http://127.0.0.1:5175')).toBe(true);
-    expect(allowBrowserOrigin('http://localhost:5175')).toBe(true);
-    expect(allowBrowserOrigin('https://evil.example')).toBe(false);
-    expect(allowBrowserOrigin('https://tubss2.github.io.evil.com')).toBe(false);
-    expect(allowBrowserOrigin('https://localhost:5175')).toBe(false);
+    expect(isAllowedApiOrigin(undefined)).toBe(true);
+    expect(isAllowedApiOrigin('null')).toBe(true);
+    expect(isAllowedApiOrigin('https://tubss2.github.io')).toBe(true);
+    expect(isAllowedApiOrigin('http://127.0.0.1:5175')).toBe(true);
+    expect(isAllowedApiOrigin('http://localhost:5175')).toBe(true);
+    expect(isAllowedApiOrigin('https://evil.example')).toBe(false);
+    expect(isAllowedApiOrigin('https://tubss2.github.io.evil.com')).toBe(false);
+    expect(isAllowedApiOrigin('https://localhost:5175')).toBe(true);
 
     const { app } = await setup();
     const preflight = (origin: string) => app.inject({
@@ -373,6 +374,77 @@ describe('phone push-to-talk pairing', () => {
   });
 });
 
+
+describe('hardening', () => {
+  it('sends security headers and does not reflect an arbitrary web origin', async () => {
+    const app = buildApp(new MemoryChannelStore(), cfg);
+    const res = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'https://evil.example' } });
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+    expect(res.headers['access-control-allow-origin']).not.toBe('https://evil.example');
+    const local = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'http://127.0.0.1:5173' } });
+    expect(local.headers['access-control-allow-origin']).toBe('http://127.0.0.1:5173');
+    const pages = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'https://tubss2.github.io' } });
+    expect(pages.headers['access-control-allow-origin']).toBe('https://tubss2.github.io');
+    const lookalike = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'https://tubss2.github.io.evil.example' } });
+    expect(lookalike.headers['access-control-allow-origin']).not.toBe('https://tubss2.github.io.evil.example');
+    const fileOrigin = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'null' } });
+    expect(fileOrigin.headers['access-control-allow-origin']).toBe('null');
+  });
+
+  it('rejects an oversized body', async () => {
+    const app = buildApp(new MemoryChannelStore(), cfg);
+    const res = await app.inject({ method: 'POST', url: '/api/join', headers: { 'content-type': 'application/json' }, payload: `{"inviteCode":"${'A'.repeat(70_000)}"}` });
+    expect(res.statusCode).toBe(413);
+  });
+
+  it('forgets the oldest IP once the tracker is full', async () => {
+    const app = buildApp(new MemoryChannelStore(), { ...cfg, joinRateLimit: 1, maxTrackedIps: 2 });
+    const join = (ip: string) => app.inject({
+      method: 'POST', url: '/api/join', remoteAddress: ip,
+      payload: { inviteCode: 'NOPE-NOPE', callsign: 'x' },
+    });
+    expect((await join('203.0.113.1')).statusCode).toBe(404);
+    expect((await join('203.0.113.2')).statusCode).toBe(404);
+    expect((await join('203.0.113.3')).statusCode).toBe(404);
+    expect((await join('203.0.113.2')).statusCode).toBe(429);
+    expect((await join('203.0.113.1')).statusCode).toBe(404);
+  });
+
+  it('ends open sessions when the invite rotates', async () => {
+    const { app, admin, member, cid, community } = await setup();
+    const rotated = await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: admin });
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: member })).statusCode).toBe(401);
+    const joined = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: rotated.json().inviteCode, callsign: 'late' } });
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${joined.json().token}` } })).statusCode).toBe(200);
+    expect(rotated.json().inviteCode).not.toBe(community.inviteCode);
+  });
+
+  it('rejects a tampered store and keeps the file private', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rn-mac-')), 'store.json');
+    const store = new FileChannelStore(file, 'mac-key');
+    store.upsertCommunity({
+      id: 'c1', name: 'Unit', band: { minKHz: 30000, maxKHz: 87500, stepKHz: 500 },
+      inviteCode: 'ABCD-EF23', adminKeyHash: 'ab'.repeat(32), createdAt: new Date().toISOString(),
+    });
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { mac: string; communities: { name: string }[] };
+    expect(raw.mac).toMatch(/^[a-f0-9]{64}$/);
+    raw.communities[0].name = 'hacked';
+    writeFileSync(file, JSON.stringify(raw));
+    expect(() => new FileChannelStore(file, 'mac-key')).toThrow(/integrity/);
+  });
+
+  it('refuses the dev seed and the dev secret in production', () => {
+    expect(() => assertProductionConfig({ nodeEnv: 'production', seedDev: true, apiKey: 'k', apiSecret: 'x'.repeat(20), setupCode: 'a' })).toThrow(/SEED_DEV/);
+    expect(() => assertProductionConfig({ nodeEnv: 'production', seedDev: false, apiKey: 'devkey', apiSecret: 'secret', setupCode: 'a' })).toThrow(/dev LiveKit/);
+    expect(() => assertProductionConfig({ nodeEnv: 'production', seedDev: false, apiKey: 'k', apiSecret: 'x'.repeat(20) })).toThrow(/COMMUNITY_SETUP_CODE/);
+    expect(() => assertProductionConfig({ nodeEnv: 'development', seedDev: true, apiKey: 'devkey', apiSecret: 'secret' })).not.toThrow();
+  });
+});
+
+
 describe('token grants', () => {
   it('one token per tuned channel, subscribe + mic-only publish, named with the callsign', async () => {
     const { app, admin, member, cid } = await setup();
@@ -389,7 +461,10 @@ describe('token grants', () => {
       expect(claims.sub).toBeTruthy();
       subs.add(String(claims.sub));
       expect(claims.name).toBe('Rifleman');
-      expect(claims.video).toMatchObject({ room: g.room, roomJoin: true, canSubscribe: true, canPublish: true, canPublishData: false });
+      expect(claims.video).toMatchObject({
+        room: g.room, roomJoin: true, canSubscribe: true, canPublish: true, canPublishData: false,
+        roomAdmin: false, roomCreate: false, roomRecord: false,
+      });
       expect(claims.video?.canPublishSources).toEqual(['microphone']);
     }
     expect(subs.size).toBe(1);
