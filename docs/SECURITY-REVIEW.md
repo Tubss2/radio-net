@@ -149,7 +149,7 @@ That is still the pattern anti-cheat products look at: a global hook, plus a win
 These are below the "would I install it" line and still real:
 
 - The join rate-limit map grows with every IP and is never pruned (a slow memory leak under a scan).
-- CORS reflects any browser `Origin`. The API uses bearer tokens, not cookies, so a random website still needs the token. Reflecting every origin is looser than it needs to be.
+- CORS on the published v0.4.3 server reflects any browser `Origin`. The API uses bearer tokens, not cookies, so a random website still needs the token. The product branch allowlists `https://tubss2.github.io` and localhost instead. That allowlist is not on the live Sydney API until someone deploys it.
 - Production safety depends on env vars. The process will boot with API secret `secret` and seed `DEVN-ET01` if you forget `SEED_DEV=0`. The deploy kit does not forget. A hand-run `npm start` on a public port would.
 - SSH in the cloud-init file installs one deploy key and a firewall. `setup.sh` does not install fail2ban, does not turn on unattended upgrades itself (cloud-init does, on first boot), and does not set `PasswordAuthentication no`.
 - The three services share the `radionet` user. systemd already sets `NoNewPrivileges`, `ProtectSystem=strict`, and `ProtectHome`. That is a decent baseline, not a split between the voice server and the API.
@@ -182,5 +182,35 @@ The ratings above are the published installer. Later pull requests change the so
 | [#11](https://github.com/Tubss2/radio-net/pull/11) | Sandbox on, navigation and extra windows denied, IPC checked, camera denied. Hook starts after a first-run screen, drops unbound keys before storing them, and can be paused. Secrets are omitted from the profile when DPAPI is missing. Updates are not downloaded until the user clicks, and the feed is pinned to `Tubss2/radio-net`. | Authenticode is still skipped. Raw Input is not built. The microphone still opens when you tune. |
 | [#12](https://github.com/Tubss2/radio-net/pull/12) | Invite rotation ends open sessions. Setup-code compare is constant time. Rate-limit memory is capped. Production boot refuses the dev seed and the dev LiveKit secret. `store.json` is mode `0600` and can take an HMAC. Security headers. CORS no longer reflects arbitrary websites. | Voice is still not end-to-end encrypted. The live VPS does not have this code until it is deployed. |
 | [#13](https://github.com/Tubss2/radio-net/pull/13) | Actions pinned by commit. Release job is the one with `contents: write`. `SHA256SUMS.txt` on the next published release. Dependabot, CodeQL, gitleaks. `setup.sh` adds fail2ban, key-only SSH, unattended upgrades, header-free Caddy logs, and `RN_STORE_MAC_KEY`. | A checksum does not name a publisher. The Sydney box has not been re-run. |
+| [#14](https://github.com/Tubss2/radio-net/pull/14) | Threat model for the Pages app, the phone button, and the localhost helper. | The controls themselves are in the pull requests below. The helper port in that note was `47391`. The program that landed listens on `47321`. |
+| [#21](https://github.com/Tubss2/radio-net/pull/21) | Admin key stays out of `localStorage` unless the user ticks a box, with Forget. | Every repository on `https://tubss2.github.io` shares one origin. A key the user chooses to keep is readable by another Pages site on that account. |
+| [#23](https://github.com/Tubss2/radio-net/pull/23) | Helper code burns after one successful link. `Host` must be loopback. Private Network Access is not `*`. Pages CSP pins port `47321`. Phone codes are 32 bytes. A rewritten API host is ignored. Voice activation waits for a click. The phone does not redeem until a tap. The mock preview build gets `connect-src 'none'`. | No session epoch, so invite rotation does not kill a phone token that was already issued. Clickjacking is still open on Pages. The helper exe is unsigned. |
+
+[#15](https://github.com/Tubss2/radio-net/pull/15), [#16](https://github.com/Tubss2/radio-net/pull/16), and [#17](https://github.com/Tubss2/radio-net/pull/17) were earlier designs. The product branch shipped its own web app, Rust helper, and phone routes. Those three are closed so they are not a second copy of the same work.
+
+## Web app, phone button, and helper
+
+These rows are the product branch (`cursor/local-callsign-keybinds-3d59`), not the v0.4.3 installer. Nothing here has been deployed to Sydney, and no release was published.
+
+| ID | Worry | Severity | Status |
+|---|---|---|---|
+| W1 | Session token and admin key in `localStorage` | High | Partial. The session token is in `sessionStorage`. The admin key is still written to `localStorage` until [#21](https://github.com/Tubss2/radio-net/pull/21). |
+| W2 | XSS on the Pages origin | High | Mitigated in source. `script-src 'self'`, no `unsafe-eval`. The QR image is an SVG from our own URL. |
+| W3 | CSP connect targets | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23) for the source. Sydney API, Sydney LiveKit, and `127.0.0.1:47321` only. `frame-ancestors` is not in the meta tag, because a meta tag cannot enforce it. |
+| W4 | Clickjacking | Medium | Open. Accepted while the app stays on GitHub Pages, or closed by serving it from Caddy. |
+| W5 | CORS | Medium | Fixed on the product branch ([#19](https://github.com/Tubss2/radio-net/pull/19)). Not deployed. |
+| W6 | Microphone on page load | Medium | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23) for voice activation. Hold-to-talk was already a key or button press. Tuning a channel still opens the mic and leaves it muted, same as the desktop app. |
+| W7 | Mock preview at the site root | Medium | Mitigated. The workflow publishes the real app at `/radio-net/` and the mock under `/preview/`. [#23](https://github.com/Tubss2/radio-net/pull/23) sets the preview build to `connect-src 'none'`. |
+| PH1 | Pairing secret length and placement | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). 32 random bytes, in the URL fragment. |
+| PH2 | Replay | High | Mitigated. SHA-256 at rest, single use, two minutes. Lookup is a hash map, not a byte-by-byte scan. At 32 bytes that does not help an attacker guess the code. |
+| PH3 | Phone token scope | High | Mitigated. Redeem returns a data-only LiveKit token, not an API session. The phone cannot publish a microphone. Closing the phone dialog drops the button. There is no session epoch until [#12](https://github.com/Tubss2/radio-net/pull/12). |
+| PH4 | Forwarded link arms the button | Medium | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). The page waits for a tap before it redeems the code. |
+| H1 | Helper accepts any website | High | Fixed on the product branch. `Origin` must be the Pages site or localhost. |
+| H2 | DNS rebinding | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). `Host` must be `127.0.0.1` or `localhost`. |
+| H3 | A GET to localhost keys the radio | High | Fixed on the product branch. Talk state changes only after the WebSocket pair message. |
+| H4 | Private Network Access for every site | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). The preflight header is the exact allowlisted origin, never `*`. |
+| H5 | Pairing code reused for the life of the helper | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). One success burns the 12-character code. |
+| H6 | Helper listens on the LAN | High | Fixed on the product branch. Bind is `127.0.0.1:47321` only. |
+| H7 | Helper logs other keys | High | Fixed on the product branch. Raw Input drops every key that is not the watched one, before anything is written to the socket. The callback does not print key codes. |
 
 `npm audit` on the client production tree is clean. The high and critical counts are in dev tooling (the installer toolchain). Dependabot is the ongoing watch for those. The server tree is clean.

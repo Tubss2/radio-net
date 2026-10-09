@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HELPER_URL } from './helperLink';
-import { HELPER_HTTP, HELPER_WS, PAGES_CSP, cspSources } from './pagesCsp';
+import { HELPER_HTTP, HELPER_WS, PAGES_CSP, PREVIEW_CSP, cspSources } from './pagesCsp';
 
 describe('Pages CSP', () => {
   it('pins Sydney and the helper port, with no connect wildcard', () => {
@@ -15,5 +15,10 @@ describe('Pages CSP', () => {
     expect(PAGES_CSP).not.toContain('unsafe-eval');
     expect(PAGES_CSP).not.toContain('frame-ancestors');
     expect(cspSources(PAGES_CSP, 'object-src')).toEqual(["'none'"]);
+  });
+
+  it('keeps the mock preview from calling the API or the helper', () => {
+    expect(cspSources(PREVIEW_CSP, 'connect-src')).toEqual(["'none'"]);
+    expect(PREVIEW_CSP).not.toContain('47321');
   });
 });

@@ -19,6 +19,19 @@ export const PAGES_CSP = [
   "form-action 'none'",
 ].join('; ');
 
+/** The mocked preview at /preview/ must not be able to call the API or the helper. */
+export const PREVIEW_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "media-src 'self' blob:",
+  "connect-src 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+].join('; ');
+
 export function cspSources(policy: string, name: string): string[] {
   const match = policy.match(new RegExp(`(?:^|;\\s*)${name}\\s+([^;]+)`));
   return match ? match[1].trim().split(/\s+/) : [];

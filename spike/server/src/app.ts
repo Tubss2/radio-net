@@ -267,7 +267,8 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     rateLimit(req);
     const body = z.object({ code: z.string().min(8).max(80) }).parse(req.body);
     const subject = phonePairs.take(body.code);
-    if (!subject || !store.getCommunity(subject.cid)) throw new HttpError(404, 'That pairing code is not valid');
+    const community = subject ? store.getCommunity(subject.cid) : undefined;
+    if (!subject || !community) throw new HttpError(404, 'That pairing code is not valid');
     const room = phoneRoomName(subject.cid, subject.sid);
     const token = await mintPhoneToken({
       apiKey: cfg.apiKey, apiSecret: cfg.apiSecret, room,
@@ -278,6 +279,7 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
       identity: phoneIdentity(subject.sid),
       callsign: subject.name,
       communityId: subject.cid,
+      communityName: community.name,
     };
   });
 

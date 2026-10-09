@@ -6,7 +6,8 @@ import { decodePhone, encodePhone, type PhoneState } from '../../shared/phonePag
 
 /** The page a paired phone opens. It sends hold and channel changes. It does not publish a microphone. */
 export function PhoneRemote({ code, apiBase }: { code: string; apiBase: string | null }) {
-  const [status, setStatus] = useState('Joining…');
+  const [status, setStatus] = useState('Not connected');
+  const [armed, setArmed] = useState(false);
   const [state, setState] = useState<PhoneState>({ t: 'state', tx: null, channels: [], on: false });
   const [install, setInstall] = useState<(() => void) | null>(null);
   const roomRef = useRef<Room | null>(null);
@@ -57,6 +58,7 @@ export function PhoneRemote({ code, apiBase }: { code: string; apiBase: string |
   }, []);
 
   useEffect(() => {
+    if (!armed) return;
     let dead = false;
     const room = new Room();
     roomRef.current = room;
@@ -70,22 +72,27 @@ export function PhoneRemote({ code, apiBase }: { code: string; apiBase: string |
         const api = new Api(apiBase || API_URL, null);
         const redeemed = await api.phoneRedeem(code);
         if (dead) return;
-        setStatus(`${redeemed.callsign}`);
+        setStatus(`${redeemed.communityName} · ${redeemed.callsign}`);
         await room.connect(resolveLivekitUrl(redeemed.livekitUrl, import.meta.env.VITE_LIVEKIT_URL), redeemed.token);
         if (dead) return;
-        setStatus(redeemed.callsign);
+        setStatus(`${redeemed.communityName} · ${redeemed.callsign}`);
       } catch (err) {
         if (!dead) setStatus((err as Error).message);
       }
     };
     void run();
     return () => { dead = true; roomRef.current = null; hold(false); void room.disconnect(); };
-  }, [code, apiBase]);
+  }, [armed, code, apiBase]);
 
   const tx = state.channels.find((row) => row.id === state.tx);
   return (
     <div className="phone-remote">
-      <p className="notice">This phone keys the computer. It does not open the microphone here.</p>
+      <p className="notice">This phone keys the computer. It does not open the microphone here. Opening the link does not connect.</p>
+      {!armed && (
+        <button className="btn" type="button" onClick={() => { setStatus('Joining…'); setArmed(true); }}>
+          Use this phone as the talk button
+        </button>
+      )}
       <div className="web-bar">
         <strong>{tx ? `${tx.freq} ${tx.name}` : 'No transmit channel'}</strong>
         <span className="sub">{status}</span>
@@ -110,6 +117,7 @@ export function PhoneRemote({ code, apiBase }: { code: string; apiBase: string |
       </ul>
       <button
         className={`ptt ${state.on ? 'on' : ''}`}
+        disabled={!armed}
         onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); hold(true); }}
         onPointerUp={() => hold(false)}
         onPointerCancel={() => hold(false)}

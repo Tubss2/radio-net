@@ -357,6 +357,7 @@ describe('phone push-to-talk pairing', () => {
     expect(redeemed.statusCode).toBe(200);
     expect(redeemed.json().token).not.toBe(session.token);
     expect(redeemed.json().identity).toBe(`phone:${claims.sid}`);
+    expect(redeemed.json().communityName).toBe('War Dogs NZ');
     expect((await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } })).statusCode).toBe(404);
     const verifier = new TokenVerifier(cfg.apiKey, cfg.apiSecret);
     const phoneClaims = await verifier.verify(redeemed.json().token);
