@@ -1,6 +1,6 @@
 import { UiohookKey, WheelDirection, uIOhook } from 'uiohook-napi';
 import { DEFAULT_BINDS } from '../shared/keybinds';
-import { digitFromKeycode, scrollSteps } from '../shared/radialWheel';
+import { digitFromKeycode, hookShouldEmitScroll, scrollSteps } from '../shared/radialWheel';
 import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
 
 /**
@@ -13,6 +13,8 @@ export class Hotkeys {
   private held = new Set<string>(); // de-dupe OS key-repeat
   private recording: ((b: Bind | null) => void) | null = null;
   private wheelDownAt: number | null = null;
+  /** Latched or held. Scroll keeps working after the wheel key (default F2) is released. */
+  private wheelOpen = false;
 
   constructor(private emit: (e: HotkeyEvent) => void) {}
 
@@ -22,9 +24,12 @@ export class Hotkeys {
     uIOhook.on('mousedown', (e) => this.handle({ kind: 'mouse', button: Number(e.button), label: `Mouse ${e.button}` }, true));
     uIOhook.on('mouseup', (e) => this.handle({ kind: 'mouse', button: Number(e.button), label: '' }, false));
     uIOhook.on('wheel', (e) => {
-      // Fallback path: hold the wheel key and scroll, without the wheel window having focus.
-      // Scroll while the wheel is focused is delivered to that window and ignored here.
-      if (this.wheelDownAt == null || e.direction !== WheelDirection.VERTICAL) return;
+      // Observe-only. The game still sees the notch. index.ts drops a copy the overlay page
+      // will already apply (foreground window, not click-through). Click-through does not
+      // forward the wheel, and a latched wheel stays open after the wheel key is released, so this
+      // runs the whole time the wheel is on screen — not only while F2 (the default) is held.
+      if (e.direction !== WheelDirection.VERTICAL) return;
+      if (!hookShouldEmitScroll({ wheelOpen: this.wheelOpen, wheelKeyHeld: this.wheelDownAt != null })) return;
       const steps = scrollSteps(e.rotation);
       if (steps) this.emit({ type: 'wheel-scroll', steps, shift: e.shiftKey });
     });
@@ -32,6 +37,7 @@ export class Hotkeys {
   }
   stop() { uIOhook.stop(); }
   setBinds(b: Keybinds) { this.binds = b; this.held.clear(); this.wheelDownAt = null; }
+  setWheelOpen(open: boolean) { this.wheelOpen = open; }
   /**
    * Next key or mouse press becomes a bind. Left, right and middle click are ignored so the
    * click that opened the recorder does not bind itself. Escape cancels and resolves null.

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { BrowserWindow, app, ipcMain, safeStorage, screen, session } from 'electron';
 import { withBindDefaults } from '../shared/keybinds';
+import { duplicateWheelNotch, hookScrollReachesPage, type WheelNotch } from '../shared/radialWheel';
 import { emptyProfile, normaliseProfile, type Profile } from '../shared/profile';
 import type { HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
@@ -76,10 +77,87 @@ ipcMain.handle('profile:get', () => readProfile());
 ipcMain.handle('profile:set', (_e, p: Profile) => writeProfile(normaliseProfile(p)));
 
 let wheelShown = false;
+/** True while the wheel window is letting mouse input pass through to the game. forward does not include the wheel. */
+let wheelIgnoresMouse = true;
+let recentWheel: WheelNotch | null = null;
 
-/** Drop scroll, digit and Esc events while the wheel window is focused so the page and the hook don't both apply them. The wheel key still always comes through. */
+/**
+ * Show the channel wheel on the full display and take focus.
+ *
+ * The overlay is created focusable:false so talker rows never steal the game.
+ * On Windows, setFocusable(true) does not stick until the window is hidden and
+ * shown again, and showInactive() never becomes the foreground window. The mouse
+ * wheel (WM_MOUSEWHEEL) goes to that foreground window, so a ring that only
+ * called focus() on a still-unfocusable window ignored scroll until a click
+ * activated it. Click-through (setIgnoreMouseEvents true) also drops the wheel;
+ * `forward` only delivers mousemove. The ring therefore accepts the mouse as it
+ * appears, and a later pointer move outside the ring turns click-through back on.
+ *
+ * Taking focus pulls the keyboard off the game for as long as the wheel is open.
+ * Closing blurs the overlay and shows the talker box with showInactive(), so the
+ * game can be foreground again. If the game is exclusive fullscreen and will not
+ * give up focus, the global hook still applies the notch (see hotkeys.ts). The
+ * hook does not swallow input, so a game that kept focus scrolls as well.
+ */
+function presentWheelOverlay(win: BrowserWindow) {
+  // Hide first when the talker box is already showing. setFocusable(true) on a
+  // window that was created focusable:false does not take effect until the next show.
+  if (win.isVisible()) win.hide();
+  win.setFocusable(true);
+  win.setBounds(screen.getPrimaryDisplay().bounds);
+  wheelIgnoresMouse = false;
+  win.setIgnoreMouseEvents(false);
+  win.show();
+  win.moveTop();
+  win.focus();
+  win.webContents.focus();
+}
+
+function dismissWheelOverlay(win: BrowserWindow, talkersVisible: boolean) {
+  wheelIgnoresMouse = true;
+  win.setFocusable(false);
+  win.setIgnoreMouseEvents(true);
+  win.setBounds(overlayCorner());
+  win.blur();
+  if (talkersVisible) win.showInactive();
+  else win.hide();
+}
+
+/** Long enough for the overlay page to claim a notch the hook already saw. */
+const HOOK_SCROLL_HOLD_MS = 40;
+const pendingHookScrolls = new Set<ReturnType<typeof setTimeout>>();
+
+function cancelPendingHookScrolls() {
+  for (const timer of pendingHookScrolls) clearTimeout(timer);
+  pendingHookScrolls.clear();
+}
+
+/**
+ * Digits and Esc while the wheel window is focused belong to the page.
+ * Scroll from the hook is applied immediately when the page cannot see the wheel
+ * (not focused, or click-through). When the page can see it, the hook waits briefly
+ * so a hit-tested segment wins; if the cursor is off the ring the page stays quiet
+ * and the hook then moves the hovered segment, or the transmit segment.
+ */
 const hotkeys = new Hotkeys((e: HotkeyEvent) => {
-  if (overlay?.isFocused() && (e.type === 'wheel-scroll' || e.type === 'wheel-number' || e.type === 'wheel-cancel')) return;
+  if ((e.type === 'wheel-number' || e.type === 'wheel-cancel') && overlay?.isFocused()) return;
+  if (e.type === 'wheel-scroll') {
+    const notch: WheelNotch = { at: Date.now(), steps: e.steps, shift: e.shift, source: 'hook' };
+    if (duplicateWheelNotch(recentWheel, notch)) return;
+    const send = () => {
+      if (duplicateWheelNotch(recentWheel, notch)) return;
+      recentWheel = { ...notch, at: Date.now() };
+      main?.webContents.send('hotkey', e);
+    };
+    const pageGetsIt = hookScrollReachesPage({
+      focused: Boolean(overlay?.isFocused()),
+      ignoringMouse: wheelIgnoresMouse,
+    });
+    if (!pageGetsIt) { send(); return; }
+    const timer = setTimeout(() => { pendingHookScrolls.delete(timer); send(); }, HOOK_SCROLL_HOLD_MS);
+    pendingHookScrolls.add(timer);
+    return;
+  }
   main?.webContents.send('hotkey', e);
 });
 ipcMain.handle('hotkeys:set', (_e, b: Keybinds) => hotkeys.setBinds(b));
@@ -90,21 +168,14 @@ ipcMain.on('overlay:state', (_e, s: OverlayState) => {
   if (!overlay) return;
   const want = Boolean(s.wheel?.open);
   if (want && !wheelShown) {
-    // The wheel takes focus for this moment so hover and clicks land on a segment.
     wheelShown = true;
-    overlay.setBounds(screen.getPrimaryDisplay().bounds);
-    overlay.setFocusable(true);
-    overlay.setIgnoreMouseEvents(true, { forward: true });
-    overlay.show();
-    overlay.focus();
+    hotkeys.setWheelOpen(true);
+    presentWheelOverlay(overlay);
   } else if (!want && wheelShown) {
     wheelShown = false;
-    const corner = overlayCorner();
-    overlay.setFocusable(false);
-    overlay.setIgnoreMouseEvents(true);
-    overlay.setBounds(corner);
-    overlay.blur();
-    if (s.visible) overlay.showInactive(); else overlay.hide();
+    hotkeys.setWheelOpen(false);
+    cancelPendingHookScrolls();
+    dismissWheelOverlay(overlay, s.visible);
   } else if (!want) {
     if (s.visible) overlay.showInactive(); else overlay.hide();
   }
@@ -114,11 +185,17 @@ ipcMain.on('overlay:state', (_e, s: OverlayState) => {
 /** While the pointer is over the ring (or the add field is open) the wheel window accepts clicks. Elsewhere they pass through to the game. */
 ipcMain.on('overlay:ignore-mouse', (_e, ignore: boolean) => {
   if (!overlay || !wheelShown) return;
+  wheelIgnoresMouse = ignore;
   if (ignore) overlay.setIgnoreMouseEvents(true, { forward: true });
   else overlay.setIgnoreMouseEvents(false);
 });
 
 ipcMain.on('wheel:input', (_e, input: WheelInput) => {
+  if (input.type === 'scroll') {
+    const notch: WheelNotch = { at: Date.now(), steps: input.steps, shift: input.shift, source: 'page' };
+    if (duplicateWheelNotch(recentWheel, notch)) return;
+    recentWheel = notch;
+  }
   main?.webContents.send('wheel:input', input);
 });
 
