@@ -19,6 +19,12 @@ No domain needed yet: the hostnames are `radio-<ip-with-dashes>.sslip.io` (API) 
 - `secrets/` (gitignored, chmod 700/600): copy of the server's `/etc/radionet/secrets.env` per server. Never commit.
 - `systemd/*.service`: hardened units (`ProtectSystem=strict`, non-root `radionet` user).
 
+## Browser UI preview (optional, mocked)
+- Served by Caddy at `https://<API_HOST>/preview/` from `/opt/radionet/preview` (`handle_path /preview/*` + `file_server`; everything else still goes to the API). `/preview` redirects to `/preview/`.
+- It is the `vite --mode preview` build of `spike/client` (`npm run preview:build`, or the `ui-preview` Actions artifact): fake community/channels, no mic, no LiveKit, no API. Caddy also sends `Content-Security-Policy: connect-src 'none'` on /preview/ so the page physically can't call the API or LiveKit, plus `X-Robots-Tag: noindex`.
+- `pack.sh` includes it when `PREVIEW_DIST` (default `../spike/client/preview-dist`) has an `index.html` built with relative paths; `setup.sh` rsyncs it to `/opt/radionet/preview`. No build → `/preview/` just 404s.
+- Preview-only update without restarting the API/LiveKit: upload the tgz, extract to /opt, `rsync -a --delete /opt/radionet-src/preview/ /opt/radionet/preview/`, re-render the Caddyfile with `RENDER_ONLY=/tmp/x PUBLIC_IP=<ip> bash setup.sh`, copy `/tmp/x/Caddyfile` to `/etc/radionet/`, `systemctl reload radionet-caddy`, delete `/tmp/x`.
+
 ## Firewall (ufw, also mirror in the provider's cloud firewall if you use one)
 
 | Port | Proto | Why |
@@ -48,7 +54,7 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 - `setup.sh` in `RENDER_ONLY` mode rendered configs; `caddy validate` passes on the rendered Caddyfile.
 - Local end-to-end with the rendered configs: LiveKit started with the generated keys (signal on 127.0.0.1 only; 7881/tcp + 7882/udp on all interfaces), API with `SEED_DEV=0`, Caddy with local TLS in front. Through HTTPS: `/health` ok, LiveKit `OK`, wrong setup code -> 403, public dev invite `DEVN-ET01` rejected, create community with the real setup code -> 201, create channel 59.500 Command, token mint ok, channel delete -> LiveKit RoomService call ok (204).
 - Spike server still passes its 13/13 tests after the small change below.
-- The live VPS run is in the section below. It used `pack.sh` + `deploy.ps1` (the agent box cannot SSH out). `deploy.py` / `deploy.sh` were not the path used against that host.
+- **Not tested:** a real VPS run of `setup.sh` (apt, systemd, ufw, real Let's Encrypt via sslip.io), and `deploy.py`/`deploy.sh` against a real host.
 
 ## Server code change made for deployment
 
@@ -68,3 +74,8 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 - Latency PC (NZ) -> server: ICMP 32-35 ms; HTTPS `/health` ~62 ms warm. TCP 7881 reachable.
 - Test communities were wiped afterwards by restarting `radionet-api` (in-memory store).
 - Note: Caddy also listens on UDP 443 (HTTP/3); the firewall leaves it closed, so clients use HTTP/2. Harmless.
+
+### UI preview added (9 Oct 2026 ~6:30pm NZ)
+- https://radio-149-28-170-200.sslip.io/preview/ — built on the box from PR #1 branch `cursor/initial-radio-net-3d59` (all 22 source files checked against the branch's git blob SHAs; the Actions artifact couldn't be downloaded without GitHub auth). Bundle: index.html + index-qrK5K9D4.js + index-DB47ri7X.css.
+- Applied with a Caddy reload only (API/LiveKit not restarted). Old Caddyfile kept at `/etc/radionet/Caddyfile.bak-prepreview`.
+- Checks: /preview → 308 → /preview/ 200, assets 200 (JS byte-identical), CSP + noindex headers present, headless Chrome renders the mock (War Dogs NZ, channels) and requests nothing but /preview/ files; /health ok; setup-code community → channel → voice token 200; LiveKit WSS /rtc with token → 101.

@@ -84,7 +84,19 @@ ${ACME_EMAIL:+	email ${ACME_EMAIL}}
 
 ${API_HOST} {
 	encode gzip
-	reverse_proxy 127.0.0.1:8787
+
+	# Browser UI preview: static, fully mocked build (no API or LiveKit calls; CSP blocks any fetch/WebSocket).
+	redir /preview /preview/ 308
+	handle_path /preview/* {
+		root * ${APP_DIR}/preview
+		header Content-Security-Policy "default-src 'self'; connect-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+		header X-Robots-Tag "noindex"
+		file_server
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8787
+	}
 }
 
 ${LK_HOST} {
@@ -144,6 +156,15 @@ setcap 'cap_net_bind_service=+ep' "$APP_DIR/bin/caddy"
 log "Radio Net API"
 rsync -a --delete --exclude node_modules --exclude '*.log' "$SRC_DIR/server/" "$APP_DIR/server/"
 (cd "$APP_DIR/server" && PATH="$APP_DIR/node/bin:$PATH" npm ci --no-audit --no-fund --loglevel=error)
+
+log "Browser UI preview (optional)"
+if [[ -f "$SRC_DIR/preview/index.html" ]]; then
+  mkdir -p "$APP_DIR/preview"
+  rsync -a --delete "$SRC_DIR/preview/" "$APP_DIR/preview/"
+  echo "Preview installed: https://${API_HOST}/preview/"
+else
+  echo "No preview build in $SRC_DIR/preview; /preview/ will 404 (run pack.sh with PREVIEW_DIST set)."
+fi
 chown -R radionet:radionet "$APP_DIR" /var/lib/caddy
 
 log "Configs"
@@ -180,6 +201,7 @@ cat <<DONE
  Radio Net server $( ((ok)) && echo READY || echo 'needs attention (see above)')
  API (put in the client as VITE_API_URL): https://${API_HOST}
  LiveKit (handed to clients by the API):  wss://${LK_HOST}
+ UI preview (mocked, if packed):           https://${API_HOST}/preview/
  Community setup code (keep private):     ${COMMUNITY_SETUP_CODE:0:4}-****-**** (full value in ${SECRETS_FILE})
  Secrets: ${SECRETS_FILE}
  Logs:    journalctl -u livekit -u radionet-api -u radionet-caddy -f
