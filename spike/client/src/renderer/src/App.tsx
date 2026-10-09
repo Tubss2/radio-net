@@ -17,6 +17,7 @@ import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEn
 import { isWeb } from './platform';
 import { PhoneLink } from './PhoneLink';
 import { HelperLink } from './HelperLink';
+import { TalkSetup } from './TalkSetup';
 import { RadialWheel } from './RadialWheel';
 import { Settings } from './Settings';
 import { SimpleRadio } from './SimpleRadio';
@@ -174,7 +175,7 @@ export function App() {
         }}
         onChange={changeBinds}
       />
-      {freshKey && <AdminKeyReveal adminKey={freshKey} onClose={() => setFreshKey(null)} />}
+      {freshKey && <AdminKeyReveal adminKey={freshKey} inviteCode={active.inviteCode} onClose={() => setFreshKey(null)} />}
       {privacyOpen && <PrivacyNotes onClose={() => setPrivacyOpen(false)} />}
       <UpdateBar />
     </div>
@@ -329,7 +330,7 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
               <div key={s.id} className="server">
                 <div>
                   <div>{s.name}</div>
-                  <div className="sub" style={{ margin: 0 }}>{s.url} · {s.inviteCode}</div>
+                  <div className="sub" style={{ margin: 0 }}>Invite {s.inviteCode}</div>
                 </div>
                 <button className="btn sm" disabled={busy} onClick={() => void joinExisting(s)}>Rejoin</button>
               </div>
@@ -357,22 +358,27 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
   );
 }
 
-function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(adminKey); setCopied(true); } catch { setCopied(false); }
+function AdminKeyReveal({ adminKey, inviteCode, onClose }: { adminKey: string; inviteCode: string; onClose: () => void }) {
+  const [copied, setCopied] = useState<'invite' | 'admin' | null>(null);
+  const copy = async (which: 'invite' | 'admin', value: string) => {
+    try { await navigator.clipboard.writeText(value); setCopied(which); } catch { setCopied(null); }
   };
   return (
     <div className="modal-bg">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: 0 }}>Community admin key</h3>
+        <h3 style={{ margin: 0 }}>Community is ready</h3>
+        <p className="sub" style={{ margin: 0 }}>Share the invite code. Other people join with it.</p>
+        <div className="lbl">Invite code</div>
+        <div className="keybox invite-code">{inviteCode}</div>
+        <div className="lbl">Admin key</div>
         <p className="sub" style={{ margin: 0 }}>{isWeb
           ? 'This is shown once. This browser forgets it when you close the tab, unless you tick “Keep the admin key in this browser” on the radio. A script on this site can read a key you choose to keep. Copy it if another admin needs it. There is no account to recover it; the server setup code can mint a new one.'
           : 'This is shown once. It is saved on this PC. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.'}</p>
         <div className="keybox">{adminKey}</div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button className="btn ghost" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
-          <button className="btn primary" onClick={onClose}>Done</button>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <button className="btn ghost" type="button" onClick={() => void copy('invite', inviteCode)}>{copied === 'invite' ? 'Invite copied' : 'Copy invite'}</button>
+          <button className="btn ghost" type="button" onClick={() => void copy('admin', adminKey)}>{copied === 'admin' ? 'Admin key copied' : 'Copy admin key'}</button>
+          <button className="btn primary" type="button" onClick={onClose}>Done</button>
         </div>
       </div>
     </div>
@@ -418,6 +424,11 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const isAdmin = Boolean(server.adminKey);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [talkOpen, setTalkOpen] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(false);
+  const [helperOpen, setHelperOpen] = useState(false);
+  const [phoneLinked, setPhoneLinked] = useState(false);
+  const [helperLinked, setHelperLinked] = useState(false);
+  const [copiedInvite, setCopiedInvite] = useState(false);
   const [arming, setArming] = useState(false);
   const [simpleOn, setSimpleOn] = useState(boot.simpleOn);
   const [onTop, setOnTop] = useState(boot.simpleOnTop);
@@ -635,9 +646,21 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     catch { setErr(server.adminKey); }
   };
 
+  const copyInvite = async () => {
+    if (!server.inviteCode) return;
+    try { await navigator.clipboard.writeText(server.inviteCode); setCopiedInvite(true); }
+    catch { setCopiedInvite(false); }
+  };
+
   const rotateInvite = async () => {
-    const r = await api.rotateInvite(server.id);
-    onServer({ ...server, inviteCode: r.inviteCode });
+    if (!confirm('Replace the invite code? Anyone with the old code has to join again.')) return;
+    try {
+      const r = await api.rotateInvite(server.id);
+      onServer({ ...server, inviteCode: r.inviteCode });
+      setCopiedInvite(false);
+    } catch (e) {
+      setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+    }
   };
 
   const deleteChannel = async (ch: ChannelInfo) => {
@@ -717,24 +740,69 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   if (isWeb) {
     return (
       <div className="web-main">
+        <section className="invite-card">
+          <div>
+            <div className="lbl">Invite code</div>
+            <p className="sub" style={{ margin: 0 }}>Share this so other people can join {server.name}.</p>
+          </div>
+          <div className="invite-code">{server.inviteCode || 'None saved in this browser'}</div>
+          <div className="invite-actions">
+            {server.inviteCode ? <button className="btn sm" type="button" onClick={() => void copyInvite()}>{copiedInvite ? 'Copied' : 'Copy invite'}</button> : null}
+            {isAdmin ? <button className="btn sm" type="button" onClick={() => void rotateInvite()}>New invite</button> : null}
+          </div>
+          {isAdmin ? (
+            <p className="sub" style={{ margin: 0 }}>
+              <label>
+                <input type="checkbox" checked={server.rememberAdmin === true} onChange={(e) => onServer({ ...server, rememberAdmin: e.target.checked })} />
+                {' '}Keep the admin key in this browser. A script on this site can read it.
+              </label>
+              {server.rememberAdmin ? <> <button className="link" type="button" onClick={() => onServer({ ...server, rememberAdmin: false, adminKey: undefined })}>Forget admin key</button></> : null}
+            </p>
+          ) : (
+            <p className="sub" style={{ margin: 0 }}>A new invite needs the admin key from the person who created this community.</p>
+          )}
+        </section>
+        <TalkSetup
+          talkMode={boot.talkMode}
+          talkLabel={talkKeyLabel(boot.talkKey)}
+          phoneLinked={phoneLinked}
+          helperLinked={helperLinked}
+          onBrowser={() => setTalkOpen(true)}
+          onPhone={() => setPhoneOpen(true)}
+          onHelper={() => setHelperOpen(true)}
+        />
         <p className="notice">Use a phone, the Windows helper, or the desktop app for in-game push-to-talk. This page transmits only while the tab is in front. The microphone opens when you tune a channel and stays muted until you hold the button.</p>
-        {isAdmin && (
-          <p className="sub">
-            <label>
-              <input type="checkbox" checked={server.rememberAdmin === true} onChange={(e) => onServer({ ...server, rememberAdmin: e.target.checked })} />
-              {' '}Keep the admin key in this browser. A script on this site can read it.
-            </label>
-            {server.rememberAdmin ? <> <button className="link" type="button" onClick={() => onServer({ ...server, rememberAdmin: false, adminKey: undefined })}>Forget admin key</button></> : null}
-          </p>
-        )}
         <div className="web-bar">
           <strong>{server.name}</strong>
           <span className="sub">{callsign}</span>
-          <button className="btn sm" onClick={() => setChannelsOpen((v) => !v)}>{channelsOpen ? 'Radio' : 'Channels'}</button>
-          <button className="btn sm" onClick={() => setTalkOpen((v) => !v)}>Talk</button>
-          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
-          {!isPreview && <HelperLink engine={engine} externalDown={externalDown} talkKey={boot.talkKey} talkLabel={talkKeyLabel(boot.talkKey)} />}
-          {isAdmin && <button className="btn sm" onClick={() => setNewCh(true)}>+ New</button>}
+          <button className="btn sm" type="button" onClick={() => setChannelsOpen((v) => !v)}>{channelsOpen ? 'Radio' : 'Channels'}</button>
+          {isAdmin && <button className="btn sm" type="button" onClick={() => setNewCh(true)}>+ New</button>}
+          {!isPreview && (
+            <PhoneLink
+              api={api}
+              cid={server.id}
+              apiBase={server.url || API_URL}
+              electron={inElectron}
+              engine={engine}
+              externalDown={externalDown}
+              showButton={false}
+              opened={phoneOpen}
+              onOpenedChange={setPhoneOpen}
+              onLinked={setPhoneLinked}
+            />
+          )}
+          {!isPreview && (
+            <HelperLink
+              engine={engine}
+              externalDown={externalDown}
+              talkKey={boot.talkKey}
+              talkLabel={talkKeyLabel(boot.talkKey)}
+              showButton={false}
+              opened={helperOpen}
+              onOpenedChange={setHelperOpen}
+              onLinked={setHelperLinked}
+            />
+          )}
         </div>
         {err && <div className="err">{err}</div>}
         {talkOpen && (

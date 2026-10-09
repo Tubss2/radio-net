@@ -66,12 +66,16 @@ describe('GitHub Releases updates', () => {
     expect(yml).toContain('name: web-site');
   });
 
-  it('builds the Windows helper as an artifact and does not publish a release', () => {
+  it('publishes RadioNetHelper.exe on helper-1 and leaves the desktop updater alone', () => {
     const yml = readFileSync(join(repoRoot, '.github/workflows/ptt-helper.yml'), 'utf8');
     expect(yml).toContain('RadioNetHelper.exe');
     expect(yml).toContain('name: RadioNetHelper');
     expect(yml).toContain('contents: read');
+    expect(yml).toContain('helper-1');
+    expect(yml).toContain('gh release upload');
+    expect(yml).toContain("github.ref == 'refs/heads/main'");
     expect(yml).not.toContain('softprops/action-gh-release');
-    expect(yml).not.toContain('gh release');
+    expect(yml).not.toContain('electron-builder');
+    expect(yml).not.toMatch(/release upload[^\n]*latest\.yml/);
   });
 });

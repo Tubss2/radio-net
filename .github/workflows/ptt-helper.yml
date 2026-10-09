@@ -1,8 +1,9 @@
 name: PTT helper
 
-# Builds the Windows tray exe and uploads it as an Actions artifact.
-# This workflow does not publish a GitHub Release. A release would
-# auto-update installed desktop clients.
+# Builds the Windows tray exe, keeps the Actions artifact, and attaches
+# RadioNetHelper.exe to the helper-1 release. That tag does not start with v,
+# and this job does not publish the desktop installer, so installed clients
+# do not treat the helper as an app update.
 
 on:
   push:
@@ -17,6 +18,8 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
@@ -31,3 +34,25 @@ jobs:
           name: RadioNetHelper
           path: helper/target/release/RadioNetHelper.exe
           if-no-files-found: error
+      - name: Attach RadioNetHelper.exe to the helper-1 release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $exe = "helper/target/release/RadioNetHelper.exe"
+          if (-not (Test-Path $exe)) { throw "Missing $exe" }
+          $tag = "helper-1"
+          $notes = @"
+Windows tray helper for the web app. It watches only the key or mouse button you assign. It does not see the microphone.
+
+Source: https://github.com/Tubss2/radio-net/tree/main/helper
+"@
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $exe --clobber
+          } else {
+            gh release create $tag $exe --title "Radio Net helper" --notes $notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish RadioNetHelper.exe on $tag" }

@@ -1,6 +1,15 @@
 /** Local tray helper. It watches one key and sends press and release. It does not see the microphone. */
 export const HELPER_URL = 'ws://127.0.0.1:47321';
 
+/**
+ * Stable download. The helper workflow attaches this file to the `helper-1` release.
+ * It is not listed in `latest.yml`, so the desktop updater does not treat it as an app update.
+ */
+export const HELPER_DOWNLOAD_URL = 'https://github.com/Tubss2/radio-net/releases/download/helper-1/RadioNetHelper.exe';
+
+/** Open-source tray program. */
+export const HELPER_SOURCE_URL = 'https://github.com/Tubss2/radio-net/tree/main/helper';
+
 export const HELPER_FALLBACK =
   'The helper is not running, or this browser blocked the localhost link. Use the phone button, or the desktop app, for in-game push-to-talk.';
 

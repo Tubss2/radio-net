@@ -7,15 +7,20 @@ import { resolveLivekitUrl } from './lib/livekitUrl';
 import type { RadioControl } from './lib/radioEngine';
 
 /** QR for a one-time phone link. The phone keys the mic that is already published on this computer. */
-export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown }: {
+export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, showButton = true, opened = false, onOpenedChange, onLinked }: {
   api: Api;
   cid: string;
   apiBase: string;
   electron: boolean;
   engine: RadioControl;
   externalDown: { current: boolean };
+  showButton?: boolean;
+  opened?: boolean;
+  onOpenedChange?: (open: boolean) => void;
+  onLinked?: (linked: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const shown = open || opened;
   const [linked, setLinked] = useState(false);
   const [url, setUrl] = useState('');
   const [svg, setSvg] = useState('');
@@ -55,7 +60,11 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown }:
   };
 
   useEffect(() => {
-    if (!open) return;
+    onLinked?.(linked);
+  }, [linked, onLinked]);
+
+  useEffect(() => {
+    if (!shown) return;
     let dead = false;
     const room = new Room();
     roomRef.current = room;
@@ -107,9 +116,9 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown }:
       roomRef.current = null;
       void room.disconnect();
     };
-  }, [open, api, cid]);
+  }, [shown, api, cid]);
 
-  useEffect(() => { if (open) publish(); }, [open, engine.version]);
+  useEffect(() => { if (shown) publish(); }, [shown, engine.version]);
 
   const showCode = async () => {
     setError('');
@@ -125,14 +134,20 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown }:
     }
   };
 
-  useEffect(() => { if (open) void showCode(); }, [open]);
+  useEffect(() => { if (shown) void showCode(); }, [shown]);
 
-  const close = () => { setOpen(false); setLinked(false); setUrl(''); setSvg(''); };
+  const close = () => {
+    setOpen(false);
+    onOpenedChange?.(false);
+    setLinked(false);
+    setUrl('');
+    setSvg('');
+  };
 
   return (
     <>
-      <button className="btn sm" onClick={() => setOpen(true)}>Use phone</button>
-      {open && (
+      {showButton && <button className="btn sm" onClick={() => setOpen(true)}>Use phone</button>}
+      {shown && (
         <div className="modal-bg" onClick={close}>
           <div className="modal phone-modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Use phone as push-to-talk</h3>
