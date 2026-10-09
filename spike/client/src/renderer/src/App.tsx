@@ -136,14 +136,17 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
   const tuned = engine.tuned;
   const tx = tuned.find((t) => t.channel.id === engine.txId) ?? null;
   const keyed = engine.transmittingOn !== null;
+  // Overlay is on by default. Each row is someone transmitting: their name and that channel.
+  // Include this user; the engine's speaker list is remote talkers only.
+  const overlaySpeakers = tuned.flatMap((t) => {
+    const names = [...t.speakers];
+    if (engine.transmittingOn === t.channel.id && !names.includes(me)) names.unshift(me);
+    return names.map((name) => ({ name, channel: t.channel.name, freq: t.channel.freq }));
+  });
 
-  // Overlay window state.
+  // Overlay window state. Hidden while nobody is transmitting, so the corner stays empty.
   useEffect(() => {
-    bridge.setOverlay({
-      visible: overlayOn && tuned.length > 0,
-      txFreq: tx?.channel.freq ?? null, txName: tx?.channel.name ?? null, transmitting: keyed,
-      speakers: tuned.flatMap((t) => t.speakers.map((name) => ({ name, channel: t.channel.name, freq: t.channel.freq }))),
-    });
+    bridge.setOverlay({ visible: overlayOn && overlaySpeakers.length > 0, speakers: overlaySpeakers });
   });
 
   const tuneQuery = async () => {

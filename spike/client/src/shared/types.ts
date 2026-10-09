@@ -18,10 +18,8 @@ export type HotkeyEvent =
   | { type: 'direct'; channelId: string; down: boolean };
 
 export interface OverlayState {
+  /** The overlay is on by default. False hides the window (F10, or nobody transmitting). */
   visible: boolean;
-  txFreq: string | null;
-  txName: string | null;
-  transmitting: boolean;
-  /** Who is talking right now, and on which channel. */
+  /** One row per person transmitting right now: display name and that channel. Empty draws nothing. */
   speakers: { name: string; channel: string; freq: string }[];
 }

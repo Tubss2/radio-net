@@ -5,7 +5,7 @@
 
 ## 1. The one-paragraph version
 
-**Radio Net** (working name) is a small **Windows desktop app** that runs beside WARDOGS or any game. A group creates a **community** in the app and shares an **invite code**; members join with the code and a display name. No Discord, email or password. Community **admins create and delete channels**, each a **frequency + name** (e.g. `59.500 Command`). Every user has their own **radio**: tune any number of channels to **listen** (type `59.5` or `command`), each with its own **volume and left/centre/right ear**, and pick **one to transmit** on. **Push-to-talk** talks on the TX channel; a **switch key** (Reforger's G) cycles TX through your tuned channels; optional **direct keys** talk on a specific channel. A click-through **overlay** shows your TX channel and who's talking. Voice runs on **self-hosted LiveKit** in Sydney. Clean voice, no radio effects.
+**Radio Net** (working name) is a small **Windows desktop app** that runs beside WARDOGS or any game. A group creates a **community** in the app and shares an **invite code**; members join with the code and a display name. No Discord, email or password. Community **admins create and delete channels**, each a **frequency + name** (e.g. `59.500 Command`). Every user has their own **radio**: tune any number of channels to **listen** (type `59.5` or `command`), each with its own **volume and left/centre/right ear**, and pick **one to transmit** on. **Push-to-talk** talks on the TX channel; a **switch key** (Reforger's G) cycles TX through your tuned channels; optional **direct keys** talk on a specific channel. A click-through **overlay** is on by default: a small box in a screen corner that stays empty when nobody is transmitting, and while someone transmits shows only their display name and the channel (frequency + name) they are transmitting on, stacked if several people are talking. Voice runs on **self-hosted LiveKit** in Sydney. Clean voice, no radio effects.
 
 ## 2. What changed from v0.1
 
@@ -118,8 +118,8 @@ flowchart LR
 
 - **First run:** "Join your net" (invite code + callsign) or "Create a community" (name + setup code).
 - **Main window:** community rail (left) → community's channel list with a **Tune** box ("59.5 or Command", Enter) and admin **+ New / delete** → **radio** area: a big **"Transmit on 59.500 Command"** bar (turns red "On air" while keyed) and a **card per tuned channel**: frequency, name, who's talking, volume + mute, **L/C/R ear**, "Transmit here", untune ×.
-- **Keys (defaults, all rebindable, mouse buttons OK):** PTT `Mouse 4`, switch `Mouse 5` (or `G`), overlay `F10`, optional direct key per channel. Confirmation blips on key-up/down and switch (not a radio effect; can be turned off).
-- **Overlay:** TX frequency + name, red when on air, list of who's talking + their frequency.
+- **Keys (defaults, all rebindable, mouse buttons OK):** PTT `Mouse 4`, switch `Mouse 5` (or `G`), hide overlay `F10` (the overlay is on by default), optional direct key per channel. Confirmation blips on key-up/down and switch (not a radio effect; can be turned off).
+- **Overlay:** always on by default. A small click-through box in a screen corner. It draws nothing while nobody is transmitting. When someone transmits, it shows only that person's display name and the channel they are transmitting on (frequency + name, for example `Rhys  59.500 Command`). Several talkers stack, one line each.
 - **Remembers** tuned channels, TX channel, volumes per community. Tray icon, start minimised, auto-reconnect.
 
 ## 8. Stack (unchanged except auth)
@@ -156,7 +156,7 @@ See [`spike/README.md`](../spike/README.md) for how to run it.
 **Proven (automated, all passing):**
 - API unit tests: **13/13**. Frequency parsing/validation, create/delete/list/resolve channels, duplicate freq/name → 409, admin-only actions, invite join (any case/format), invite rotation, owner promotes admin, kick, multiple communities per account, join rate-limit, setup-code gate, token grants (correct room, subscribe, mic-only publish, no data).
 - Headless voice test with 4 bot "players" on a real local LiveKit server: **14/14**. Multi-room connect, listen-many/talk-one (audio arrives only on the TX channel), switch TX between channels, listen-only token can't publish (server-enforced), non-admin can't create channels, deleting a channel drops everyone tuned to it while other channels stay up. Key-up to first audio ~47 ms on localhost (not a real-world number).
-- **The real Electron app** on a virtual Linux display with a fake mic, plus a bot: **8/8**. Join by invite code, tune by `59.5` and by `arty`, remote speaker shown on the right card, **global PTT via the uiohook mouse hook** (Mouse 4) keys up, **its audio reaches the bot on Command only**, release un-keys, **switch key (Mouse 5) moves TX to Arty** and audio follows. Overlay window renders TX + speakers.
+- **The real Electron app** on a virtual Linux display with a fake mic, plus a bot: **8/8**. Join by invite code, tune by `59.5` and by `arty`, remote speaker shown on the right card, **global PTT via the uiohook mouse hook** (Mouse 4) keys up, **its audio reaches the bot on Command only**, release un-keys, **switch key (Mouse 5) moves TX to Arty** and audio follows. That run's overlay still drew a persistent TX line plus speakers. The overlay was changed after that run to match the decision in §7 (on by default, hidden until someone transmits, each line is display name plus channel). The Electron smoke test was not re-run after that change.
 
 **Not verified (needs Windows and/or real people):**
 - **Elytra anti-cheat** tolerance of the hook + overlay. This is the M1 gate.
