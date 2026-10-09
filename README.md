@@ -4,6 +4,16 @@ Group voice radio for WARDOGS. The primary product is the web app at [https://tu
 
 This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. The spike is a working local proof of the core, not the finished app.
 
+## Privacy
+
+Radio Net has no account and no telemetry. A callsign, the servers you join, keybinds, and (on the PC that created a community) an admin key stay in an OS-encrypted profile on that computer when Windows DPAPI is available. The app sends the callsign and invite code to the community server you type in, and it sends voice to that server's LiveKit while push-to-talk is held. The microphone device is opened earlier, when you tune a channel you can talk on, with the track muted until you hold the talk key.
+
+A global keyboard and mouse hook runs so push-to-talk works while the game is in front. The hook can see other keys. This version keeps only the keys and mouse buttons you bind, plus Escape, digits, and the scroll wheel while the channel wheel is open. Those other keystrokes are not written to the log and are not sent to the server. Quit the app when you are done; the hook stops with the process.
+
+The Windows installer is unsigned. The app checks public GitHub Releases for Tubss2/radio-net and will install a downloaded build after you click Restart. Signature verification is off until the installer is code-signed. Treat a GitHub account compromise as a compromise of the app.
+
+The full notes are in [`docs/PRIVACY.md`](docs/PRIVACY.md). An outside-style assessment of the v0.4.3 installer is in [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md).
+
 ## Layout
 
 | Path | What it is |
@@ -15,6 +25,9 @@ This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. 
 | [`docs/discord-setup.md`](docs/discord-setup.md) | Discord login setup, backlog only |
 | [`docs/radio-net-feasibility.md`](docs/radio-net-feasibility.md) | Feasibility study that led to this project |
 | [`docs/anticheat-and-contacts.md`](docs/anticheat-and-contacts.md) | Anti-cheat notes, who to contact, and lower-risk input designs |
+| [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md) | Outside review: what would worry someone installing the app |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model: assets, attackers, trust boundaries |
+| [`docs/PRIVACY.md`](docs/PRIVACY.md) | What the app reads, what leaves the PC, and what stays |
 | [`spike/`](spike/README.md) | M1 spike: API server, Electron client, LiveKit dev runner, tests, screenshots |
 | [`deploy/`](deploy/README.md) | Vultr Sydney deploy kit: cloud-init, setup, pack/deploy scripts, systemd units |
 
