@@ -1,6 +1,6 @@
 # Radio Net threat model
 
-This is the model the hardening work is written against. The user-facing assessment of the v0.4.3 installer is [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md). What the app reads and where it sends it is [`PRIVACY.md`](PRIVACY.md).
+This is the model the hardening work is written against. The user-facing assessment of the v0.4.3 installer is [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md). What the app reads and where it sends it is [`PRIVACY.md`](PRIVACY.md). The GitHub Pages app, the phone button, and the localhost helper are [`SECURITY-WEB.md`](SECURITY-WEB.md).
 
 ## Assets
 
@@ -99,3 +99,16 @@ Decision the owner still has to make: pay for a certificate (see the cost notes 
 ## Deploy assumptions
 
 The VPS is a single Ubuntu box administered by SSH with the deploy key in `cloud-init.yaml`. Root can log in with that key. The app user is `radionet`, which runs LiveKit, the API, and Caddy. Secrets are mode `0640`, group `radionet`. Re-running `setup.sh` is how this box picks up firewall, fail2ban, and SSH changes. This document does not itself change the live server.
+
+## Web app, phone button, localhost helper
+
+The primary client after v0.4.3 is the site on GitHub Pages, plus a phone used as a push-to-talk button and a small Windows helper that watches one key with Raw Input. The assets above still apply. New ones:
+
+| Asset | Where it lives | Why it matters |
+|---|---|---|
+| Browser session token | `sessionStorage` on `tubss2.github.io` | Same power as the desktop session token, readable by any script on that origin. |
+| Browser admin key | `localStorage` only if the user opts in | Full community admin, in a place XSS can read. |
+| Phone pairing secret | QR fragment, SHA-256 on the server | Redeems a `ptt`-scoped token for one parent session. |
+| Helper pairing secret | Shown by the helper, sent once on the socket | Authorises one page to receive talk up/down. |
+
+A malicious website is a new attacker. It cannot install a global hook from the page. It can try to open `ws://127.0.0.1:47321` and key the microphone if the helper accepts its origin, and it can frame the Pages app because GitHub Pages will not send `frame-ancestors`. The controls, and what a bad helper would let that site do, are in [`SECURITY-WEB.md`](SECURITY-WEB.md). End-to-end voice encryption stays out of scope.

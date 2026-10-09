@@ -214,3 +214,5 @@ These rows are the product branch (`cursor/local-callsign-keybinds-3d59`), not t
 | H7 | Helper logs other keys | High | Fixed on the product branch. Raw Input drops every key that is not the watched one, before anything is written to the socket. The callback does not print key codes. |
 
 `npm audit` on the client production tree is clean. The high and critical counts are in dev tooling (the installer toolchain). Dependabot is the ongoing watch for those. The server tree is clean.
+
+The product direction after this installer is a GitHub Pages site, a phone used as the push-to-talk button, and a localhost Raw Input helper. That is a different set of worries (plaintext `localStorage`, Pages CSP, a socket any website might try to open). It is written up in [`SECURITY-WEB.md`](SECURITY-WEB.md). It does not change the ratings in the table above, which are about the v0.4.3 Windows build.
