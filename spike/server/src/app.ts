@@ -7,6 +7,7 @@ import {
   SESSION_TTL_SECONDS, adminKeyMatches, cleanLabel, hashAdminKey, newAdminKey, newInviteCode, normaliseInvite,
   signSession, verifySession, type Session,
 } from './accounts.js';
+import { allowBrowserOrigin } from './cors.js';
 import { DEFAULT_BAND, formatFrequency } from './freq.js';
 import { type Channel, ChannelError, type ChannelStore, type Community, roomNameFor } from './store.js';
 import { type RadioUser, mintChannelGrants } from './tokens.js';
@@ -57,8 +58,13 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
       done(error, undefined);
     }
   });
-  // Bearer-token API (no cookies), so allowing any origin is safe; the desktop app loads from file://.
-  void app.register(cors, { origin: true, methods: ['GET', 'POST', 'DELETE'] });
+  // Bearer tokens, not cookies. Allow-Credentials stays off. The desktop app has no origin (or "null" from file://).
+  void app.register(cors, {
+    origin: (origin, cb) => { cb(null, allowBrowserOrigin(origin)); },
+    methods: ['GET', 'POST', 'DELETE'],
+    allowedHeaders: ['authorization', 'content-type', 'x-admin-key'],
+    credentials: false,
+  });
   const rooms = new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
 
   const write = cfg.log ?? ((line: string) => console.log(line));

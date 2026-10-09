@@ -6,6 +6,7 @@ import { TokenVerifier } from 'livekit-server-sdk';
 import { describe, expect, it } from 'vitest';
 import { hashAdminKey, adminKeyMatches } from '../src/accounts.js';
 import { buildApp } from '../src/app.js';
+import { allowBrowserOrigin } from '../src/cors.js';
 import { formatFrequency, parseFrequency, validateFrequency } from '../src/freq.js';
 import { FileChannelStore, MemoryChannelStore } from '../src/store.js';
 
@@ -292,6 +293,37 @@ describe('deploy config', () => {
     const unit = readFileSync(join(import.meta.dirname, '../../../deploy/systemd/radionet-caddy.service'), 'utf8');
     expect(unit).toContain('/var/log/caddy');
     expect(unit).toContain('LogsDirectory=caddy');
+  });
+});
+
+describe('browser CORS', () => {
+  it('allows the Pages origin and local dev, and keeps credentials off', async () => {
+    expect(allowBrowserOrigin(undefined)).toBe(true);
+    expect(allowBrowserOrigin('null')).toBe(true);
+    expect(allowBrowserOrigin('https://tubss2.github.io')).toBe(true);
+    expect(allowBrowserOrigin('http://127.0.0.1:5175')).toBe(true);
+    expect(allowBrowserOrigin('http://localhost:5175')).toBe(true);
+    expect(allowBrowserOrigin('https://evil.example')).toBe(false);
+    expect(allowBrowserOrigin('https://tubss2.github.io.evil.com')).toBe(false);
+    expect(allowBrowserOrigin('https://localhost:5175')).toBe(false);
+
+    const { app } = await setup();
+    const preflight = (origin: string) => app.inject({
+      method: 'OPTIONS',
+      url: '/api/join',
+      headers: {
+        origin,
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'authorization,content-type,x-admin-key',
+      },
+    });
+    const pages = await preflight('https://tubss2.github.io');
+    expect(pages.headers['access-control-allow-origin']).toBe('https://tubss2.github.io');
+    expect(pages.headers['access-control-allow-credentials']).not.toBe('true');
+    const local = await preflight('http://127.0.0.1:5175');
+    expect(local.headers['access-control-allow-origin']).toBe('http://127.0.0.1:5175');
+    const evil = await preflight('https://evil.example');
+    expect(evil.headers['access-control-allow-origin']).toBeUndefined();
   });
 });
 
