@@ -2,7 +2,7 @@
 
 The computer that is in the game keeps the microphone. The phone only holds a button.
 
-On the radio page, **Use phone** asks the API for a data-only LiveKit room and a one-time code. A QR code points at this same site, for example `https://tubss2.github.io/radio-net/#/p/<code>?api=<server>`. The code expires in two minutes and works once. Redeeming it returns a two-hour data token for that visit. It does not return the computer's session token, and the phone cannot publish a microphone.
+On the radio page, **Use phone** asks the API for a data-only LiveKit room and a one-time code. The code is 32 random bytes. A QR code points at this same site, for example `https://tubss2.github.io/radio-net/#/p/<code>?api=<server>`. The code expires in two minutes and works once. The phone uses that `api` value only when it is the Sydney origin or localhost. Any other host is ignored, so a rewritten link cannot collect the code. Redeeming it returns a two-hour data token for that visit. It does not return the computer's session token, and the phone cannot publish a microphone. Closing the phone dialog disconnects that visit, which drops the button.
 
 The phone page shows the transmit channel, who is talking, channel buttons, and a large hold button. It asks for a screen wake lock and offers **Add to Home Screen** when the browser fires the install prompt. Holding the button sends a LiveKit data message. The computer unmutes the mic it already published. Letting go mutes it. If the phone stops repeating the hold (about 1.5 seconds), the computer releases.
 

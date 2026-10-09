@@ -2,6 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { stepVoiceGate } from '../../shared/voiceGate';
 import type { RadioControl } from './lib/radioEngine';
 
+/** Voice activation must not call getUserMedia on load. A click or key in this document is the gesture. */
+let gestureThisDocument = false;
+function rememberGesture(): void { gestureThisDocument = true; }
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', rememberGesture);
+  window.addEventListener('keydown', rememberGesture);
+}
+
 /** In-page push-to-talk, voice activation, and the Chromium headset mute toggle. */
 export function useTalk(opts: {
   enabled: boolean;
@@ -55,17 +63,34 @@ export function useTalk(opts: {
     if (!opts.enabled || opts.mode !== 'voice') return;
     let open = false;
     let belowSince: number | null = null;
-    const stop = engine.monitorMic((rms) => {
-      if (externalDown?.current) return;
-      if (mutedRef.current || document.hidden) {
-        if (open) { open = false; belowSince = null; release(); }
-        return;
-      }
-      const next = stepVoiceGate({ open, rms, sensitivity: opts.sensitivity, releaseMs: opts.releaseMs, belowSince, now: performance.now() });
-      belowSince = next.belowSince;
-      if (next.open !== open) { open = next.open; void engine.ptt(open); }
-    });
-    return () => { stop(); release(); };
+    let started = false;
+    let stop = () => {};
+    const start = () => {
+      if (started) return;
+      started = true;
+      void engine.unlock();
+      stop = engine.monitorMic((rms) => {
+        if (externalDown?.current) return;
+        if (mutedRef.current || document.hidden) {
+          if (open) { open = false; belowSince = null; release(); }
+          return;
+        }
+        const next = stepVoiceGate({ open, rms, sensitivity: opts.sensitivity, releaseMs: opts.releaseMs, belowSince, now: performance.now() });
+        belowSince = next.belowSince;
+        if (next.open !== open) { open = next.open; void engine.ptt(open); }
+      });
+    };
+    if (gestureThisDocument) start();
+    else {
+      window.addEventListener('pointerdown', start);
+      window.addEventListener('keydown', start);
+    }
+    return () => {
+      window.removeEventListener('pointerdown', start);
+      window.removeEventListener('keydown', start);
+      stop();
+      release();
+    };
   }, [opts.enabled, opts.mode, opts.sensitivity, opts.releaseMs, engine, release, externalDown]);
 
   useEffect(() => {

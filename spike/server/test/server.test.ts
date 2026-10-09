@@ -333,6 +333,7 @@ describe('phone push-to-talk pairing', () => {
     let now = 1_000_000;
     const pairs = new PhonePairs(() => now);
     const issued = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby' }, 1000);
+    expect(Buffer.from(issued.code, 'base64url')).toHaveLength(32);
     expect(pairs.take(issued.code)).toMatchObject({ sid: 'sid-1' });
     expect(pairs.take(issued.code)).toBeNull();
     const again = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby' }, 1000);
