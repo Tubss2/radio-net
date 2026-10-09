@@ -32,6 +32,8 @@ export interface RadioControl {
   transmittingOn: string | null;
   tune(channel: ChannelInfo): Promise<void>;
   untune(channelId: string): Promise<void>;
+  /** The server deleted this tuned channel's room. The UI drops it from the list and the wheel. */
+  onChannelDeleted?: (channelId: string) => void;
   setVolume(id: string, v: number): void;
   setMuted(id: string, m: boolean): void;
   setPan(id: string, p: number): void;
@@ -58,6 +60,7 @@ export class RadioEngine implements RadioControl {
   txId: string | null = null;
   transmittingOn: string | null = null;
   version = 0;
+  onChannelDeleted?: (channelId: string) => void;
 
   constructor(private api: Api, private communityId: string) {}
 
@@ -121,9 +124,15 @@ export class RadioEngine implements RadioControl {
         this.changed();
       })
       .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
-        slot.info.status = 'gone'; // e.g. ROOM_DELETED when an admin deletes the channel
         clientLog('livekit', `disconnected ${channel.freq} ${reason ?? ''}`.trim());
-        if (reason === DisconnectReason.ROOM_DELETED && this.txId === channel.id) this.cycle();
+        // The API deletes the LiveKit room when an admin deletes the channel. Drop the slot
+        // now so the card and the wheel do not keep a channel the server has removed.
+        if (reason === DisconnectReason.ROOM_DELETED) {
+          this.takeSlot(channel.id);
+          this.onChannelDeleted?.(channel.id);
+          return;
+        }
+        slot.info.status = 'gone';
         this.changed();
       });
 
@@ -153,15 +162,25 @@ export class RadioEngine implements RadioControl {
     this.changed();
   }
 
-  async untune(channelId: string) {
+  /** Remove the slot from the radio immediately. The room disconnect can finish afterwards. */
+  private takeSlot(channelId: string): Slot | undefined {
     const slot = this.slots.get(channelId);
     if (!slot) return;
     this.slots.delete(channelId);
     slot.sinks.forEach((e) => { e.srcObject = null; });
-    slot.gain.disconnect();
-    await slot.room.disconnect();
-    if (this.txId === channelId) { this.txId = null; this.cycle(); }
-    this.changed();
+    try { slot.gain.disconnect(); } catch { /* already torn down */ }
+    const wasTx = this.txId === channelId;
+    if (wasTx) this.txId = null;
+    if (this.transmittingOn === channelId) this.transmittingOn = null;
+    if (wasTx) this.cycle();
+    else this.changed();
+    return slot;
+  }
+
+  async untune(channelId: string) {
+    const slot = this.takeSlot(channelId);
+    if (!slot) return;
+    await slot.room.disconnect().catch(() => undefined);
   }
 
   setVolume(id: string, v: number) { const s = this.slots.get(id); if (!s) return; s.info.volume = v; this.applyGain(s); }

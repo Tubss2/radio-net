@@ -4,6 +4,7 @@ import {
   availableChannels,
   buildSegments,
   emptyWheel,
+  forgetMissingChannels,
   onWheelKey,
   scrollSteps,
   slotsFromTuned,
@@ -22,6 +23,8 @@ import { playSquelch } from './lib/uiSounds';
 export interface WheelOptions {
   canCreate?: boolean;
   createChannel?: (freq: string, name: string) => Promise<ChannelInfo>;
+  /** False until the server channel list has been fetched. An empty list before that is not "everything was deleted". */
+  listReady?: boolean;
 }
 
 /**
@@ -193,6 +196,14 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
       if (timerRef.current != null) window.clearTimeout(timerRef.current);
     };
   }, []);
+
+  // A deleted channel leaves the open wheel. Free dials stay. Skipped until the first real list arrives.
+  const listReady = Boolean(options?.listReady);
+  useEffect(() => {
+    if (!listReady) return;
+    const next = forgetMissingChannels(modelRef.current, channels);
+    if (next !== modelRef.current) commit(next);
+  }, [channels, listReady]);
 
   // Browser preview has no global hook. F2 opens the wheel; hold F2 and scroll away from the ring to retune.
   useEffect(() => {
