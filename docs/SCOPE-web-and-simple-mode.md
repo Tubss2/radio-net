@@ -16,7 +16,7 @@ Radio Net can grow two things that share one playing screen. A **web app** at [h
 
 The Pages URL is the product site. The mocked UI preview that the preview workflow builds is a different thing: it never calls the API, and its Content-Security-Policy sets `connect-src 'none'`. Shipping that mock at the same URL would look like Radio Net and then fail every join. The real app is a separate static build with the Sydney URLs baked in (`https://radio-149-28-170-200.sslip.io` and `wss://lk-149-28-170-200.sslip.io`). The mock can move to `/preview/` on Pages, matching the path Sydney already serves.
 
-GitHub Pages for this repo is not switched on yet. The preview workflow can deploy only after **Settings → Pages → Source** is **GitHub Actions**. The web app waits on that same one-time switch.
+GitHub Pages for this repo is set to **GitHub Actions** (the Pages API reports `build_type: workflow`). The web workflow still prints the Settings → Pages → Source step if `configure-pages` fails, and it deploys from `main` and from `cursor/local-callsign-keybinds-3d59`.
 
 ### What is already reusable
 
@@ -32,7 +32,7 @@ Leave these on the desktop: the main process, preload, `uiohook` hotkeys, the ov
 
 ### CORS
 
-`spike/server/src/app.ts` already registers `@fastify/cors` with `origin: true`, so any site can call the API from a browser. That was for the desktop app, which loads from `file://` and sends no useful origin. A public Pages app should allow a list instead:
+`spike/server/src/cors.ts` (`allowBrowserOrigin`) is the list. The live Sydney process still reflects every origin until that code is deployed and `radionet-api` is restarted. The desktop app loads from `file://` and sends no useful origin. The list is:
 
 - `https://tubss2.github.io`
 - `http://localhost` and `http://127.0.0.1` for local dev
