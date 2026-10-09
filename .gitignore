@@ -6,6 +6,7 @@ dist/
 out/
 build/
 spike/client/preview-dist/
+spike/client/web-dist/
 spike/client/release/
 *.tsbuildinfo
 
@@ -29,3 +30,6 @@ livekit_*.tar.gz
 # Python
 __pycache__/
 *.pyc
+
+# Rust helper build
+helper/target/

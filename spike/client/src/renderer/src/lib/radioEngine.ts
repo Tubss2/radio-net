@@ -1,7 +1,9 @@
 import {
   type LocalTrackPublication, type RemoteTrack, Room, RoomEvent, Track, createLocalAudioTrack, DisconnectReason,
 } from 'livekit-client';
-import type { Api, ChannelInfo } from './api';
+import { RECONNECTING } from '../../../shared/net';
+import { isReconnectError, type Api, type ChannelInfo } from './api';
+import { clientLog } from './clientLog';
 import { resolveLivekitUrl } from './livekitUrl';
 
 /**
@@ -30,12 +32,18 @@ export interface RadioControl {
   transmittingOn: string | null;
   tune(channel: ChannelInfo): Promise<void>;
   untune(channelId: string): Promise<void>;
+  /** The server deleted this tuned channel's room. The UI drops it from the list and the wheel. */
+  onChannelDeleted?: (channelId: string) => void;
   setVolume(id: string, v: number): void;
   setMuted(id: string, m: boolean): void;
   setPan(id: string, p: number): void;
   setTx(id: string): void;
   cycle(): void;
   ptt(down: boolean, channelId?: string): Promise<void>;
+  /** Resume audio and open the mic on a user gesture. The track stays published and muted until PTT. */
+  unlock(): Promise<void>;
+  /** RMS of the open mic, about 0..1. Used for voice activation. */
+  monitorMic(onLevel: (rms: number) => void): () => void;
   dispose(): Promise<void>;
 }
 
@@ -56,6 +64,7 @@ export class RadioEngine implements RadioControl {
   txId: string | null = null;
   transmittingOn: string | null = null;
   version = 0;
+  onChannelDeleted?: (channelId: string) => void;
 
   constructor(private api: Api, private communityId: string) {}
 
@@ -72,6 +81,39 @@ export class RadioEngine implements RadioControl {
       this.micTrack = t.mediaStreamTrack;
     }
     return this.micTrack;
+  }
+
+  async unlock() {
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    await this.mic();
+  }
+
+  monitorMic(onLevel: (rms: number) => void): () => void {
+    let stopped = false;
+    let raf = 0;
+    let detach = () => undefined;
+    void this.mic().then((track) => {
+      if (stopped) return;
+      const src = this.ctx.createMediaStreamSource(new MediaStream([track]));
+      const analyser = this.ctx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+      const tick = () => {
+        if (stopped) return;
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const v = (buf[i] - 128) / 128;
+          sum += v * v;
+        }
+        onLevel(Math.sqrt(sum / buf.length));
+        raf = requestAnimationFrame(tick);
+      };
+      detach = () => { try { src.disconnect(); analyser.disconnect(); } catch { /* already stopped */ } };
+      tick();
+    }).catch(() => undefined);
+    return () => { stopped = true; cancelAnimationFrame(raf); detach(); };
   }
 
   async tune(channel: ChannelInfo) {
@@ -108,15 +150,42 @@ export class RadioEngine implements RadioControl {
       })
       .on(RoomEvent.ParticipantConnected, () => { slot.info.listeners = room.numParticipants; this.changed(); })
       .on(RoomEvent.ParticipantDisconnected, () => { slot.info.listeners = room.numParticipants; this.changed(); })
-      .on(RoomEvent.Reconnecting, () => { slot.info.status = 'reconnecting'; this.changed(); })
-      .on(RoomEvent.Reconnected, () => { slot.info.status = 'live'; this.changed(); })
+      .on(RoomEvent.Reconnecting, () => {
+        slot.info.status = 'reconnecting';
+        clientLog('livekit', `reconnecting ${channel.freq}`);
+        this.changed();
+      })
+      .on(RoomEvent.Reconnected, () => {
+        slot.info.status = 'live';
+        clientLog('livekit', `reconnected ${channel.freq}`);
+        this.changed();
+      })
       .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
-        slot.info.status = 'gone'; // e.g. ROOM_DELETED when an admin deletes the channel
-        if (reason === DisconnectReason.ROOM_DELETED && this.txId === channel.id) this.cycle();
+        clientLog('livekit', `disconnected ${channel.freq} ${reason ?? ''}`.trim());
+        // The API deletes the LiveKit room when an admin deletes the channel. Drop the slot
+        // now so the card and the wheel do not keep a channel the server has removed.
+        if (reason === DisconnectReason.ROOM_DELETED) {
+          this.takeSlot(channel.id);
+          this.onChannelDeleted?.(channel.id);
+          return;
+        }
+        slot.info.status = 'gone';
         this.changed();
       });
 
-    await room.connect(resolveLivekitUrl(livekitUrl, import.meta.env.VITE_LIVEKIT_URL), grant.token, { autoSubscribe: true });
+    const url = resolveLivekitUrl(livekitUrl, import.meta.env.VITE_LIVEKIT_URL);
+    try {
+      await room.connect(url, grant.token, { autoSubscribe: true });
+    } catch (err) {
+      this.slots.delete(channel.id);
+      slot.gain.disconnect();
+      void room.disconnect();
+      clientLog('livekit', `connect ${channel.freq} failed`);
+      this.changed();
+      if (isReconnectError(err)) throw new Error(RECONNECTING);
+      throw err;
+    }
+    clientLog('livekit', `connected ${channel.freq}`);
     slot.info.status = 'live';
     slot.info.listeners = room.numParticipants;
     if (grant.canTransmit) {
@@ -130,15 +199,25 @@ export class RadioEngine implements RadioControl {
     this.changed();
   }
 
-  async untune(channelId: string) {
+  /** Remove the slot from the radio immediately. The room disconnect can finish afterwards. */
+  private takeSlot(channelId: string): Slot | undefined {
     const slot = this.slots.get(channelId);
     if (!slot) return;
     this.slots.delete(channelId);
     slot.sinks.forEach((e) => { e.srcObject = null; });
-    slot.gain.disconnect();
-    await slot.room.disconnect();
-    if (this.txId === channelId) { this.txId = null; this.cycle(); }
-    this.changed();
+    try { slot.gain.disconnect(); } catch { /* already torn down */ }
+    const wasTx = this.txId === channelId;
+    if (wasTx) this.txId = null;
+    if (this.transmittingOn === channelId) this.transmittingOn = null;
+    if (wasTx) this.cycle();
+    else this.changed();
+    return slot;
+  }
+
+  async untune(channelId: string) {
+    const slot = this.takeSlot(channelId);
+    if (!slot) return;
+    await slot.room.disconnect().catch(() => undefined);
   }
 
   setVolume(id: string, v: number) { const s = this.slots.get(id); if (!s) return; s.info.volume = v; this.applyGain(s); }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { removedTunedIds } from '../../../shared/channelList';
 import { resolveLivekitUrl } from './livekitUrl';
 import { PreviewApi } from './previewApi';
 import { PreviewEngine } from './previewEngine';
@@ -27,6 +28,28 @@ describe('preview radio', () => {
     expect(engine.transmittingOn).toBeNull();
     await engine.demo('silence');
     expect(engine.tuned.every((t) => t.speakers.length === 0)).toBe(true);
+    await engine.dispose();
+  });
+
+  it('drops a deleted channel from the list and from the radio', async () => {
+    const api = new PreviewApi();
+    const engine = new PreviewEngine();
+    const channels = await api.channels();
+    const logi = channels.find((c) => c.id === 'logi');
+    const cmd = channels.find((c) => c.id === 'cmd');
+    if (!logi || !cmd) throw new Error('preview channels missing');
+    await engine.tune(logi);
+    await engine.tune(cmd);
+    engine.setTx('logi');
+    await api.deleteChannel('wdnz', 'logi');
+    const left = await api.channels();
+    expect(left.map((c) => c.id)).not.toContain('logi');
+    expect(left.map((c) => c.name)).toContain('Command');
+    for (const id of removedTunedIds(engine.tuned.map((t) => t.channel.id), left.map((c) => c.id))) {
+      await engine.untune(id);
+    }
+    expect(engine.tuned.map((t) => t.channel.id)).toEqual(['cmd']);
+    expect(engine.txId).toBe('cmd');
     await engine.dispose();
   });
 

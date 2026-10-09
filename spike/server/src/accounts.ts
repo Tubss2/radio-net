@@ -1,94 +1,97 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
- * Lightweight accounts, no Discord, no email, no passwords.
- *
- * - An Account is created the first time someone joins or creates a community. The server returns a
- *   long random device token ONCE; the client keeps it in Windows' encrypted storage (Electron safeStorage).
- *   The server stores only a SHA-256 hash of it.
- * - Communities ("net groups") are joined with an invite code + display name.
- * - Roles: owner > admin > member. Owner/admins create & delete channels, rotate the invite, kick, promote.
- * - Lost device? An admin issues a one-time recovery code for that member (backlog: self-serve recovery).
+ * No user accounts. A callsign lives on the PC. Joining a community with its invite code
+ * returns a short-lived session token (HMAC, not stored). Creating a community returns an
+ * admin key once; the server keeps only its SHA-256 hash. Admin actions send that key back.
  */
-export type Role = 'owner' | 'admin' | 'member';
+export const CALLSIGN_MAX = 32;
 
-export interface Account {
-  id: string;
-  displayName: string;
-  tokenHash: string;
-  createdAt: string;
-}
-
-export interface Membership {
-  communityId: string;
-  accountId: string;
-  role: Role;
-  joinedAt: string;
-}
-
-export const DISPLAY_NAME_MAX = 32;
-
-/** Invite codes: 8 chars from an unambiguous alphabet, shown as XXXX-XXXX. ~40 bits; joins are rate-limited. */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+/** Invite codes: 8 chars from an unambiguous alphabet, shown as XXXX-XXXX. Joins are rate-limited. */
 export function newInviteCode(): string {
   const b = randomBytes(8);
   const s = [...b].map((x) => ALPHABET[x % ALPHABET.length]).join('');
   return `${s.slice(0, 4)}-${s.slice(4)}`;
 }
+
 export function normaliseInvite(code: string): string {
   const s = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
   return s.length === 8 ? `${s.slice(0, 4)}-${s.slice(4)}` : s;
 }
 
-export function newDeviceToken(): string {
-  return `rn_${randomBytes(32).toString('base64url')}`;
-}
-export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
-
-export function cleanDisplayName(name: string): string | null {
+/** Callsign or community name: trimmed, 1–32 characters. */
+export function cleanLabel(name: string): string | null {
   const n = (name ?? '').trim().replace(/\s+/g, ' ');
-  if (!n || n.length > DISPLAY_NAME_MAX) return null;
+  if (!n || n.length > CALLSIGN_MAX) return null;
   return n;
 }
 
-export class MemoryAccountStore {
-  private accounts = new Map<string, Account>();
-  private byTokenHash = new Map<string, string>();
-  private memberships: Membership[] = [];
+export function newAdminKey(): string {
+  return `rnk_${randomBytes(32).toString('base64url')}`;
+}
 
-  createAccount(displayName: string): { account: Account; token: string } {
-    const token = newDeviceToken();
-    const account: Account = { id: randomUUID().slice(0, 12), displayName, tokenHash: hashToken(token), createdAt: new Date().toISOString() };
-    this.accounts.set(account.id, account);
-    this.byTokenHash.set(account.tokenHash, account.id);
-    return { account, token };
+export function hashAdminKey(key: string): string {
+  return createHash('sha256').update(key).digest('hex');
+}
+
+/** Equal length is not required. Both sides are hashed so the compare does not leak the setup code. */
+export function secretEquals(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
+export function adminKeyMatches(key: string, hash: string): boolean {
+  if (!key || hash.length !== 64) return false;
+  const got = Buffer.from(hashAdminKey(key), 'hex');
+  const want = Buffer.from(hash, 'hex');
+  if (got.length !== want.length) return false;
+  return timingSafeEqual(got, want);
+}
+
+/** Stateless join session. `sid` is the LiveKit identity for this visit. */
+export interface Session {
+  cid: string;
+  name: string;
+  sid: string;
+  exp: number;
+  /** Unix seconds, informational. */
+  iat?: number;
+  /** Join sessions are members. Anything else is rejected. */
+  scope?: 'member';
+  /** Copied from the community. Invite rotation bumps the community and strands old tokens. */
+  epoch?: number;
+}
+
+export const SESSION_TTL_SECONDS = 12 * 60 * 60;
+
+export function signSession(session: Session, secret: string): string {
+  const body = Buffer.from(JSON.stringify(session)).toString('base64url');
+  const mac = createHmac('sha256', secret).update(body).digest('base64url');
+  return `${body}.${mac}`;
+}
+
+export function verifySession(token: string, secret: string): Session | null {
+  const dot = token.indexOf('.');
+  if (dot <= 0) return null;
+  const body = token.slice(0, dot);
+  const mac = token.slice(dot + 1);
+  const expect = createHmac('sha256', secret).update(body).digest('base64url');
+  const a = Buffer.from(mac);
+  const b = Buffer.from(expect);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  let session: Session;
+  try {
+    session = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Session;
+  } catch {
+    return null;
   }
-  byToken(token: string): Account | undefined {
-    const id = this.byTokenHash.get(hashToken(token));
-    return id ? this.accounts.get(id) : undefined;
-  }
-  get(id: string) {
-    return this.accounts.get(id);
-  }
-  membership(communityId: string, accountId: string) {
-    return this.memberships.find((m) => m.communityId === communityId && m.accountId === accountId);
-  }
-  membershipsOf(accountId: string) {
-    return this.memberships.filter((m) => m.accountId === accountId);
-  }
-  members(communityId: string) {
-    return this.memberships.filter((m) => m.communityId === communityId);
-  }
-  addMembership(communityId: string, accountId: string, role: Role) {
-    const existing = this.membership(communityId, accountId);
-    if (existing) return existing;
-    const m: Membership = { communityId, accountId, role, joinedAt: new Date().toISOString() };
-    this.memberships.push(m);
-    return m;
-  }
-  removeMembership(communityId: string, accountId: string) {
-    this.memberships = this.memberships.filter((m) => !(m.communityId === communityId && m.accountId === accountId));
-  }
+  if (typeof session?.cid !== 'string' || typeof session.name !== 'string' || typeof session.sid !== 'string') return null;
+  if (session.cid.length > 64 || session.name.length > CALLSIGN_MAX || session.sid.length > 64) return null;
+  if (typeof session.exp !== 'number' || session.exp < Math.floor(Date.now() / 1000)) return null;
+  if (session.scope !== undefined && session.scope !== 'member') return null;
+  if (session.epoch !== undefined && (typeof session.epoch !== 'number' || !Number.isInteger(session.epoch) || session.epoch < 0)) return null;
+  return session;
 }

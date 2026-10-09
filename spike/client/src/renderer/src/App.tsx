@@ -1,161 +1,595 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import { withBindDefaults } from '../../shared/keybinds';
+import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
 import type { Keybinds } from '../../shared/types';
-import { bridge, inElectron } from './bridge';
-import { Api, type ChannelInfo, type CommunityInfo } from './lib/api';
-import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
+import { acceptChannelList, removedTunedIds } from '../../shared/channelList';
+import { matchChannel } from '../../shared/radialWheel';
+import { playSquelch, setUiSounds } from './lib/uiSounds';
+import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
+import { RECONNECTING } from '../../shared/net';
+import { API_URL, Api, ApiError, isReconnectError, type ChannelInfo } from './lib/api';
+import { parseFreqInput, validateFrequency } from './lib/freq';
 import { isPreview } from './lib/previewMode';
 import { PreviewApi } from './lib/previewApi';
 import { PreviewEngine } from './lib/previewEngine';
-import { matchChannel } from '../../shared/radialWheel';
-import { parseFreqInput, validateFrequency } from './lib/freq';
+import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
+import { isWeb } from './platform';
+import { PhoneLink } from './PhoneLink';
+import { HelperLink } from './HelperLink';
 import { RadialWheel } from './RadialWheel';
+import { Settings } from './Settings';
+import { SimpleRadio } from './SimpleRadio';
+import { PrivacyConsent, PrivacyNotes } from './Privacy';
 import { useChannelWheel } from './useChannelWheel';
+import { useTalk } from './useTalk';
 
 const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
-export function App() {
-  const [api, setApi] = useState<Api | null>(null);
-  const [me, setMe] = useState<{ displayName: string } | null>(null);
-  const [communities, setCommunities] = useState<CommunityInfo[]>([]);
-  const [active, setActive] = useState<CommunityInfo | null>(null);
-
-  const refresh = useCallback(async (a: Api) => {
-    const r = await a.me();
-    setMe(r.account);
-    setCommunities(r.communities);
-    setActive((cur) => r.communities.find((c) => c.id === cur?.id) ?? r.communities[0] ?? null);
-  }, []);
-
-  useEffect(() => {
-    if (isPreview) {
-      const a = new PreviewApi();
-      setApi(a);
-      void refresh(a);
-      return;
-    }
-    bridge.getToken().then(async (t) => {
-      const a = new Api(t);
-      setApi(a);
-      if (t) await refresh(a).catch(() => setMe(null));
-    });
-  }, [refresh]);
-
-  if (!api) return null;
-  if (!me || !active)
-    return <Onboarding api={api} signedIn={Boolean(me)} onDone={async (token) => { if (token) { api.token = token; await bridge.setToken(token); } await refresh(api); }} />;
-
+/** Shown after electron-updater has downloaded a build. Later hides it until the next check. */
+function UpdateBar() {
+  const [phase, setPhase] = useState<'available' | 'ready' | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => bridge.onUpdateAvailable((info) => { setVersion(info.version); setPhase('available'); }), []);
+  useEffect(() => bridge.onUpdateReady((info) => { setVersion(info.version); setPhase('ready'); }), []);
+  if (!version || !phase) return null;
   return (
-    <div className="app">
-      <div className="titlebar" />
-      <nav className="rail">
-        {communities.map((c) => (
-          <button key={c.id} className={`c ${c.id === active.id ? 'on' : ''}`} title={c.name} onClick={() => setActive(c)}>{initials(c.name)}</button>
-        ))}
-        <button className="c add" title="Join or create a community" onClick={() => setMe(null)}>+</button>
-      </nav>
-      <Radio key={active.id} api={api} community={active} me={me.displayName} />
+    <div className="update-ready" role="status">
+      <span>{phase === 'ready' ? 'Update downloaded' : 'Update available'}</span>
+      <span className="ver">Radio Net {version} · unsigned</span>
+      {phase === 'available'
+        ? <button className="btn sm primary" type="button" onClick={() => bridge.downloadUpdate()}>Download</button>
+        : <button className="btn sm primary" type="button" onClick={() => bridge.installUpdate()}>Restart now</button>}
+      <button className="btn sm ghost" type="button" onClick={() => setPhase(null)}>Later</button>
     </div>
   );
 }
 
-function Onboarding({ api, signedIn, onDone }: { api: Api; signedIn: boolean; onDone: (token?: string) => void }) {
-  const [mode, setMode] = useState<'join' | 'create'>('join');
-  const [code, setCode] = useState('');
+function clientFor(server: { url?: string; token?: string | null; adminKey?: string | null } | null): Api {
+  if (isPreview) return new PreviewApi();
+  return new Api(server?.url || API_URL, server?.token ?? null, server?.adminKey ?? null);
+}
+
+export function App() {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [binds, setBinds] = useState<Keybinds>(() => withBindDefaults(null));
+  const [freshKey, setFreshKey] = useState<string | null>(null);
+  const [hotkeysOn, setHotkeysOn] = useState(true);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const profileRef = useRef<Profile | null>(null);
+
+  const save = useCallback(async (next: Profile) => {
+    profileRef.current = next;
+    setProfile(next);
+    setUiSounds(next.soundsOn, next.soundVolume);
+    await bridge.setProfile(next);
+  }, []);
+
+  useEffect(() => {
+    bridge.getProfile().then(async (raw) => {
+      const p = normaliseProfile(raw);
+      let nextBinds = withBindDefaults(p.keybinds);
+      if (isPreview && !p.keybinds) {
+        nextBinds = { ...nextBinds, ptt: { kind: 'key', keycode: 0, label: 'Space' }, cycle: null };
+      }
+      profileRef.current = p;
+      setProfile(p);
+      setHotkeysOn(p.hotkeysEnabled);
+      setUiSounds(p.soundsOn, p.soundVolume);
+      setBinds(nextBinds);
+      await bridge.setKeybinds(withBindDefaults(p.keybinds));
+      if (p.privacyAccepted) await bridge.setHotkeysEnabled(p.hotkeysEnabled);
+      if (isPreview && p.servers[0]) setActiveId(p.servers[0].id);
+    });
+  }, []);
+
+  const setListening = (enabled: boolean) => {
+    setHotkeysOn(enabled);
+    const cur = profileRef.current;
+    if (!cur) return;
+    void save({ ...cur, hotkeysEnabled: enabled });
+    void bridge.setHotkeysEnabled(enabled && cur.privacyAccepted);
+  };
+
+  const acceptPrivacy = () => {
+    const cur = profileRef.current;
+    if (!cur) return;
+    setHotkeysOn(true);
+    void save({ ...cur, privacyAccepted: true, hotkeysEnabled: true });
+    void bridge.setHotkeysEnabled(true);
+  };
+
+  const changeBinds = (next: Keybinds) => {
+    setBinds(next);
+    void bridge.setKeybinds(next);
+    if (profileRef.current) void save({ ...profileRef.current, keybinds: next });
+  };
+
+  if (!profile) return <UpdateBar />;
+  if (!profile.privacyAccepted) return <><PrivacyConsent onAccept={acceptPrivacy} /><UpdateBar /></>;
+  if (!profile.callsign) return <><Callsign onSave={(callsign) => void save({ ...profile, callsign })} /><UpdateBar /></>;
+
+  const active = profile.servers.find((s) => s.id === activeId) ?? null;
+  if (!active) {
+    return (
+      <>
+        <Home
+          profile={profile}
+          hotkeysOn={hotkeysOn}
+          onHotkeys={setListening}
+          onPrivacy={() => setPrivacyOpen(true)}
+          onProfile={(p) => void save(p)}
+          onOpen={(server) => setActiveId(server.id)}
+          onCreated={(server, adminKey) => { setFreshKey(adminKey); setActiveId(server.id); }}
+        />
+        {privacyOpen && <PrivacyNotes onClose={() => setPrivacyOpen(false)} />}
+        <UpdateBar />
+      </>
+    );
+  }
+
+  return (
+    <div className={`app${isWeb ? ' web' : ''}${!isWeb && profile.simpleOn ? ' simple' : ''}`}>
+      <div className="titlebar" />
+      <nav className="rail">
+        {[...profile.servers].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed)).map((c) => (
+          <button key={c.id} className={`c ${c.id === active.id ? 'on' : ''}`} title={c.name} onClick={() => setActiveId(c.id)}>{initials(c.name)}</button>
+        ))}
+        <button className="c add" title="Servers" onClick={() => setActiveId(null)}>+</button>
+      </nav>
+      <Radio
+        server={active}
+        callsign={profile.callsign}
+        binds={binds}
+        boot={profile}
+        hotkeysOn={hotkeysOn}
+        onHotkeys={setListening}
+        onProfile={(p) => void save(p)}
+        onServer={(server) => {
+          const cur = profileRef.current;
+          if (!cur) return;
+          void save({ ...cur, servers: cur.servers.map((s) => s.id === server.id ? server : s) });
+        }}
+        onRemoved={() => {
+          const cur = profileRef.current;
+          if (!cur) return;
+          const radios = { ...cur.radios };
+          delete radios[active.id];
+          void save({ ...cur, servers: cur.servers.filter((s) => s.id !== active.id), radios });
+          setActiveId(null);
+        }}
+      />
+      <SettingsHost
+        binds={binds}
+        hotkeysOn={hotkeysOn}
+        onHotkeys={setListening}
+        onPrivacy={() => setPrivacyOpen(true)}
+        soundsOn={profile.soundsOn}
+        soundVolume={profile.soundVolume}
+        onSounds={(soundsOn, soundVolume) => {
+          const cur = profileRef.current;
+          if (!cur) return;
+          void save({ ...cur, soundsOn, soundVolume });
+        }}
+        onChange={changeBinds}
+      />
+      {freshKey && <AdminKeyReveal adminKey={freshKey} onClose={() => setFreshKey(null)} />}
+      {privacyOpen && <PrivacyNotes onClose={() => setPrivacyOpen(false)} />}
+      <UpdateBar />
+    </div>
+  );
+}
+
+/** Settings is opened from inside Radio via a custom event so the radio tree can stay the owner of tuned channels. */
+function SettingsHost({ binds, hotkeysOn, onHotkeys, onPrivacy, soundsOn, soundVolume, onSounds, onChange }: {
+  binds: Keybinds;
+  hotkeysOn: boolean;
+  onHotkeys: (enabled: boolean) => void;
+  onPrivacy: () => void;
+  soundsOn: boolean;
+  soundVolume: number;
+  onSounds: (on: boolean, volume: number) => void;
+  onChange: (b: Keybinds) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [quick, setQuick] = useState<{ id: string; label: string }[]>([]);
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent<{ quick: { id: string; label: string }[] }>).detail;
+      setQuick(detail?.quick ?? []);
+      setOpen(true);
+    };
+    window.addEventListener('rn-settings', onOpen);
+    return () => window.removeEventListener('rn-settings', onOpen);
+  }, []);
+  if (!open) return null;
+  return <Settings binds={binds} quick={quick} hotkeysOn={hotkeysOn} onHotkeys={onHotkeys} onPrivacy={onPrivacy} soundsOn={soundsOn} soundVolume={soundVolume} onSounds={onSounds} onChange={onChange} onClose={() => setOpen(false)} />;
+}
+
+function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
   const [name, setName] = useState('');
-  const [community, setCommunity] = useState('');
-  const [setup, setSetup] = useState('');
   const [err, setErr] = useState('');
-  const go = async () => {
-    setErr('');
-    try {
-      const r = mode === 'join'
-        ? await api.join(code, signedIn ? undefined : name)
-        : await api.createCommunity(community, signedIn ? undefined : name, setup || undefined);
-      onDone(r.token);
-    } catch (e) { setErr((e as Error).message); }
+  const go = () => {
+    const n = name.trim().replace(/\s+/g, ' ');
+    if (!n || n.length > 32) { setErr('Pick a callsign (1-32 characters)'); return; }
+    onSave(n);
   };
   return (
     <div className="onboard">
       <div className="titlebar" />
       <div className="box">
-        <h1>{mode === 'join' ? 'Join your net' : 'Start a community'}</h1>
-        <p>{mode === 'join' ? 'Paste the invite code from your community admin.' : 'You’ll get an invite code to share with your group.'}</p>
+        <h1>Your callsign</h1>
+        <p>Stored {isWeb ? 'in this browser' : 'on this PC'}. There is no account and nothing to sign in to.</p>
+        <label className="field">Callsign<input placeholder="Toby" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
+        {err && <div className="err">{err}</div>}
+        <button className="btn primary" onClick={go}>Continue</button>
+      </div>
+    </div>
+  );
+}
+
+function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onCreated }: {
+  profile: Profile;
+  hotkeysOn: boolean;
+  onHotkeys: (enabled: boolean) => void;
+  onPrivacy: () => void;
+  onProfile: (p: Profile) => void;
+  onOpen: (server: ServerEntry) => void;
+  onCreated: (server: ServerEntry, adminKey: string) => void;
+}) {
+  const [mode, setMode] = useState<'join' | 'create'>('join');
+  const [code, setCode] = useState('');
+  const [community, setCommunity] = useState('');
+  const [setup, setSetup] = useState('');
+  const [url, setUrl] = useState(API_URL);
+  const [callsign, setCallsign] = useState(profile.callsign);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const joinExisting = async (server: ServerEntry) => {
+    setErr('');
+    setBusy(true);
+    try {
+      const name = callsign.trim().replace(/\s+/g, ' ');
+      if (!name) throw new Error('Pick a callsign (1-32 characters)');
+      const api = clientFor({ url: server.url, token: null, adminKey: server.adminKey ?? null });
+      const r = await api.join(server.inviteCode, name);
+      const entry: ServerEntry = {
+        ...server,
+        name: r.community.name,
+        inviteCode: r.community.inviteCode,
+        token: r.token,
+        tokenExp: Date.parse(r.expiresAt),
+        lastUsed: new Date().toISOString(),
+      };
+      const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
+      onProfile({ ...profile, callsign: name, servers });
+      onOpen(entry);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const go = async () => {
+    setErr('');
+    setBusy(true);
+    try {
+      const name = callsign.trim().replace(/\s+/g, ' ');
+      if (!name) throw new Error('Pick a callsign (1-32 characters)');
+      const api = clientFor({ url, token: null, adminKey: null });
+      if (mode === 'join') {
+        const r = await api.join(code, name);
+        const prev = profile.servers.find((s) => s.id === r.community.id);
+        const entry: ServerEntry = {
+          id: r.community.id,
+          name: r.community.name,
+          url,
+          inviteCode: r.community.inviteCode,
+          adminKey: prev?.adminKey,
+          token: r.token,
+          tokenExp: Date.parse(r.expiresAt),
+          lastUsed: new Date().toISOString(),
+        };
+        const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
+        onProfile({ ...profile, callsign: name, servers });
+        onOpen(entry);
+      } else {
+        const created = await api.createCommunity(community, setup || undefined);
+        const joined = await api.join(created.community.inviteCode, name);
+        const entry: ServerEntry = {
+          id: created.community.id,
+          name: created.community.name,
+          url,
+          inviteCode: created.community.inviteCode,
+          adminKey: created.adminKey,
+          token: joined.token,
+          tokenExp: Date.parse(joined.expiresAt),
+          lastUsed: new Date().toISOString(),
+        };
+        const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
+        onProfile({ ...profile, callsign: name, servers });
+        onCreated(entry, created.adminKey);
+      }
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const history = [...profile.servers].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed));
+
+  return (
+    <div className="onboard">
+      <div className="titlebar" />
+      <div className="box servers">
+        <h1>{mode === 'join' ? 'Join a server' : 'Start a community'}</h1>
+        <p>{mode === 'join' ? `Use the invite code from your community. Servers you have joined stay ${isWeb ? 'in this browser' : 'on this PC'}.` : `You get an invite code for the group, and an admin key. ${isWeb ? 'This browser keeps that key only if you ask it to.' : 'The admin key stays on this PC.'}`}</p>
+        <label className="field">Callsign<input placeholder="Toby" value={callsign} onChange={(e) => setCallsign(e.target.value)} /></label>
+        {history.length > 0 && mode === 'join' && (
+          <div className="history">
+            {history.map((s) => (
+              <div key={s.id} className="server">
+                <div>
+                  <div>{s.name}</div>
+                  <div className="sub" style={{ margin: 0 }}>{s.url} · {s.inviteCode}</div>
+                </div>
+                <button className="btn sm" disabled={busy} onClick={() => void joinExisting(s)}>Rejoin</button>
+              </div>
+            ))}
+          </div>
+        )}
         {mode === 'join'
           ? <label className="field">Invite code<input className="code" placeholder="ABCD-EF23" value={code} onChange={(e) => setCode(e.target.value)} /></label>
           : <>
               <label className="field">Community name<input placeholder="War Dogs NZ" value={community} onChange={(e) => setCommunity(e.target.value)} /></label>
               <label className="field">Setup code (from whoever runs the server)<input value={setup} onChange={(e) => setSetup(e.target.value)} /></label>
             </>}
-        {!signedIn && <label className="field">Your callsign / display name<input placeholder="Toby" value={name} onChange={(e) => setName(e.target.value)} /></label>}
+        <label className="field">Server<input placeholder={API_URL} value={url} onChange={(e) => setUrl(e.target.value)} /></label>
         {err && <div className="err">{err}</div>}
-        <button className="btn primary" onClick={go}>{mode === 'join' ? 'Join' : 'Create community'}</button>
-        <button className="btn ghost" onClick={() => setMode(mode === 'join' ? 'create' : 'join')}>
+        <button className="btn primary" disabled={busy} onClick={() => void go()}>{mode === 'join' ? 'Join' : 'Create community'}</button>
+        <button className="btn ghost" onClick={() => { setMode(mode === 'join' ? 'create' : 'join'); setErr(''); }}>
           {mode === 'join' ? 'Running a group? Create a community' : 'Have an invite? Join instead'}
         </button>
+        <div className="row">
+          <button className="btn sm ghost" type="button" onClick={() => onHotkeys(!hotkeysOn)}>{hotkeysOn ? 'Keybinds on' : 'Keybinds paused'}</button>
+          <button className="btn sm ghost" type="button" onClick={onPrivacy}>Privacy notes</button>
+        </div>
       </div>
     </div>
   );
 }
 
-function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me: string }) {
+function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(adminKey); setCopied(true); } catch { setCopied(false); }
+  };
+  return (
+    <div className="modal-bg">
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: 0 }}>Community admin key</h3>
+        <p className="sub" style={{ margin: 0 }}>{isWeb
+          ? 'This is shown once. This browser forgets it when you close the tab, unless you tick “Keep the admin key in this browser” on the radio. A script on this site can read a key you choose to keep. Copy it if another admin needs it. There is no account to recover it; the server setup code can mint a new one.'
+          : 'This is shown once. It is saved on this PC. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.'}</p>
+        <div className="keybox">{adminKey}</div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn ghost" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
+          <button className="btn primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function talkKeyLabel(code: string): string {
+  if (code === 'Space') return 'Space';
+  if (code.startsWith('Key') && code.length === 4) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  return code;
+}
+
+function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile, onServer, onRemoved }: {
+  server: ServerEntry;
+  callsign: string;
+  binds: Keybinds;
+  boot: Profile;
+  hotkeysOn: boolean;
+  onHotkeys: (enabled: boolean) => void;
+  onProfile: (p: Profile) => void;
+  onServer: (s: ServerEntry) => void;
+  onRemoved: () => void;
+}) {
+  const api = useMemo(
+    () => clientFor(server),
+    [server.id, server.url, server.token, server.adminKey],
+  );
   const engine: RadioControl = useMemo(
-    () => (isPreview ? new PreviewEngine() : new RadioEngine(api, community.id)),
-    [api, community.id],
+    () => (isPreview ? new PreviewEngine() : new RadioEngine(api, server.id)),
+    [api, server.id],
   );
   useSyncExternalStore(engine.subscribe, () => engine.version);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [listReady, setListReady] = useState(false);
   const [query, setQuery] = useState('');
   const [err, setErr] = useState('');
-  const [binds, setBinds] = useState<Keybinds | null>(null);
-  const [overlayOn, setOverlayOn] = useState(true);
+  const [overlayOn, setOverlayOn] = useState(boot.overlayOn);
   const [newCh, setNewCh] = useState(false);
-  const isAdmin = community.role !== 'member';
-  const storeKey = `rn.radio.${community.id}`;
-
-  const load = useCallback(() => api.channels(community.id).then(setChannels).catch((e) => setErr(e.message)), [api, community.id]);
   const [restored, setRestored] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [deleteSupported, setDeleteSupported] = useState(true);
+  const isAdmin = Boolean(server.adminKey);
+  const [channelsOpen, setChannelsOpen] = useState(false);
+  const [talkOpen, setTalkOpen] = useState(false);
+  const [arming, setArming] = useState(false);
+  const [simpleOn, setSimpleOn] = useState(boot.simpleOn);
+  const [onTop, setOnTop] = useState(boot.simpleOnTop);
+  const externalDown = useRef(false);
+  const talk = useTalk({
+    enabled: isWeb,
+    engine,
+    talkKey: boot.talkKey,
+    mode: boot.talkMode,
+    sensitivity: boot.voiceSensitivity,
+    releaseMs: boot.voiceReleaseMs,
+    externalDown,
+  });
+  const bootRef = useRef(boot);
+  const profileRef = useRef(boot);
+  profileRef.current = boot;
+  const loadGen = useRef(0);
 
-  // Load channel list, restore previously tuned channels, poll for admin changes.
-  // Persistence waits until this finishes, otherwise the first empty render wipes the saved tune list.
+  const load = useCallback(() => {
+    const gen = ++loadGen.current;
+    return api.channels(server.id).then((list) => {
+      const accepted = acceptChannelList(gen, loadGen.current, list);
+      if (accepted) {
+        setChannels(accepted);
+        setListReady(true);
+        setErr((cur) => cur === RECONNECTING ? '' : cur);
+      }
+      return list;
+    }).catch((e) => {
+      if (gen === loadGen.current) setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+      throw e;
+    });
+  }, [api, server.id]);
+
+  useEffect(() => {
+    if (!isAdmin || isPreview) return;
+    let alive = true;
+    // A dummy id never matches a community. A route 404 means this server has no delete.
+    api.deleteCommunity('rn-route-probe').catch((e) => {
+      if (alive && e instanceof ApiError && e.routeMissing) setDeleteSupported(false);
+    });
+    return () => { alive = false; };
+  }, [api, isAdmin]);
+
   useEffect(() => {
     let alive = true;
-    load().then(async () => {
-      const saved: { tuned: string[]; tx: string | null } = JSON.parse(localStorage.getItem(storeKey) ?? '{"tuned":[],"tx":null}');
-      const list = await api.channels(community.id);
-      for (const id of saved.tuned) { const ch = list.find((c) => c.id === id); if (ch && alive) await engine.tune(ch).catch(() => undefined); }
-      if (alive && saved.tx) engine.setTx(saved.tx);
-      if (alive) setRestored(true);
-    });
+    const saved = bootRef.current.radios[server.id] ?? emptyRadio();
+    setOverlayOn(bootRef.current.overlayOn);
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const boot = async () => {
+      while (alive) {
+        const gen = ++loadGen.current;
+        try {
+          const list = await api.channels(server.id);
+          if (!alive) return;
+          const accepted = acceptChannelList(gen, loadGen.current, list);
+          // A delete landed while this fetch was in flight. That path owns the list now.
+          if (!accepted) { if (alive) setRestored(true); return; }
+          setChannels(accepted);
+          setListReady(true);
+          setErr((cur) => cur === RECONNECTING ? '' : cur);
+          for (const id of saved.tuned) {
+            if (!alive || gen !== loadGen.current) { if (alive) setRestored(true); return; }
+            const ch = accepted.find((c) => c.id === id);
+            if (!ch) continue;
+            await engine.tune(ch).catch((e) => { if (isReconnectError(e)) throw e; });
+            if (saved.volume[id] != null) engine.setVolume(id, saved.volume[id]);
+            if (saved.muted[id]) engine.setMuted(id, true);
+            if (saved.pan[id] != null) engine.setPan(id, saved.pan[id]);
+          }
+          if (alive && gen === loadGen.current && saved.tx) engine.setTx(saved.tx);
+          if (alive) setRestored(true);
+          return;
+        } catch (e) {
+          if (!alive) return;
+          const msg = (e as Error).message ?? '';
+          if (!isPreview && /session expired|not signed in/i.test(msg)) {
+            try {
+              const again = await new Api(server.url, null, server.adminKey ?? null).join(server.inviteCode, callsign);
+              onServer({ ...server, token: again.token, tokenExp: Date.parse(again.expiresAt), lastUsed: new Date().toISOString() });
+              return;
+            } catch (err) {
+              if (isReconnectError(err)) { setErr(RECONNECTING); await wait(2000); continue; }
+              setErr((err as Error).message);
+              return;
+            }
+          }
+          if (isReconnectError(e)) { setErr(RECONNECTING); await wait(2000); continue; }
+          setErr(msg);
+          return;
+        }
+      }
+    };
+    void boot();
     const t = setInterval(load, 10_000);
     return () => { alive = false; clearInterval(t); void engine.dispose(); };
-  }, [api, community.id, engine, load, storeKey]);
+  }, [api, server.id, engine, load]);
 
-  // Registered after the dispose effect so a pending tune is cancelled before the engine shuts down.
-  const wheel = useChannelWheel(engine, channels);
+  const tuneChannel = async (ch: ChannelInfo) => {
+    const fresh = !engine.tuned.some((t) => t.channel.id === ch.id);
+    await engine.tune(ch);
+    if (fresh) playSquelch();
+  };
 
-  // Persist radio state once the saved tune list has been applied.
+  const wheel = useChannelWheel(engine, channels, binds.wheel, {
+    canCreate: isAdmin,
+    listReady,
+    createChannel: async (freq, name) => {
+      const ch = await api.createChannel(server.id, freq, name);
+      await load();
+      return ch;
+    },
+  });
+  const bindsRef = useRef(binds);
+  bindsRef.current = binds;
+
+  // The list is the server's channel set. Anything tuned that is no longer in it was deleted:
+  // leave the LiveKit room, drop the card, and let the saved radio prefs forget the id.
+  useEffect(() => {
+    if (!listReady) return;
+    for (const id of removedTunedIds(engine.tuned.map((t) => t.channel.id), channels.map((c) => c.id))) {
+      void engine.untune(id);
+    }
+  }, [channels, listReady, engine]);
+
+  useEffect(() => {
+    engine.onChannelDeleted = (id) => {
+      loadGen.current += 1;
+      setChannels((prev) => prev.filter((c) => c.id !== id));
+      void load();
+    };
+    return () => { engine.onChannelDeleted = undefined; };
+  }, [engine, load]);
+
   useEffect(() => {
     if (!restored) return;
-    localStorage.setItem(storeKey, JSON.stringify({ tuned: engine.tuned.map((t) => t.channel.id), tx: engine.txId }));
+    const prefs: RadioPrefs = {
+      tuned: engine.tuned.map((t) => t.channel.id),
+      tx: engine.txId,
+      volume: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.volume])),
+      muted: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.muted])),
+      pan: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.pan])),
+    };
+    const prev = profileRef.current.radios[server.id];
+    if (JSON.stringify(prev) === JSON.stringify(prefs) && profileRef.current.overlayOn === overlayOn) return;
+    const next = { ...profileRef.current, overlayOn, radios: { ...profileRef.current.radios, [server.id]: prefs } };
+    profileRef.current = next;
+    onProfile(next);
   });
 
-  // Global hotkeys.
   useEffect(() => {
-    bridge.defaultKeybinds().then((b) => { setBinds(b); void bridge.setKeybinds(b); });
     const off = bridge.onHotkey((e) => {
       if (e.type === 'ptt') void engine.ptt(e.down);
       if (e.type === 'cycle') engine.cycle();
       if (e.type === 'overlay') setOverlayOn((v) => !v);
       if (e.type === 'direct') void engine.ptt(e.down, e.channelId);
+      if (e.type === 'select') engine.setTx(e.channelId);
       if (e.type === 'wheel') wheel.onKey(e.down, e.heldMs);
       if (e.type === 'wheel-scroll') wheel.onFallbackScroll(e.steps, e.shift);
       if (e.type === 'wheel-number') wheel.onNumber(e.n);
       if (e.type === 'wheel-cancel') wheel.close();
     });
     const offWheel = bridge.onWheelInput(wheel.onInput);
-    // Browser fallback: hold Space to talk while the window is focused.
-    const kd = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space' && !e.repeat && !(e.target instanceof HTMLInputElement)) void engine.ptt(true); };
+    const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    const kd = (e: KeyboardEvent) => {
+      if (inElectron || isCapturingBind() || typing(e)) return;
+      if (e.code === 'Space' && !e.repeat) void engine.ptt(true);
+      if (domEventMatchesBind(e, bindsRef.current.overlay)) { e.preventDefault(); setOverlayOn((v) => !v); }
+      for (const [id, b] of Object.entries(bindsRef.current.select)) {
+        if (domEventMatchesBind(e, b)) engine.setTx(id);
+      }
+    };
     const ku = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space') void engine.ptt(false); };
     window.addEventListener('keydown', kd); window.addEventListener('keyup', ku);
     return () => { off(); offWheel(); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
@@ -164,15 +598,12 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
   const tuned = engine.tuned;
   const tx = tuned.find((t) => t.channel.id === engine.txId) ?? null;
   const keyed = engine.transmittingOn !== null;
-  // Overlay is on by default. Each row is someone transmitting: their name and that channel.
-  // Include this user; the engine's speaker list is remote talkers only.
   const overlaySpeakers = tuned.flatMap((t) => {
     const names = [...t.speakers];
-    if (engine.transmittingOn === t.channel.id && !names.includes(me)) names.unshift(me);
+    if (engine.transmittingOn === t.channel.id && !names.includes(callsign)) names.unshift(callsign);
     return names.map((name) => ({ name, channel: t.channel.name, freq: t.channel.freq }));
   });
 
-  // Talker rows hide while nobody is transmitting. The wheel can open on top of that.
   useEffect(() => {
     bridge.setOverlay({
       visible: overlayOn && overlaySpeakers.length > 0,
@@ -180,6 +611,7 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
       wheel: wheel.view,
     });
   });
+  useEffect(() => () => { bridge.setOverlay({ visible: false, speakers: [] }); }, []);
 
   const tuneQuery = async () => {
     setErr('');
@@ -189,17 +621,182 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
     const hit = channels.find((c) => c.id === matchChannel(q, channels)?.id);
     if (!hit) { setErr(kHz ? `Nothing on ${q} MHz yet${isAdmin ? ' — create it?' : ''}` : `No channel matches “${q}”`); return; }
     setQuery('');
-    await engine.tune(hit).catch((e) => setErr(e.message));
+    await tuneChannel(hit).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message));
+  };
+
+  const openSettings = () => {
+    const quick = tuned.map((t) => ({ id: `select:${t.channel.id}`, label: `Quick select ${t.channel.freq} ${t.channel.name}` }));
+    window.dispatchEvent(new CustomEvent('rn-settings', { detail: { quick } }));
+  };
+
+  const copyAdmin = async () => {
+    if (!server.adminKey) return;
+    try { await navigator.clipboard.writeText(server.adminKey); setCopiedKey(true); }
+    catch { setErr(server.adminKey); }
+  };
+
+  const rotateInvite = async () => {
+    const r = await api.rotateInvite(server.id);
+    onServer({ ...server, inviteCode: r.inviteCode });
+  };
+
+  const deleteChannel = async (ch: ChannelInfo) => {
+    if (!confirm(`Delete ${ch.freq} ${ch.name} for everyone?`)) return;
+    try {
+      await api.deleteChannel(server.id, ch.id);
+    } catch (e) {
+      if (e instanceof ApiError && e.routeMissing) { setDeleteSupported(false); return; }
+      setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+      return;
+    }
+    // Invalidate a list fetch that started before the delete, then drop the channel locally
+    // so the sidebar, the tuned card, and the wheel update without waiting for the next poll.
+    loadGen.current += 1;
+    setChannels((prev) => prev.filter((c) => c.id !== ch.id));
+    setListReady(true);
+    try { await load(); } catch { /* load records the error */ }
+  };
+
+  const removeCommunity = async () => {
+    if (!confirm(`Delete ${server.name} for everyone? Its channels go with it.`)) return;
+    try {
+      await api.deleteCommunity(server.id);
+      onRemoved();
+    } catch (e) {
+      if (e instanceof ApiError && e.routeMissing) { setDeleteSupported(false); return; }
+      if (e instanceof ApiError && e.status === 404) { onRemoved(); return; }
+      setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+    }
+  };
+
+  useEffect(() => {
+    if (!inElectron) return;
+    bridge.setSimpleWindow({ compact: simpleOn, alwaysOnTop: simpleOn && onTop });
+  }, [simpleOn, onTop]);
+
+  const patchProfile = (patch: Partial<Profile>) => onProfile({ ...profileRef.current, ...patch });
+  const armKey = () => {
+    setArming(true);
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.removeEventListener('keydown', onKey, true);
+      setArming(false);
+      if (e.key === 'Escape') return;
+      patchProfile({ talkKey: e.code });
+    };
+    window.addEventListener('keydown', onKey, true);
   };
 
   const tunedIds = new Set(tuned.map((t) => t.channel.id));
   const filtered = channels.filter((c) => !query || c.freq.startsWith(query) || c.name.toLowerCase().includes(query.toLowerCase()));
+  const talkLabel = talk.hardwareMuted ? 'Mic muted' : boot.talkMode === 'voice' ? 'Voice' : talkKeyLabel(boot.talkKey);
+  const wheelPortal = !inElectron && wheel.open ? createPortal(
+    <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} available={wheel.available} canCreate={wheel.canCreate} onInput={wheel.onInput} />,
+    document.body,
+  ) : null;
+
+  const channelList = (
+    <div className="chlist">
+      {filtered.map((c) => (
+        <div key={c.id} className={`ch ${tunedIds.has(c.id) ? 'tuned' : ''}`} onDoubleClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>
+          <span className="f">{c.freq}</span>
+          <span className="n">{c.name}</span>
+          <span className="act">
+            {tunedIds.has(c.id)
+              ? <span className="pill live">tuned</span>
+              : <button className="btn sm" onClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>Tune</button>}
+            {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={() => { void deleteChannel(c); }}>🗑</button>}
+          </span>
+        </div>
+      ))}
+      {!filtered.length && <div className="sub" style={{ padding: 8 }}>No channels yet.</div>}
+    </div>
+  );
+
+  if (isWeb) {
+    return (
+      <div className="web-main">
+        <p className="notice">Use a phone, the Windows helper, or the desktop app for in-game push-to-talk. This page transmits only while the tab is in front. The microphone opens when you tune a channel and stays muted until you hold the button.</p>
+        {isAdmin && (
+          <p className="sub">
+            <label>
+              <input type="checkbox" checked={server.rememberAdmin === true} onChange={(e) => onServer({ ...server, rememberAdmin: e.target.checked })} />
+              {' '}Keep the admin key in this browser. A script on this site can read it.
+            </label>
+            {server.rememberAdmin ? <> <button className="link" type="button" onClick={() => onServer({ ...server, rememberAdmin: false, adminKey: undefined })}>Forget admin key</button></> : null}
+          </p>
+        )}
+        <div className="web-bar">
+          <strong>{server.name}</strong>
+          <span className="sub">{callsign}</span>
+          <button className="btn sm" onClick={() => setChannelsOpen((v) => !v)}>{channelsOpen ? 'Radio' : 'Channels'}</button>
+          <button className="btn sm" onClick={() => setTalkOpen((v) => !v)}>Talk</button>
+          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
+          {!isPreview && <HelperLink engine={engine} externalDown={externalDown} talkKey={boot.talkKey} talkLabel={talkKeyLabel(boot.talkKey)} />}
+          {isAdmin && <button className="btn sm" onClick={() => setNewCh(true)}>+ New</button>}
+        </div>
+        {err && <div className="err">{err}</div>}
+        {talkOpen && (
+          <div className="talk-settings">
+            <label><input type="radio" name="talk" checked={boot.talkMode === 'hold'} onChange={() => patchProfile({ talkMode: 'hold' })} /> Hold to talk</label>
+            <button className="btn sm" onClick={armKey}>{arming ? 'Press a key…' : talkKeyLabel(boot.talkKey)}</button>
+            <label><input type="radio" name="talk" checked={boot.talkMode === 'voice'} onChange={() => { void engine.unlock(); patchProfile({ talkMode: 'voice' }); }} /> Voice</label>
+            <label>Sensitivity
+              <input type="range" min={0} max={100} value={Math.round(boot.voiceSensitivity * 100)} onChange={(e) => patchProfile({ voiceSensitivity: Number(e.target.value) / 100 })} />
+            </label>
+            <label>Release
+              <input type="range" min={50} max={1000} step={50} value={boot.voiceReleaseMs} onChange={(e) => patchProfile({ voiceReleaseMs: Number(e.target.value) })} />
+              <span className="sub">{boot.voiceReleaseMs} ms</span>
+            </label>
+          </div>
+        )}
+        {channelsOpen ? (
+          <>
+            <div className="tunebox">
+              <input placeholder="Tune: 59.5 or Command" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && tuneQuery()} />
+            </div>
+            {channelList}
+          </>
+        ) : (
+          <SimpleRadio engine={engine} onDown={talk.pointerDown} onUp={talk.pointerUp} label={talkLabel} />
+        )}
+        {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => {
+          const kHz = parseFreqInput(f);
+          const bad = kHz == null ? 'Enter a frequency like 59.5 or 50' : validateFrequency(kHz);
+          if (bad) throw new Error(bad);
+          await api.createChannel(server.id, f, n);
+          await load();
+          setNewCh(false);
+        }} />}
+        {wheelPortal}
+      </div>
+    );
+  }
+
+  if (inElectron && simpleOn) {
+    return (
+      <div className="simple-screen">
+        <div className="web-bar">
+          <strong>{server.name}</strong>
+          <button className="btn sm" onClick={() => { setSimpleOn(false); patchProfile({ simpleOn: false }); }}>Full radio</button>
+          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
+          <label className="sub"><input type="checkbox" checked={onTop} onChange={(e) => { setOnTop(e.target.checked); patchProfile({ simpleOnTop: e.target.checked }); }} /> Always on top</label>
+        </div>
+        <SimpleRadio engine={engine} onDown={() => { void engine.ptt(true); }} onUp={() => { void engine.ptt(false); }} label={binds.ptt?.label ?? 'Hold'} />
+      </div>
+    );
+  }
 
   return (
     <>
       <aside className="dir">
-        <h2>{community.name}</h2>
-        <div className="sub">{me} · {community.role}{community.inviteCode ? <> · invite <kbd>{community.inviteCode}</kbd></> : null}</div>
+        <h2>{server.name}</h2>
+        <div className="sub">
+          {callsign}
+          {server.inviteCode ? <> · invite <kbd>{server.inviteCode}</kbd></> : null}
+          {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button>{deleteSupported ? <> · <button className="link" onClick={() => void removeCommunity()}>delete community</button></> : null}</> : null}
+        </div>
         <div className="tunebox">
           <span>📻</span>
           <input placeholder="Tune: 59.5 or Command" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && tuneQuery()} />
@@ -209,20 +806,31 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
         <div className="section"><span>Channels</span>{isAdmin && <button className="btn sm" onClick={() => setNewCh(true)}>+ New</button>}</div>
         <div className="chlist">
           {filtered.map((c) => (
-            <div key={c.id} className={`ch ${tunedIds.has(c.id) ? 'tuned' : ''}`} onDoubleClick={() => engine.tune(c)}>
+            <div key={c.id} className={`ch ${tunedIds.has(c.id) ? 'tuned' : ''}`} onDoubleClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>
               <span className="f">{c.freq}</span>
               <span className="n">{c.name}</span>
               <span className="act">
                 {tunedIds.has(c.id)
                   ? <span className="pill live">tuned</span>
-                  : <button className="btn sm" onClick={() => engine.tune(c).catch((e) => setErr(e.message))}>Tune</button>}
-                {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={async () => { if (confirm(`Delete ${c.freq} ${c.name} for everyone?`)) { await api.deleteChannel(community.id, c.id); await load(); } }}>🗑</button>}
+                  : <button className="btn sm" onClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>Tune</button>}
+                {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={() => { void deleteChannel(c); }}>🗑</button>}
               </span>
             </div>
           ))}
           {!filtered.length && <div className="sub" style={{ padding: 8 }}>No channels yet.</div>}
         </div>
-        <div className="foot"><div className="avatar">{initials(me)}</div><div><div>{me}</div><div className="sub" style={{ margin: 0 }}>{inElectron ? 'Global hotkeys on' : 'Browser preview: hold Space'}</div></div></div>
+        <div className="foot">
+          <div className="avatar">{initials(callsign)}</div>
+          <div style={{ flex: 1 }}>
+            <div>{callsign}</div>
+            <button className="link" type="button" onClick={() => onHotkeys(!hotkeysOn)}>
+              {inElectron ? (hotkeysOn ? 'Keybinds on — bound keys only' : 'Keybinds paused') : (hotkeysOn ? 'Preview: hold Space' : 'Keybinds paused')}
+            </button>
+          </div>
+          {inElectron && <button className="btn sm" onClick={() => { setSimpleOn(true); patchProfile({ simpleOn: true }); }}>Simple</button>}
+          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
+          <button className="btn sm" onClick={openSettings}>Keybinds</button>
+        </div>
       </aside>
 
       <main className="radio">
@@ -233,7 +841,7 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
           </div>
           <div className="nm">{tx?.channel.name ?? 'Tune a channel to talk'}</div>
           <div className="keys">
-            Talk <kbd>{binds?.ptt?.label ?? '—'}</kbd> Wheel <kbd>{binds?.wheel?.label ?? '—'}</kbd> Overlay <kbd>{binds?.overlay?.label ?? '—'}</kbd>
+            Talk <kbd>{binds.ptt?.label ?? '—'}</kbd> Wheel <kbd>{binds.wheel?.label ?? '—'}</kbd> Overlay <kbd>{binds.overlay?.label ?? '—'}</kbd>
           </div>
         </div>
         <div className="grid">
@@ -245,16 +853,13 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
       </main>
       {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => {
         const kHz = parseFreqInput(f);
-        const bad = kHz == null ? 'Enter a frequency like 59.5' : validateFrequency(kHz);
+        const bad = kHz == null ? 'Enter a frequency like 59.5 or 50' : validateFrequency(kHz);
         if (bad) throw new Error(bad);
-        await api.createChannel(community.id, f, n);
+        await api.createChannel(server.id, f, n);
         await load();
         setNewCh(false);
       }} />}
-      {!inElectron && wheel.open && createPortal(
-        <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} onInput={wheel.onInput} />,
-        document.body,
-      )}
+      {wheelPortal}
     </>
   );
 }
@@ -272,7 +877,7 @@ function Card({ t, engine }: { t: TunedChannel; engine: RadioControl }) {
         <button className="x" title="Untune" onClick={() => engine.untune(t.channel.id)}>×</button>
       </div>
       <div className="who">
-        {t.status === 'gone' ? 'Channel was deleted' : t.status !== 'live' ? `${t.status}…`
+        {t.status === 'gone' ? 'Channel was deleted' : t.status === 'reconnecting' ? RECONNECTING : t.status !== 'live' ? `${t.status}…`
           : t.speakers.length ? <><span className="avatar talk">{initials(t.speakers[0])}</span><span className="talking">{t.speakers.join(', ')}</span></>
           : <span>{Math.max(t.listeners - 1, 0)} others tuned</span>}
       </div>

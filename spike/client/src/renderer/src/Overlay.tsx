@@ -29,6 +29,8 @@ export function Overlay({ talkersOnly = false }: { talkersOnly?: boolean }) {
           segments={wheel.segments}
           adding={wheel.adding}
           addError={wheel.addError}
+          available={wheel.available ?? []}
+          canCreate={Boolean(wheel.canCreate)}
           onInput={(input) => bridge.sendWheelInput(input)}
           onPointer={(over) => bridge.setIgnoreMouse(!over)}
         />

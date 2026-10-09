@@ -1,0 +1,33 @@
+name: PTT helper
+
+# Builds the Windows tray exe and uploads it as an Actions artifact.
+# This workflow does not publish a GitHub Release. A release would
+# auto-update installed desktop clients.
+
+on:
+  push:
+    paths:
+      - 'helper/**'
+      - '.github/workflows/ptt-helper.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+        with:
+          toolchain: stable
+      - name: Build RadioNetHelper.exe
+        working-directory: helper
+        run: cargo build --release
+      - name: Upload the tray exe
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: RadioNetHelper
+          path: helper/target/release/RadioNetHelper.exe
+          if-no-files-found: error

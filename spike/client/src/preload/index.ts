@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Bind, HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
+import type { Profile } from '../shared/profile';
+import type { Bind, HotkeyEvent, Keybinds, OverlayState, UpdateReady, WheelInput } from '../shared/types';
 
 const api = {
-  getToken: (): Promise<string | null> => ipcRenderer.invoke('token:get'),
-  setToken: (t: string): Promise<void> => ipcRenderer.invoke('token:set', t),
+  getProfile: (): Promise<Profile> => ipcRenderer.invoke('profile:get'),
+  setProfile: (p: Profile): Promise<void> => ipcRenderer.invoke('profile:set', p),
   setKeybinds: (b: Keybinds): Promise<void> => ipcRenderer.invoke('hotkeys:set', b),
   defaultKeybinds: (): Promise<Keybinds> => ipcRenderer.invoke('hotkeys:defaults'),
-  recordBind: (): Promise<Bind> => ipcRenderer.invoke('hotkeys:record'),
+  recordBind: (): Promise<Bind | null> => ipcRenderer.invoke('hotkeys:record'),
+  setHotkeysEnabled: (enabled: boolean): Promise<void> => ipcRenderer.invoke('hotkeys:setEnabled', enabled),
   onHotkey: (cb: (e: HotkeyEvent) => void) => {
     const h = (_: unknown, e: HotkeyEvent) => cb(e);
     ipcRenderer.on('hotkey', h);
@@ -28,6 +30,21 @@ const api = {
     ipcRenderer.on('wheel:input', h);
     return () => { ipcRenderer.removeListener('wheel:input', h); };
   },
+  onUpdateAvailable: (cb: (info: UpdateReady) => void): (() => void) => {
+    const h = (_: unknown, info: UpdateReady) => cb(info);
+    ipcRenderer.on('update:available', h);
+    return () => { ipcRenderer.removeListener('update:available', h); };
+  },
+  onUpdateReady: (cb: (info: UpdateReady) => void): (() => void) => {
+    const h = (_: unknown, info: UpdateReady) => cb(info);
+    ipcRenderer.on('update:ready', h);
+    return () => { ipcRenderer.removeListener('update:ready', h); };
+  },
+  downloadUpdate: () => ipcRenderer.send('update:download'),
+  installUpdate: () => ipcRenderer.send('update:install'),
+  log: (event: string, detail?: string) => ipcRenderer.send('log:event', event, detail),
+  /** Compact the main window. The radio stays in this window so there is one microphone. */
+  setSimpleWindow: (state: { compact: boolean; alwaysOnTop: boolean }) => ipcRenderer.send('window:simple', state),
 };
 export type RadioNetBridge = typeof api;
 contextBridge.exposeInMainWorld('radionet', api);

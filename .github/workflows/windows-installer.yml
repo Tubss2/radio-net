@@ -2,8 +2,8 @@ name: Windows installer
 
 on:
   # Push is what actually runs this before the file is on the default branch.
-  # GitHub will not dispatch workflow_dispatch, and did not start a pull_request run, for a
-  # workflow that exists only on this branch. A manual run can still override the URLs later.
+  # A version tag (v0.4.0) publishes the GitHub Release. A manual run can also
+  # publish, and can override the baked URLs once this file is on the default branch.
   push:
   workflow_dispatch:
     inputs:
@@ -15,18 +15,33 @@ on:
         description: LiveKit URL baked into the client (VITE_LIVEKIT_URL)
         required: false
         default: wss://lk-149-28-170-200.sslip.io
+      publish:
+        description: Publish exe, latest.yml, and blockmap to a public GitHub Release. Uncheck to only build the artifact.
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
 
 jobs:
   installer:
     runs-on: windows-latest
+    # contents: write is required to push the version tag and publish the GitHub Release.
+    # The token is not used for anything else.
+    permissions:
+      contents: write
     env:
       VITE_API_URL: ${{ github.event.inputs.api_url || 'https://radio-149-28-170-200.sslip.io' }}
       VITE_LIVEKIT_URL: ${{ github.event.inputs.livekit_url || 'wss://lk-149-28-170-200.sslip.io' }}
+      # A v* tag, or a manual run with publish left on, uploads the release.
+      PUBLISH: ${{ (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true') }}
       # Unsigned on purpose. Do not let electron-builder look for a certificate.
+      # Resource editing stays on, so the app exe file properties carry the package.json version.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -43,20 +58,94 @@ jobs:
       - name: Build the app and the NSIS installer
         working-directory: spike/client
         run: npm run dist:win
-      - name: Confirm the server URLs were baked in and the fake mic was not
+      - name: Confirm the server URLs, update feed, and version
+        id: installer
         working-directory: spike/client
         shell: pwsh
         run: |
           if ($env:RN_FAKE_MEDIA) { throw 'RN_FAKE_MEDIA became set during the build.' }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Client version '$version' is not semver." }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag '$($env:GITHUB_REF_NAME)' does not match package version v$version."
+          }
           $renderer = Get-ChildItem -Recurse out\renderer -Filter *.js
           $api = $renderer | Select-String -SimpleMatch $env:VITE_API_URL -List
           $lk = $renderer | Select-String -SimpleMatch $env:VITE_LIVEKIT_URL -List
+          $shown = $renderer | Select-String -SimpleMatch $version -List
           if (-not $api) { throw "VITE_API_URL was not baked into the renderer: $($env:VITE_API_URL)" }
           if (-not $lk) { throw "VITE_LIVEKIT_URL was not baked into the renderer: $($env:VITE_LIVEKIT_URL)" }
-          if (-not (Test-Path release\RadioNet-Setup.exe)) { throw 'RadioNet-Setup.exe was not produced.' }
-      - name: Upload the installer
-        uses: actions/upload-artifact@v4
+          if (-not $shown) { throw "App version $version was not baked into the renderer." }
+          $setupName = "RadioNet-Setup-$version.exe"
+          $setup = Get-Item "release\$setupName" -ErrorAction SilentlyContinue
+          if (-not $setup) { throw "$setupName was not produced." }
+          if (-not (Test-Path "release\$setupName.blockmap")) { throw "$setupName.blockmap was not produced." }
+          if (-not (Test-Path 'release\latest.yml')) { throw 'latest.yml was not produced.' }
+          $feed = Get-Content 'release\win-unpacked\resources\app-update.yml' -Raw
+          foreach ($pattern in @('provider:\s+github', 'owner:\s+Tubss2', 'repo:\s+radio-net')) {
+            if ($feed -notmatch $pattern) {
+              throw "app-update.yml is missing $($pattern):`n$feed"
+            }
+          }
+          if ($feed -match 'publisherName') { throw "Unsigned build must not set publisherName:`n$feed" }
+          if ($feed -match '(?i)token:') { throw "app-update.yml must not contain a token:`n$feed" }
+          $latest = Get-Content 'release\latest.yml' -Raw
+          if ($latest -notmatch "version:\s*$([regex]::Escape($version))") { throw "latest.yml version does not match $version`n$latest" }
+          $app = Get-Item 'release\win-unpacked\RadioNet.exe'
+          function Assert-Version($label, $info) {
+            $file = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
+            $product = "$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart)"
+            if ($info.FileVersion -notlike "$version*" -or $file -ne $version) {
+              throw "$label FileVersion is '$($info.FileVersion)' ($file), expected $version"
+            }
+            if ($info.ProductVersion -notlike "$version*" -or $product -ne $version) {
+              throw "$label ProductVersion is '$($info.ProductVersion)' ($product), expected $version"
+            }
+          }
+          Assert-Version $setupName $setup.VersionInfo
+          Assert-Version 'RadioNet.exe' $app.VersionInfo
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "file=$setupName" >> $env:GITHUB_OUTPUT
+      - name: Write SHA256SUMS for the installer
+        if: steps.installer.outcome == 'success'
+        working-directory: spike/client
+        shell: pwsh
+        run: |
+          $file = "${{ steps.installer.outputs.file }}"
+          $hash = (Get-FileHash "release\$file" -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Encoding ascii "release\SHA256SUMS.txt" "$hash  $file"
+      - name: Tag this commit when a manual run publishes
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.installer.outputs.version }}"
+          $tag = "v$version"
+          git tag $tag
+          if ($LASTEXITCODE -ne 0) { throw "Could not create $tag" }
+          git push origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw "Could not push $tag" }
+      - name: Publish the installer to GitHub Releases
+        if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+        working-directory: spike/client
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: npx electron-builder --prepackaged release/win-unpacked --win nsis --publish always
+      - name: Attach SHA256SUMS to the GitHub Release
+        if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+        working-directory: spike/client
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: gh release upload "v${{ steps.installer.outputs.version }}" release/SHA256SUMS.txt --clobber
+      - name: Upload the installer, blockmap, and latest.yml
+        if: always() && steps.installer.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: RadioNet-Setup
-          path: spike/client/release/RadioNet-Setup.exe
+          name: RadioNet-Setup-${{ steps.installer.outputs.version }}
+          path: |
+            spike/client/release/${{ steps.installer.outputs.file }}
+            spike/client/release/${{ steps.installer.outputs.file }}.blockmap
+            spike/client/release/latest.yml
+            spike/client/release/SHA256SUMS.txt
           if-no-files-found: error

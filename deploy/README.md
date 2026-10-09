@@ -17,7 +17,7 @@ No domain needed yet: the hostnames are `radio-<ip-with-dashes>.sslip.io` (API) 
 - `deploy.py` (paramiko) / `deploy.sh` (ssh+rsync): upload `spike/server` + this kit and run `setup.sh`. **The agent box can't use them**: its egress only allows web traffic (80/443), so SSH to port 22 times out.
 - `pack.sh` + `deploy.ps1`: the path actually used. `pack.sh` (box) builds `radionet-src.tgz`; `deploy.ps1` runs on Tobias's Windows PC (built-in OpenSSH), waits for cloud-init, uploads and runs `setup.sh`.
 - `secrets/` (gitignored, chmod 700/600): copy of the server's `/etc/radionet/secrets.env` per server. Never commit.
-- `systemd/*.service`: hardened units (`ProtectSystem=strict`, non-root `radionet` user).
+- `systemd/*.service`: hardened units (`ProtectSystem=strict`, non-root `radionet` user, no new privileges, private devices, no extra capabilities except Caddy's `CAP_NET_BIND_SERVICE`).
 
 ## Browser UI preview (optional, mocked)
 - Served by Caddy at `https://<API_HOST>/preview/` from `/opt/radionet/preview` (`handle_path /preview/*` + `file_server`; everything else still goes to the API). `/preview` redirects to `/preview/`.
@@ -60,9 +60,15 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 
 `spike/server/src/index.ts` / `app.ts`: `SEED_DEV=0` turns off the dev community (its invite code is public in the repo), `TRUST_PROXY=1` makes the join rate-limit see real client IPs behind Caddy, `HOST` sets the bind address. Defaults unchanged, so local dev and tests behave as before.
 
+## Host hardening (applied on the next `setup.sh`, not on the live box until then)
+
+`setup.sh` installs fail2ban for sshd (5 failures, 1 hour ban), turns on unattended security upgrades, and writes `/etc/ssh/sshd_config.d/99-radionet.conf` so password login is off and root can only use a key. Confirm the deploy key works in a second session before you close the one that re-ran setup. `cloud-init.yaml` does the same on a brand-new VM. Caddy's access log drops request headers, so `Authorization` and `X-Admin-Key` are not stored. New secret files include `RN_STORE_MAC_KEY`; an existing file gets that line appended. The API uses it only after the API hardening is deployed.
+
+The Sydney VPS described below has not been updated with this pass. Re-running `setup.sh` there is an owner step. It restarts LiveKit, the API, and Caddy.
+
 ## Known limits
 
-- Store is still in memory: a restart of `radionet-api` wipes communities/accounts (SQLite is M2).
+- Communities and channels persist in `/var/lib/radionet/store.json` (`RN_DATA_FILE` in `api.env`, writable under systemd `ProtectSystem=strict`). A restart keeps them. Re-run `setup.sh` on a box that was installed before this file existed so the directory and env line are created. There are still no user accounts.
 - sslip.io + Let's Encrypt: if Let's Encrypt rate-limits the shared sslip.io domain, Caddy retries and can fall back to its second issuer (ZeroSSL); setting `--email` helps. Buying the domain removes the issue.
 
 ## Live deployment: radio-net (Vultr Sydney, vc2-1c-2gb, 149.28.170.200), 9 Oct 2026 ~5:45pm NZ
@@ -73,7 +79,7 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 - Real voice test from Tobias's PC (`spike/tests/radio-e2e.ts`, now configurable by env: `API_URL`, `SETUP_CODE`, `LIVEKIT_WS`, `LIVEKIT_HTTP`, `LIVEKIT_API_KEY/SECRET`): **14/14** (multi-room, listen-many/talk-one, TX cycling, server-enforced listen-only, admin-only channels, delete drops listeners). Media went over UDP 7882. Key-up to first audio bot->Sydney->bot: 66 ms.
 - Latency PC (NZ) -> server: ICMP 32-35 ms; HTTPS `/health` ~62 ms warm. TCP 7881 reachable.
 - Test communities were wiped afterwards by restarting `radionet-api` (in-memory store).
-- Note: Caddy also listens on UDP 443 (HTTP/3); the firewall leaves it closed, so clients use HTTP/2. Harmless.
+- Caddy is limited to HTTP/1 and HTTP/2. UDP 443 stays closed in UFW; leaving HTTP/3 on made clients retry QUIC and drop for about 30 seconds while the server stayed healthy. Access logs are JSON at `/var/log/caddy/access.log` (rotated). The API logs method, path, status and latency to the journal, and `TRUST_PROXY=1` so the join limit is per client. Re-run `setup.sh` and restart `radionet-caddy` and `radionet-api` to apply this on a box that was installed earlier.
 
 ### UI preview added (9 Oct 2026 ~6:30pm NZ)
 - https://radio-149-28-170-200.sslip.io/preview/ — built on the box from PR #1 branch `cursor/initial-radio-net-3d59` (all 22 source files checked against the branch's git blob SHAs; the Actions artifact couldn't be downloaded without GitHub auth). Bundle: index.html + index-qrK5K9D4.js + index-DB47ri7X.css.

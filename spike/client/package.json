@@ -1,8 +1,12 @@
 {
   "name": "radio-net-client",
-  "version": "0.0.1",
+  "version": "0.4.3",
   "private": true,
   "description": "Radio Net desktop client (M1 spike)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tubss2/radio-net.git"
+  },
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -10,7 +14,9 @@
     "start": "electron-vite preview",
     "preview": "vite --config preview/vite.config.ts --mode preview",
     "preview:build": "vite build --config preview/vite.config.ts --mode preview",
-    "dist:win": "electron-vite build && electron-builder --win nsis",
+    "web": "vite --config web/vite.config.ts --mode web",
+    "web:build": "vite build --config web/vite.config.ts --mode web",
+    "dist:win": "electron-vite build && electron-builder --win nsis --publish never",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
@@ -31,7 +37,15 @@
       "**/*.node"
     ],
     "npmRebuild": false,
+    "publish": {
+      "provider": "github",
+      "owner": "Tubss2",
+      "repo": "radio-net",
+      "releaseType": "release",
+      "private": false
+    },
     "win": {
+      "verifyUpdateCodeSignature": false,
       "target": [
         {
           "target": "nsis",
@@ -39,24 +53,26 @@
             "x64"
           ]
         }
-      ],
-      "signAndEditExecutable": false
+      ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "RadioNet-Setup.${ext}",
+      "artifactName": "RadioNet-Setup-${version}.${ext}",
       "shortcutName": "Radio Net"
     }
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "livekit-client": "^2.22.3",
+    "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
