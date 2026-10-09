@@ -1,12 +1,16 @@
+import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_BAND, type Band, formatFrequency, parseFrequency, validateFrequency } from './freq.js';
 
-/** A community ("net group"): created in the app, joined with an invite code. No Discord needed. */
+/** A community ("net group"): created in the app, joined with an invite code. No user accounts. */
 export interface Community {
   id: string;
   name: string;
   band: Band;
-  inviteCode: string; // XXXX-XXXX, rotatable by admins
+  inviteCode: string; // XXXX-XXXX, rotatable by whoever holds the admin key
+  /** SHA-256 hex of the admin key. The plaintext key is only returned once, to the creator. */
+  adminKeyHash: string;
   createdAt: string;
 }
 
@@ -15,9 +19,9 @@ export interface Channel {
   communityId: string;
   freqKHz: number;
   name: string;
-  /** BACKLOG: optional member tag (e.g. "SL") required to tune. null = anyone in the community. */
+  /** BACKLOG: optional member tag (e.g. "SL") required to tune. null = anyone who joined. */
   restrictedTag: string | null;
-  createdBy: string; // account id
+  createdBy: string;
   createdAt: string;
 }
 
@@ -41,12 +45,19 @@ export function roomNameFor(ch: Pick<Channel, 'communityId' | 'id'>): string {
   return `g${ch.communityId}.ch${ch.id}`;
 }
 
+export interface StoreSnapshot {
+  communities: Community[];
+  channels: Channel[];
+}
+
 /**
- * Spike store: in memory. Interface is what the real (SQLite) store must implement.
+ * Channel store. MemoryChannelStore is used by tests. FileChannelStore writes the same
+ * data as JSON so a process restart keeps communities and channels.
  */
 export interface ChannelStore {
   getCommunity(id: string): Community | undefined;
   communityByInvite(code: string): Community | undefined;
+  listCommunities(): Community[];
   upsertCommunity(c: Community): void;
   list(communityId: string): Channel[];
   get(communityId: string, channelId: string): Channel | undefined;
@@ -60,14 +71,21 @@ export class MemoryChannelStore implements ChannelStore {
   private communities = new Map<string, Community>();
   private channels = new Map<string, Channel>(); // key = channel id
 
+  /** Subclasses persist after a mutation. Loading must not call this. */
+  protected persist() {}
+
   getCommunity(id: string) {
     return this.communities.get(id);
   }
   communityByInvite(code: string) {
     return [...this.communities.values()].find((c) => c.inviteCode === code);
   }
+  listCommunities() {
+    return [...this.communities.values()];
+  }
   upsertCommunity(c: Community) {
     this.communities.set(c.id, c);
+    this.persist();
   }
 
   list(communityId: string) {
@@ -106,6 +124,7 @@ export class MemoryChannelStore implements ChannelStore {
       createdAt: new Date().toISOString(),
     };
     this.channels.set(ch.id, ch);
+    this.persist();
     return ch;
   }
 
@@ -113,6 +132,7 @@ export class MemoryChannelStore implements ChannelStore {
     const ch = this.get(communityId, channelId);
     if (!ch) throw new ChannelError('not_found', 'Channel not found');
     this.channels.delete(channelId);
+    this.persist();
     return ch;
   }
 
@@ -128,6 +148,40 @@ export class MemoryChannelStore implements ChannelStore {
     const exact = all.filter((c) => c.name.toLowerCase() === lower);
     if (exact.length) return exact;
     return all.filter((c) => c.name.toLowerCase().startsWith(lower));
+  }
+
+  protected snapshot(): StoreSnapshot {
+    return { communities: [...this.communities.values()], channels: [...this.channels.values()] };
+  }
+
+  /** Restore without writing. Used while a file store is loading. */
+  protected restore(snap: StoreSnapshot) {
+    this.communities.clear();
+    this.channels.clear();
+    for (const c of snap.communities) this.communities.set(c.id, c);
+    for (const ch of snap.channels) this.channels.set(ch.id, ch);
+  }
+}
+
+/** JSON file under a path such as /var/lib/radionet/store.json. Writes are atomic. */
+export class FileChannelStore extends MemoryChannelStore {
+  private ready = false;
+
+  constructor(private file: string) {
+    super();
+    if (existsSync(file)) {
+      const snap = JSON.parse(readFileSync(file, 'utf8')) as StoreSnapshot;
+      this.restore({ communities: snap.communities ?? [], channels: snap.channels ?? [] });
+    }
+    this.ready = true;
+  }
+
+  protected override persist() {
+    if (!this.ready) return;
+    mkdirSync(dirname(this.file), { recursive: true });
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(this.snapshot(), null, 2));
+    renameSync(tmp, this.file);
   }
 }
 

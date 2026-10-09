@@ -26,7 +26,7 @@ async function post(path: string, body: unknown, token?: string) {
 
 async function main() {
   // Bot joins the dev community.
-  const bot = await post('/api/join', { inviteCode: 'DEVN-ET01', displayName: 'Sgt Miller' });
+  const bot = await post('/api/join', { inviteCode: 'DEVN-ET01', callsign: 'Sgt Miller' });
   const chans = (await (await fetch(`${API}/api/communities/dev/channels`, { headers: { authorization: `Bearer ${bot.token}` } })).json()).channels;
   const id = (n: string) => chans.find((c: any) => c.name === n).id;
   const { livekitUrl, grants } = await post('/api/communities/dev/radio/tokens', { channelIds: [id('Command'), id('Arty')] }, bot.token);
@@ -60,10 +60,11 @@ async function main() {
   const ov = wins.find((w) => w.url().includes('overlay.html'));
   await page.setViewportSize({ width: 1180, height: 760 }).catch(() => undefined);
 
-  // Onboarding
+  // Callsign, then join the dev community. Both live on this PC; there is no account.
   await page.screenshot({ path: SHOTS + '1-onboarding.png' });
-  await page.fill('input.code', 'devn et01');
   await page.fill('input[placeholder="Toby"]', 'Toby');
+  await page.click('button.btn.primary');
+  await page.fill('input.code', 'devn et01');
   await page.click('button.btn.primary');
   await sleep(1500);
   await page.screenshot({ path: SHOTS + '1b-after-join.png' });

@@ -19,7 +19,8 @@ const LK_HTTP = process.env.LIVEKIT_HTTP ?? 'http://127.0.0.1:7880';
 const LK_KEY = process.env.LIVEKIT_API_KEY ?? 'devkey';
 const LK_SECRET = process.env.LIVEKIT_API_SECRET ?? 'secret';
 let CID = '';
-const tokens = new Map<string, string>(); // bot name -> device token
+let adminKey = '';
+const tokens = new Map<string, string>(); // bot name -> short-lived session
 const RATE = 48000;
 const FRAME = 480; // 10 ms
 
@@ -29,7 +30,11 @@ async function api(path: string, user: string | null, init: RequestInit = {}) {
   const tok = user ? tokens.get(user) : undefined;
   const res = await fetch(API + path, {
     ...init,
-    headers: { ...(init.body ? { 'content-type': 'application/json' } : {}), ...(tok ? { authorization: `Bearer ${tok}` } : {}) },
+    headers: {
+      ...(init.body ? { 'content-type': 'application/json' } : {}),
+      ...(tok ? { authorization: `Bearer ${tok}` } : {}),
+      ...(user === 'toby' && adminKey ? { 'x-admin-key': adminKey } : {}),
+    },
   });
   if (!res.ok && res.status !== 204) throw new Error(`${path} -> ${res.status} ${await res.text()}`);
   return res.status === 204 ? null : res.json();
@@ -124,12 +129,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const heard = (b: BotRadio) => Object.fromEntries(b.heard);
 
 async function main() {
-  // Toby creates a community in-app (no Discord); the bots join with the invite code + a display name.
-  const c = await api('/api/communities', null, { method: 'POST', body: JSON.stringify({ name: 'E2E Unit', displayName: 'toby', ...(SETUP_CODE ? { setupCode: SETUP_CODE } : {}) }) });
-  tokens.set('toby', c.token);
+  // Toby creates a community (setup code on a real server). The admin key stays with him; everyone joins with a callsign.
+  const c = await api('/api/communities', null, { method: 'POST', body: JSON.stringify({ name: 'E2E Unit', ...(SETUP_CODE ? { setupCode: SETUP_CODE } : {}) }) });
+  adminKey = c.adminKey;
   CID = c.community.id;
+  const host = await api('/api/join', null, { method: 'POST', body: JSON.stringify({ inviteCode: c.community.inviteCode, callsign: 'toby' }) });
+  tokens.set('toby', host.token);
   for (const bot of ['alice', 'bob', 'carol', 'dave', 'eve']) {
-    const j = await api('/api/join', null, { method: 'POST', body: JSON.stringify({ inviteCode: c.community.inviteCode, displayName: bot }) });
+    const j = await api('/api/join', null, { method: 'POST', body: JSON.stringify({ inviteCode: c.community.inviteCode, callsign: bot }) });
     tokens.set(bot, j.token);
   }
   check('community created in-app, 5 members joined by invite code', tokens.size === 6, c.community.inviteCode);

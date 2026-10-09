@@ -5,7 +5,7 @@
 **Principles**
 1. **Where will I talk?** is always the biggest thing on the main window: a bar reading `TRANSMIT ON 59.5 Command`, which turns **red "ON AIR"** while you hold PTT. The in-game overlay is separate: it stays quiet until someone is actually transmitting.
 2. **Two signal colours only:** green = live / your TX channel; red = you're on air. Everything else is greys plus one indigo for buttons.
-3. **Frequencies read like a dial:** always monospace, one decimal (`50.5`, `45.0`), MHz label small and muted. Steps are 0.5 MHz, from 30.0 to 87.5.
+3. **Frequencies read like a dial:** always monospace, one decimal (`50.0`, `50.5`, `45.0`), MHz label small and muted. Never three decimals. Steps are 0.5 MHz, from 30.0 to 87.5. The channel field accepts `50`, `50.0`, and `50.5`.
 4. **Zero friction tuning:** a single box. Type `59.5` or `com` and press Enter. Double-click a channel to tune. No "connect" step.
 5. **One card per tuned channel:** freq, name, who's talking (avatar ring glows), volume + mute, L/C/R ear, "Transmit here". Untune with ×.
 6. **Real-radio function, no skeuomorphism:** no knobs, no static, no fake LCDs.
@@ -33,4 +33,8 @@
 
 Opening the wheel takes mouse focus from the game for that moment, so a click can land on a slice. If that fights the game, the fallback does not need focus: hold `G` and scroll, or press `1`–`9`. Those follow the global input path and apply to the slice under the cursor, or to the transmit slice if nothing is hovered.
 
-**Still to design (M3):** settings (devices, mic test meter, noise suppression, blips on/off), keybind recorder, members screen (promote, remove, rotate invite), tray menu, empty/error states (server down, mic blocked, channel deleted).
+**Keybinds:** a settings screen on the radio. Click a slot, then press any key or mouse button, including Mouse 4 and Mouse 5. Left, right and middle click stay unbound so the click that arms the slot does not bind itself. Escape cancels. Slots are push-to-talk, open channel wheel (default `G`), show or hide overlay (`F10`), cycle transmit (`Mouse 5`), plus a quick-select for each tuned channel (press sets the transmit channel). Two slots on the same input are shown as a conflict and still saved. Each slot can be cleared. Reset restores the defaults. The set is stored with the local profile.
+
+**First launch and servers:** the app asks for a callsign and stores it on this PC. Join is an invite code plus the server URL. Communities already joined are a list (name, URL, invite, last used) and rejoin in one click. Creating a community returns an admin key the app keeps and can copy. There is no account screen.
+
+**Still to design (M3):** settings for devices, mic test meter, noise suppression, and blips; tray menu; empty/error states (server down, mic blocked, channel deleted). Member lists and role promotion are not part of this version: admin powers are the admin key.

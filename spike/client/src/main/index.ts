@@ -1,5 +1,7 @@
 import { join } from 'node:path';
 import { BrowserWindow, app, ipcMain, safeStorage, screen, session } from 'electron';
+import { withBindDefaults } from '../shared/keybinds';
+import { emptyProfile, normaliseProfile, type Profile } from '../shared/profile';
 import type { HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -53,17 +55,25 @@ function createOverlay() {
   page('overlay', overlay);
 }
 
-// --- device token: encrypted with the OS (DPAPI on Windows) via safeStorage ---
-const tokenFile = () => join(app.getPath('userData'), 'device-token.bin');
-ipcMain.handle('token:get', () => {
-  if (!existsSync(tokenFile())) return null;
-  const buf = readFileSync(tokenFile());
-  return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8');
-});
-ipcMain.handle('token:set', (_e, token: string) => {
-  const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(token) : Buffer.from(token, 'utf8');
-  writeFileSync(tokenFile(), data, { mode: 0o600 });
-});
+// --- local profile: callsign, server history, keybinds, radio prefs. Encrypted with the OS when it can (DPAPI on Windows). ---
+const profileFile = () => join(app.getPath('userData'), 'profile.bin');
+function readProfile(): Profile {
+  try {
+    if (!existsSync(profileFile())) return emptyProfile();
+    const buf = readFileSync(profileFile());
+    const text = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8');
+    return normaliseProfile(JSON.parse(text));
+  } catch {
+    return emptyProfile();
+  }
+}
+function writeProfile(p: Profile) {
+  const text = JSON.stringify(p);
+  const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : Buffer.from(text, 'utf8');
+  writeFileSync(profileFile(), data, { mode: 0o600 });
+}
+ipcMain.handle('profile:get', () => readProfile());
+ipcMain.handle('profile:set', (_e, p: Profile) => writeProfile(normaliseProfile(p)));
 
 let wheelShown = false;
 
@@ -117,7 +127,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'media'));
   createMain();
   createOverlay();
-  hotkeys.setBinds(DEFAULT_BINDS);
+  hotkeys.setBinds(withBindDefaults(readProfile().keybinds ?? DEFAULT_BINDS));
   try { hotkeys.start(); } catch (err) { console.error('global hotkeys unavailable', err); }
 });
 app.on('window-all-closed', () => { hotkeys.stop(); app.quit(); });

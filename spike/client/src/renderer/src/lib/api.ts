@@ -1,19 +1,22 @@
 /** Thin client for the Radio Net API (see spike/server). */
 export interface ChannelInfo { id: string; freq: string; freqKHz: number; name: string; restricted: boolean }
-export interface CommunityInfo { id: string; name: string; role: 'owner' | 'admin' | 'member'; inviteCode?: string }
+export interface CommunityInfo { id: string; name: string; inviteCode: string; band?: { minKHz: number; maxKHz: number; stepKHz: number } }
 export interface Grant { channelId: string; room: string; freqKHz: number; name: string; canTransmit: boolean; token: string }
+export interface JoinResult { token: string; expiresAt: string; callsign: string; community: CommunityInfo }
+export interface CreateResult { adminKey: string; community: CommunityInfo }
 
 const bakedApi = import.meta.env.VITE_API_URL;
 export const API_URL = bakedApi && bakedApi.length > 0 ? bakedApi : 'http://127.0.0.1:8787';
 
 export class Api {
-  constructor(public token: string | null) {}
+  constructor(public baseUrl: string, public token: string | null, public adminKey: string | null = null) {}
   private async req<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const res = await fetch(API_URL + path, {
+    const res = await fetch(this.baseUrl + path, {
       ...init,
       headers: {
         ...(init.body ? { 'content-type': 'application/json' } : {}),
         ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+        ...(this.adminKey ? { 'x-admin-key': this.adminKey } : {}),
       },
     });
     if (res.status === 204) return undefined as T;
@@ -21,12 +24,17 @@ export class Api {
     if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
     return body as T;
   }
-  me() { return this.req<{ account: { id: string; displayName: string }; communities: CommunityInfo[] }>('/api/me'); }
-  join(inviteCode: string, displayName?: string) {
-    return this.req<{ token?: string; community: CommunityInfo }>('/api/join', { method: 'POST', body: JSON.stringify({ inviteCode, displayName }) });
+  join(inviteCode: string, callsign: string) {
+    return this.req<JoinResult>('/api/join', { method: 'POST', body: JSON.stringify({ inviteCode, callsign }) });
   }
-  createCommunity(name: string, displayName?: string, setupCode?: string) {
-    return this.req<{ token?: string; community: CommunityInfo }>('/api/communities', { method: 'POST', body: JSON.stringify({ name, displayName, setupCode }) });
+  createCommunity(name: string, setupCode?: string) {
+    return this.req<CreateResult>('/api/communities', { method: 'POST', body: JSON.stringify({ name, setupCode }) });
+  }
+  rotateInvite(cid: string) {
+    return this.req<{ inviteCode: string }>(`/api/communities/${cid}/invite/rotate`, { method: 'POST' });
+  }
+  rotateAdminKey(cid: string, setupCode: string) {
+    return this.req<{ adminKey: string }>(`/api/communities/${cid}/admin/rotate`, { method: 'POST', body: JSON.stringify({ setupCode }) });
   }
   channels(cid: string) { return this.req<{ channels: ChannelInfo[] }>(`/api/communities/${cid}/channels`).then((r) => r.channels); }
   createChannel(cid: string, freq: string, name: string) {

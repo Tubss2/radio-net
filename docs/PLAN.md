@@ -1,11 +1,11 @@
 # Radio Net: scope and plan (v0.2)
 
-*Updated Fri 9 Oct 2026, ~4:40pm NZT. v0.1 assumed fixed nets and Discord roles. v0.2 follows Tobias's answers: **frequency/name channels created in the app**, **no Discord dependency** (Discord moves to the backlog).*
+*Updated Fri 9 Oct 2026. v0.1 assumed fixed nets and Discord roles. v0.2 follows Tobias's answers: **frequency/name channels created in the app**, **no Discord dependency**, and **no user accounts** (a callsign and server list live on the PC).*
 *Provider comparison: [`providers.md`](providers.md) (unchanged). UI direction: [`UI.md`](UI.md) + [`mockup.html`](mockup.html). M1 spike: [`spike/README.md`](../spike/README.md). Sydney deploy kit: [`../deploy/README.md`](../deploy/README.md). Anti-cheat notes: [`anticheat-and-contacts.md`](anticheat-and-contacts.md).*
 
 ## 1. The one-paragraph version
 
-**Radio Net** (working name) is a small **Windows desktop app** that runs beside WARDOGS or any game. A group creates a **community** in the app and shares an **invite code**; members join with the code and a display name. No Discord, email or password. Community **admins create and delete channels**, each a **frequency + name** (e.g. `59.5 Command`). Every user has their own **radio**: tune any number of channels to **listen** (type `59.5` or `command`), each with its own **volume and left/centre/right ear**, and pick **one to transmit** on. **Push-to-talk** talks on the TX channel. A **channel-wheel** hotkey (default `G`, Arma Reforger style) opens a radial menu centred on the screen. Hover a segment, left-click to make it the transmit channel, right-click to mute or unmute, scroll to step that frequency by 0.5 MHz (30.0–87.5 MHz), Shift+scroll to change that channel’s volume, and use the **+** segment to add a channel by frequency or name. The wheel takes mouse focus briefly. The fallback, which does not need that focus, is hold `G` and scroll or press a number key. Release or Esc closes. Push-to-talk stays its own key. See [`radial-wheel.png`](radial-wheel.png). A click-through **overlay** is on by default: a small box in a screen corner that stays empty when nobody is transmitting, and while someone transmits shows only their display name and the channel (frequency + name) they are transmitting on, stacked if several people are talking. Voice runs on **self-hosted LiveKit** in Sydney. Clean voice, no radio effects.
+**Radio Net** (working name) is a small **Windows desktop app** that runs beside WARDOGS or any game. The first launch asks for a **callsign**, stored on that PC. A group creates a **community** and shares an **invite code**; members join that server with the code. No Discord, email, password, or account. The creator gets a **community admin key** (also stored on the PC, and shareable) which is required to create or delete channels and to rotate the invite. Each channel is a **frequency + name** (e.g. `59.5 Command`). Every user has their own **radio**: tune any number of channels to **listen** (type `59.5` or `command`), each with its own **volume and left/centre/right ear**, and pick **one to transmit** on. **Push-to-talk** talks on the TX channel. A **channel-wheel** hotkey (default `G`, Arma Reforger style) opens a radial menu centred on the screen. Hover a segment, left-click to make it the transmit channel, right-click to mute or unmute, scroll to step that frequency by 0.5 MHz (30.0–87.5 MHz), Shift+scroll to change that channel’s volume, and use the **+** segment to add a channel by frequency or name. The wheel takes mouse focus briefly. The fallback, which does not need that focus, is hold `G` and scroll or press a number key. Release or Esc closes. Push-to-talk stays its own key. See [`radial-wheel.png`](radial-wheel.png). A click-through **overlay** is on by default: a small box in a screen corner that stays empty when nobody is transmitting, and while someone transmits shows only their display name and the channel (frequency + name) they are transmitting on, stacked if several people are talking. Voice runs on **self-hosted LiveKit** in Sydney. Clean voice, no radio effects.
 
 ## 2. What changed from v0.1
 
@@ -13,31 +13,21 @@
 |---|---|---|
 | Channels | Fixed nets (Command/Arty/Logi/FT-1..4) in a server config file | **Admins create/delete channels in-app**: frequency (30.0–87.5 MHz, 0.5 MHz steps) + name. Fireteams are just ad-hoc frequencies. |
 | Who hears what | Discord roles per net | **MVP: anyone in the community can tune and talk on any channel.** Per-channel restriction is backlog. |
-| Accounts | Sign in with Discord | **Own lightweight accounts: invite code + display name → device key** (see §4). Discord login is backlog. |
-| Admins | Discord roles | **Owner** (creator of the community) promotes **admins**. Admins: create/delete channels, rotate invite, remove members. |
+| Accounts | Sign in with Discord | **No accounts.** Callsign, keybinds, server history, volumes and overlay prefs stay in Electron userData on that PC (see §4). |
+| Admins | Discord roles | **Admin key** returned once when the community is created. The server stores only its hash. Create/delete channels and invite rotation require the key. The server setup code can mint a replacement. |
 | Discord dev app | Needed for M2 | **Not needed for MVP.** [`discord-setup.md`](discord-setup.md) kept for later. |
 
 ## 3. Data model
 
 ```mermaid
 erDiagram
-  ACCOUNT ||--o{ MEMBERSHIP : has
-  COMMUNITY ||--o{ MEMBERSHIP : has
   COMMUNITY ||--o{ CHANNEL : owns
-  ACCOUNT {
-    string id
-    string displayName
-    string tokenHash "sha256 of device key"
-  }
   COMMUNITY {
     string id
     string name
-    string inviteCode "XXXX-XXXX, rotatable"
+    string inviteCode "XXXX-XXXX, rotatable with admin key"
+    string adminKeyHash "sha256, plaintext never stored"
     json band "min/max/step kHz"
-  }
-  MEMBERSHIP {
-    string role "owner | admin | member"
-    string[] tags "BACKLOG e.g. SL"
   }
   CHANNEL {
     string id "LiveKit room derives from this"
@@ -47,41 +37,38 @@ erDiagram
   }
 ```
 
-- **Frequencies are stored as integer kHz** (no float bugs). Display is one decimal (`50.5`, `50.0`). Input accepts `50.5`, `50.50`, `50.5 MHz`, `50500`. Values that are not a 0.5 MHz step are rejected. Default band 30.0–87.5 MHz. Configurable per community.
-- **User radio state stays on the client** (per community: tuned channel ids, TX channel, per-channel volume/pan/mute, keybinds). The server doesn't need it. Syncing it across PCs is backlog.
-- **Storage:** SQLite on the VPS for M2 (one file, nightly backup). The spike uses an in-memory store behind the same interface.
+- **Frequencies are stored as integer kHz** (no float bugs). Display is always one decimal (`50.0`, `50.5`), never `50.000`. Input accepts `50`, `50.0`, `50.5`, `50.500 MHz`, and raw kHz `50500`. Values that are not a 0.5 MHz step are rejected. Default band 30.0–87.5 MHz. Configurable per community.
+- **User data stays on the PC** (callsign, keybinds, server history with invite code and optional admin key, per-channel volume/pan/mute, overlay on/off). The server doesn't keep it. Syncing it across PCs is backlog.
+- **Server storage:** a JSON file (`RN_DATA_FILE`, `/var/lib/radionet/store.json` on the VPS) so a restart keeps communities and channels. Tests use the in-memory store. SQLite can replace the file later; the interface is the same. JSON avoids a native module on the VPS.
 
-## 4. Accounts without Discord (decision)
+## 4. No accounts (decision)
 
-**Picked: invite code + display name → per-device secret key.**
+**Picked: callsign on the PC, invite code to join, admin key for community powers.**
 
-1. Owner creates a community (needs a **server setup code** we set on the VPS, so strangers can't use our server).
-2. They share the invite code (`K7QM-2XPA`) in their Discord/WhatsApp.
-3. A member types the code + a callsign. The server creates an account and returns a **random 256-bit device key** once. The app stores it in **Windows' encrypted storage** (DPAPI via Electron `safeStorage`). The server stores only its SHA-256 hash.
-4. Every request uses that key as a bearer token. One account can be in several communities.
+1. First launch: the user types a callsign. It is stored in Electron userData (encrypted with the OS when `safeStorage` is available). There is no sign-in.
+2. Someone with the **server setup code** creates a community. The response includes an **admin key** once (`rnk_…`). The app stores it on that PC and can copy it for other admins. The server stores only the SHA-256 hash.
+3. They share the invite code (`K7QM-2XPA`). A member picks that server (or types the code and the server URL). Joining with the code and the local callsign returns a **short-lived session** (12 hours, HMAC, not stored server-side) used to list channels and mint LiveKit tokens. LiveKit identity is that session, and the display name is the callsign.
+4. The app keeps a **server history** (name, URL, invite code, admin key if this PC has one, last used) and rejoins with one click. A new PC rejoins the same way; nothing is tied to an account.
+5. Create channel, delete channel, and rotate invite require the admin key (`X-Admin-Key`). If the key is lost, the server setup code rotates it (`POST /api/communities/:cid/admin/rotate`).
 
-**Why this over the alternatives:**
-- **Email magic link** needs an email provider sign-up, deliverability and a mail template, plus friction for gamers. Not worth it for one small group.
-- **Username + password** means password hashing, resets and "I forgot my password" with no email to reset to. More code and more support for no real gain.
-- **Invite code + device key** is one screen and zero third parties. It's as strong as the key (256-bit, never typed). The invite code is only a door: joins are **rate-limited** per IP, admins can **rotate** it, and can **remove** anyone (who is also dropped from voice immediately).
-- **Trade-offs (accepted):** a new PC = rejoin with a new account (backlog: admin-issued one-time **recovery code** to move an account). Display names aren't unique. Admins can see who's who.
+**Why this over accounts:**
+- A display name plus a device key was still an account: the server remembered people, roles, and kicks. Tobias's install feedback was that there should be no accounts at all.
+- Email or a password would add a provider or a reset flow for a group that already shares an invite in chat.
+- The invite code stays the door (rate-limited per IP, rotatable). Admin powers sit with whoever holds the key, which can be copied to a second PC. Callsigns are not unique; the overlay shows whatever was typed locally.
 
 ## 5. Server API (Node/TypeScript + Fastify; spike implements all of these)
 
 | Method | Path | Who | What |
 |---|---|---|---|
-| POST | `/api/communities` | anyone with setup code | Create community; caller = owner. First-time users pass `displayName` and get their device key back. |
-| POST | `/api/join` | anyone (rate-limited) | `{inviteCode, displayName}` → membership (+ device key if new). |
-| GET / PATCH | `/api/me` | signed in | My account + communities (+ invite code if admin) / change display name. |
-| POST | `/api/communities/:cid/invite/rotate` | admin | New invite code; old one stops working. |
-| GET | `/api/communities/:cid/members` | member | Member list with roles. |
-| PATCH | `/api/communities/:cid/members/:aid` | owner | Make admin / member. |
-| DELETE | `/api/communities/:cid/members/:aid` | admin (or self = leave) | Remove member + kick from all voice rooms. |
-| GET | `/api/communities/:cid/channels` | member | Channel list, sorted by frequency. |
-| GET | `/api/communities/:cid/channels/resolve?q=` | member | `59.5` / `41.5 MHz` / `command` / unique prefix `comm` → channel. |
-| POST | `/api/communities/:cid/channels` | admin | `{freq, name}`. 409 if frequency or name already used. |
-| DELETE | `/api/communities/:cid/channels/:chid` | admin | Delete + LiveKit `DeleteRoom` (everyone tuned is dropped). |
-| POST | `/api/communities/:cid/radio/tokens` | member | `{channelIds[]}` → one LiveKit token per channel. |
+| POST | `/api/communities` | anyone with setup code | `{name, setupCode?}` → community + **admin key** (once). No session yet. |
+| POST | `/api/join` | anyone (rate-limited) | `{inviteCode, callsign}` → 12-hour session token. |
+| POST | `/api/communities/:cid/admin/rotate` | server setup code | New admin key; the previous one stops working. |
+| POST | `/api/communities/:cid/invite/rotate` | admin key | New invite code; the old one stops working. |
+| GET | `/api/communities/:cid/channels` | session for that community | Channel list, sorted by frequency. `freq` is one decimal (`50.0`, `50.5`). |
+| GET | `/api/communities/:cid/channels/resolve?q=` | session | `50` / `59.5` / `41.5 MHz` / `command` / unique prefix `comm` → channel. |
+| POST | `/api/communities/:cid/channels` | admin key | `{freq, name}`. 409 if frequency or name already used. |
+| DELETE | `/api/communities/:cid/channels/:chid` | admin key | Delete + LiveKit `DeleteRoom` (everyone tuned is dropped). |
+| POST | `/api/communities/:cid/radio/tokens` | session | `{channelIds[]}` → one LiveKit token per channel. Name is the callsign. |
 
 Backlog: a push channel (SSE/WebSocket) so channel list changes appear instantly. MVP polls every 10 s.
 
@@ -103,20 +90,20 @@ flowchart LR
     H --> A --> O
   end
   subgraph VPS["Sydney VPS"]
-    API["Radio Net API<br/>accounts, communities,<br/>channels, tokens"]
-    DB[("SQLite")]
+    API["Radio Net API<br/>communities, channels,<br/>sessions, tokens"]
+    DB[("JSON store")]
     LK["LiveKit<br/>room per channel"]
     API --- DB
     API -- "DeleteRoom / RemoveParticipant" --> LK
   end
-  A -- "invite code / device key (HTTPS)" --> API
+  A -- "invite code + callsign (HTTPS)" --> API
   API -- "token per tuned channel" --> A
   A <== "voice: hear all tuned rooms,<br/>talk on TX room only" ==> LK
 ```
 
 ## 7. Client UX (see [`UI.md`](UI.md), [`mockup.html`](mockup.html))
 
-- **First run:** "Join your net" (invite code + callsign) or "Create a community" (name + setup code).
+- **First run:** callsign, stored on this PC. Then **join a server** (invite code + server URL) or **create a community** (name + setup code). The app keeps a server list and rejoins with one click. Creating a community shows the admin key once, with copy. Keybinds are a settings screen: click a slot (push-to-talk, channel wheel, overlay, cycle, and a quick-select per tuned channel), press a key or mouse button including Mouse 4 and Mouse 5, see conflicts, clear a slot, or reset to defaults. Those binds persist with the rest of the local profile.
 - **Main window:** community rail (left) → community's channel list with a **Tune** box ("59.5 or Command", Enter) and admin **+ New / delete** → **radio** area: a big **"Transmit on 59.5 Command"** bar (turns red "On air" while keyed) and a **card per tuned channel**: frequency, name, who's talking, volume + mute, **L/C/R ear**, "Transmit here", untune ×.
 - **Keys (decision, 9 Oct 2026):** one **push-to-talk** key (spike default `Mouse 4`), plus a **channel-wheel** hotkey (default `G`, Arma Reforger style). Hide overlay stays `F10`. Confirmation blips on key-up/down and on a channel change (not a radio effect; can be turned off). Picture: [`radial-wheel.png`](radial-wheel.png).
   - **Open.** Hold or press `G`. The wheel is a ring of segments centred on the screen, one per tuned channel (lowest frequency is CH1 at 12 o’clock, then clockwise) plus a final **+** segment. A short press latches it open. Holding and releasing closes it. `Esc`, or `G` again while it is latched, also closes it. While the add field is open, `G` does not dismiss the wheel, so a name can be typed.
@@ -131,7 +118,7 @@ flowchart LR
 
 ## 8. Stack (unchanged except auth)
 
-Self-hosted **LiveKit** (Sydney VPS; kit in [`../deploy/README.md`](../deploy/README.md)) · **Electron + React + TypeScript** with `livekit-client` · global input: the spike uses **uiohook-napi**; before the anti-cheat test, switch to Windows **Raw Input** (`RIDEV_INPUTSINK`), see §7 · overlay = transparent, click-through, non-focusable, always-on-top window · **Fastify** API + **SQLite** · Opus with DTX + RED, browser echo cancellation / noise suppression / auto-gain · NSIS installer + self-hosted auto-update. Reasons in v0.1 §3 still apply (see git history / `providers.md`).
+Self-hosted **LiveKit** (Sydney VPS; kit in [`../deploy/README.md`](../deploy/README.md)) · **Electron + React + TypeScript** with `livekit-client` · global input: the spike uses **uiohook-napi**; before the anti-cheat test, switch to Windows **Raw Input** (`RIDEV_INPUTSINK`), see §7 · overlay = transparent, click-through, non-focusable, always-on-top window · **Fastify** API + **JSON file** under `/var/lib/radionet` · Opus with DTX + RED, browser echo cancellation / noise suppression / auto-gain · NSIS installer + self-hosted auto-update. Reasons in v0.1 §3 still apply (see git history / `providers.md`).
 
 ## 9. Milestones (revised)
 
@@ -139,7 +126,7 @@ Self-hosted **LiveKit** (Sydney VPS; kit in [`../deploy/README.md`](../deploy/RE
 |---|---|---|---|---|
 | M0 | Setup | Plan agreed, private repo (on his OK), domain chosen | ½ | Waiting on repo OK + domain pick |
 | M1 | **Spike + anti-cheat gate** | Working core on Linux (done, see §11). **Still to do on Windows:** two testers, WARDOGS focused, PTT + channel wheel, overlay visible over borderless WARDOGS, **no anti-cheat complaint**. That test uses Raw Input, not the spike's uiohook (§7). | 3–4 | **~70% done** (Linux part) |
-| M2 | Real backend | Sydney VPS: LiveKit + API + SQLite, HTTPS on our domain, setup code, backups | 2–3 | |
+| M2 | Real backend | Sydney VPS: LiveKit + API + JSON store, HTTPS on our domain, setup code, backups | 2–3 | |
 | M3 | Pleasant UI | Mockup made real: keybind recorder, device picker + mic test, settings, tray, member/admin screens, invite rotate | 4–6 | |
 | M4 | Overlay + polish | Overlay position/size/opacity, reconnects, installer, auto-update | 3–4 | |
 | M5 | Test nights | 1–2 evenings with the group, fix-up pass | 2–3 | |
@@ -161,7 +148,7 @@ Dropping Discord login saves about a day in M2. In-app channel management adds a
 See [`spike/README.md`](../spike/README.md) for how to run it.
 
 **Proven (automated, all passing):**
-- API unit tests: **13/13**. Frequency parsing/validation, create/delete/list/resolve channels, duplicate freq/name → 409, admin-only actions, invite join (any case/format), invite rotation, owner promotes admin, kick, multiple communities per account, join rate-limit, setup-code gate, token grants (correct room, subscribe, mic-only publish, no data).
+- API unit tests at the time of that write-up: **13/13**, on the account model (device key, roles, kick). That model was replaced the same day: no accounts, admin key, 12-hour session, JSON file store. The replacement suite is **14/14** (frequency including `50` → `50.0`, admin-key create/delete, invite rotation, setup-code admin-key rotation, file round-trip, token name = callsign). Client unit tests are **24/24** (wheel, preview, keybind conflicts, one-decimal parse).
 - Headless voice test with 4 bot "players" on a real local LiveKit server: **14/14**. Multi-room connect, listen-many/talk-one (audio arrives only on the TX channel), switch TX between channels, listen-only token can't publish (server-enforced), non-admin can't create channels, deleting a channel drops everyone tuned to it while other channels stay up. Key-up to first audio ~47 ms on localhost (not a real-world number).
 - **The real Electron app** on a virtual Linux display with a fake mic, plus a bot: **8/8**. Join by invite code, tune by `59.5` and by `arty`, remote speaker shown on the right card, **global PTT via the uiohook mouse hook** (Mouse 4) keys up, **its audio reaches the bot on Command only**, release un-keys, **switch key (Mouse 5) moves TX to Arty** and audio follows. That run's overlay still drew a persistent TX line plus speakers. The overlay was changed after that run to match the decision in §7 (on by default, hidden until someone transmits, each line is display name plus channel). The Electron smoke test was not re-run after that change, and it was not re-run after the channel wheel landed.
 - **Channel wheel (after that smoke run):** the spike client now opens the radial on `G` (hold to release, short press latches, Esc closes), with hover, left-click transmit, right-click mute, scroll to step frequency, Shift+scroll volume, and the **+** add field. Behaviour is covered by the client unit tests (`spike/client`, 18 tests) including one full wheel session. The wheel window taking focus, and the hold-`G` scroll/number fallback while a game is focused, are not covered by that Electron smoke run. Raw Input is still not built; the anti-cheat test should use it instead of uiohook (§7).

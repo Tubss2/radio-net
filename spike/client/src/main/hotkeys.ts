@@ -1,4 +1,5 @@
 import { UiohookKey, WheelDirection, uIOhook } from 'uiohook-napi';
+import { DEFAULT_BINDS } from '../shared/keybinds';
 import { digitFromKeycode, scrollSteps } from '../shared/radialWheel';
 import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
 
@@ -8,9 +9,9 @@ import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
  * Caveat (Windows): if the game runs as administrator and we don't, Windows hides its input from us.
  */
 export class Hotkeys {
-  private binds: Keybinds = { ptt: null, cycle: null, overlay: null, wheel: null, direct: {} };
+  private binds: Keybinds = { ...DEFAULT_BINDS, direct: {}, select: {} };
   private held = new Set<string>(); // de-dupe OS key-repeat
-  private recording: ((b: Bind) => void) | null = null;
+  private recording: ((b: Bind | null) => void) | null = null;
   private wheelDownAt: number | null = null;
 
   constructor(private emit: (e: HotkeyEvent) => void) {}
@@ -31,14 +32,20 @@ export class Hotkeys {
   }
   stop() { uIOhook.stop(); }
   setBinds(b: Keybinds) { this.binds = b; this.held.clear(); this.wheelDownAt = null; }
-  /** Next key/mouse press is captured as a bind (keybind recorder UI). Left/right click are ignored. */
-  record(): Promise<Bind> {
+  /**
+   * Next key or mouse press becomes a bind. Left, right and middle click are ignored so the
+   * click that opened the recorder does not bind itself. Escape cancels and resolves null.
+   */
+  record(): Promise<Bind | null> {
     return new Promise((resolve) => { this.recording = resolve; });
   }
 
   private handle(input: Bind, down: boolean) {
     const id = bindId(input);
     if (down && this.recording) {
+      if (input.kind === 'key' && input.keycode === UiohookKey.Escape) {
+        const r = this.recording; this.recording = null; r(null); return;
+      }
       if (input.kind === 'mouse' && input.button <= 2) return;
       const r = this.recording; this.recording = null; r(input); return;
     }
@@ -48,6 +55,7 @@ export class Hotkeys {
     if (down && is(this.binds.cycle)) this.emit({ type: 'cycle' });
     if (down && is(this.binds.overlay)) this.emit({ type: 'overlay' });
     for (const [channelId, b] of Object.entries(this.binds.direct)) if (is(b)) this.emit({ type: 'direct', channelId, down });
+    if (down) for (const [channelId, b] of Object.entries(this.binds.select ?? {})) if (is(b)) this.emit({ type: 'select', channelId });
     if (is(this.binds.wheel)) {
       if (down) { this.wheelDownAt = Date.now(); this.emit({ type: 'wheel', down: true, heldMs: 0 }); }
       else {
@@ -68,10 +76,4 @@ const bindId = (b: Bind) => (b.kind === 'key' ? `k${b.keycode}` : `m${b.button}`
 const names = Object.fromEntries(Object.entries(UiohookKey).map(([k, v]) => [v as number, k]));
 const keyLabel = (code: number) => names[code] ?? `Key ${code}`;
 
-export const DEFAULT_BINDS: Keybinds = {
-  ptt: { kind: 'mouse', button: 4, label: 'Mouse 4' },
-  cycle: { kind: 'mouse', button: 5, label: 'Mouse 5' },
-  overlay: { kind: 'key', keycode: UiohookKey.F10, label: 'F10' },
-  wheel: { kind: 'key', keycode: UiohookKey.G, label: 'G' },
-  direct: {},
-};
+export { DEFAULT_BINDS };

@@ -1,12 +1,10 @@
 import { AccessToken, TrackSource } from 'livekit-server-sdk';
-import type { Role } from './accounts.js';
 import { type Channel, roomNameFor } from './store.js';
 
 export interface RadioUser {
-  id: string; // account id
-  displayName: string;
-  role: Role;
-  tags: string[]; // BACKLOG: admin-assigned tags such as "SL", used by restricted channels
+  id: string; // session id for this visit; a new join gets a new identity
+  displayName: string; // callsign, from the client
+  tags: string[]; // BACKLOG: tags such as "SL", used by restricted channels
 }
 
 export interface ChannelGrant {
@@ -18,11 +16,9 @@ export interface ChannelGrant {
   token: string;
 }
 
-export const isAdmin = (u: RadioUser) => u.role === 'owner' || u.role === 'admin';
-
-/** May this user hear a channel? MVP: everyone in the community (restrictedTag is always null for now). */
+/** May this user hear a channel? MVP: everyone who joined (restrictedTag is always null for now). */
 export function canListen(user: RadioUser, ch: Channel): boolean {
-  return ch.restrictedTag === null || user.tags.includes(ch.restrictedTag) || isAdmin(user);
+  return ch.restrictedTag === null || user.tags.includes(ch.restrictedTag);
 }
 
 /** May this user talk on a channel? MVP: same as listen. Kept separate so "listen-only" can be added later. */

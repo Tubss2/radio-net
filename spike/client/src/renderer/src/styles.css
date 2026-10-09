@@ -102,6 +102,16 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 .err { color: var(--tx); font-size: 13px; }
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 10; }
 .modal { width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+.modal.settings { width: 480px; }
+.onboard .box.servers { width: 480px; }
+.history { display: flex; flex-direction: column; max-height: 180px; overflow: auto; }
+.server { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.binds { display: flex; flex-direction: column; gap: 6px; }
+.bind { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+.bind.hot .slot { outline: 1px solid var(--accent); }
+.slot { min-width: 128px; font-family: var(--mono); }
+.keybox { font-family: var(--mono); font-size: 12px; word-break: break-all; user-select: text; background: var(--bg); border-radius: 8px; padding: 10px; }
+.link { color: var(--accent); padding: 0; font-size: inherit; }
 
 /* overlay window. The page itself stays clear so the game shows through; the wheel is a ring on top. */
 html.overlay-root, html.overlay-root body, html.overlay-root #root { background: transparent; }

@@ -62,7 +62,7 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 
 ## Known limits
 
-- Store is still in memory: a restart of `radionet-api` wipes communities/accounts (SQLite is M2).
+- Communities and channels persist in `/var/lib/radionet/store.json` (`RN_DATA_FILE` in `api.env`, writable under systemd `ProtectSystem=strict`). A restart keeps them. Re-run `setup.sh` on a box that was installed before this file existed so the directory and env line are created. There are still no user accounts.
 - sslip.io + Let's Encrypt: if Let's Encrypt rate-limits the shared sslip.io domain, Caddy retries and can fall back to its second issuer (ZeroSSL); setting `--email` helps. Buying the domain removes the issue.
 
 ## Live deployment: radio-net (Vultr Sydney, vc2-1c-2gb, 149.28.170.200), 9 Oct 2026 ~5:45pm NZ

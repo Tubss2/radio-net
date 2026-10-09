@@ -1,12 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { Profile } from '../shared/profile';
 import type { Bind, HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
 
 const api = {
-  getToken: (): Promise<string | null> => ipcRenderer.invoke('token:get'),
-  setToken: (t: string): Promise<void> => ipcRenderer.invoke('token:set', t),
+  getProfile: (): Promise<Profile> => ipcRenderer.invoke('profile:get'),
+  setProfile: (p: Profile): Promise<void> => ipcRenderer.invoke('profile:set', p),
   setKeybinds: (b: Keybinds): Promise<void> => ipcRenderer.invoke('hotkeys:set', b),
   defaultKeybinds: (): Promise<Keybinds> => ipcRenderer.invoke('hotkeys:defaults'),
-  recordBind: (): Promise<Bind> => ipcRenderer.invoke('hotkeys:record'),
+  recordBind: (): Promise<Bind | null> => ipcRenderer.invoke('hotkeys:record'),
   onHotkey: (cb: (e: HotkeyEvent) => void) => {
     const h = (_: unknown, e: HotkeyEvent) => cb(e);
     ipcRenderer.on('hotkey', h);

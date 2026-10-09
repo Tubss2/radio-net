@@ -114,6 +114,7 @@ TRUST_PROXY=1
 JOIN_RATE_LIMIT=30
 LIVEKIT_URL=wss://${LK_HOST}
 LIVEKIT_HTTP_URL=http://127.0.0.1:7880
+RN_DATA_FILE=/var/lib/radionet/store.json
 ENV
 }
 
@@ -133,7 +134,9 @@ apt-get install -y -qq curl ca-certificates ufw rsync xz-utils unattended-upgrad
 
 log "User and directories"
 id radionet >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin radionet
-mkdir -p "$APP_DIR/bin" "$APP_DIR/server" "$ETC_DIR" /var/lib/caddy
+mkdir -p "$APP_DIR/bin" "$APP_DIR/server" "$ETC_DIR" /var/lib/caddy /var/lib/radionet
+chown radionet:radionet /var/lib/radionet
+chmod 750 /var/lib/radionet
 chmod 750 "$ETC_DIR"; chgrp radionet "$ETC_DIR"; chmod 640 "$SECRETS_FILE"; chgrp radionet "$SECRETS_FILE"
 
 log "Node.js v$NODE_VERSION"

@@ -1,96 +1,256 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import { withBindDefaults } from '../../shared/keybinds';
+import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
 import type { Keybinds } from '../../shared/types';
-import { bridge, inElectron } from './bridge';
-import { Api, type ChannelInfo, type CommunityInfo } from './lib/api';
-import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
+import { matchChannel } from '../../shared/radialWheel';
+import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
+import { API_URL, Api, type ChannelInfo } from './lib/api';
+import { parseFreqInput, validateFrequency } from './lib/freq';
 import { isPreview } from './lib/previewMode';
 import { PreviewApi } from './lib/previewApi';
 import { PreviewEngine } from './lib/previewEngine';
-import { matchChannel } from '../../shared/radialWheel';
-import { parseFreqInput, validateFrequency } from './lib/freq';
+import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
 import { RadialWheel } from './RadialWheel';
+import { Settings } from './Settings';
 import { useChannelWheel } from './useChannelWheel';
 
 const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
-export function App() {
-  const [api, setApi] = useState<Api | null>(null);
-  const [me, setMe] = useState<{ displayName: string } | null>(null);
-  const [communities, setCommunities] = useState<CommunityInfo[]>([]);
-  const [active, setActive] = useState<CommunityInfo | null>(null);
+function clientFor(server: { url?: string; token?: string | null; adminKey?: string | null } | null): Api {
+  if (isPreview) return new PreviewApi();
+  return new Api(server?.url || API_URL, server?.token ?? null, server?.adminKey ?? null);
+}
 
-  const refresh = useCallback(async (a: Api) => {
-    const r = await a.me();
-    setMe(r.account);
-    setCommunities(r.communities);
-    setActive((cur) => r.communities.find((c) => c.id === cur?.id) ?? r.communities[0] ?? null);
+export function App() {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [binds, setBinds] = useState<Keybinds>(() => withBindDefaults(null));
+  const [freshKey, setFreshKey] = useState<string | null>(null);
+  const profileRef = useRef<Profile | null>(null);
+
+  const save = useCallback(async (next: Profile) => {
+    profileRef.current = next;
+    setProfile(next);
+    await bridge.setProfile(next);
   }, []);
 
   useEffect(() => {
-    if (isPreview) {
-      const a = new PreviewApi();
-      setApi(a);
-      void refresh(a);
-      return;
-    }
-    bridge.getToken().then(async (t) => {
-      const a = new Api(t);
-      setApi(a);
-      if (t) await refresh(a).catch(() => setMe(null));
+    bridge.getProfile().then(async (raw) => {
+      const p = normaliseProfile(raw);
+      let nextBinds = withBindDefaults(p.keybinds);
+      if (isPreview && !p.keybinds) {
+        nextBinds = { ...nextBinds, ptt: { kind: 'key', keycode: 0, label: 'Space' }, cycle: null };
+      }
+      profileRef.current = p;
+      setProfile(p);
+      setBinds(nextBinds);
+      await bridge.setKeybinds(withBindDefaults(p.keybinds));
+      if (isPreview && p.servers[0]) setActiveId(p.servers[0].id);
     });
-  }, [refresh]);
+  }, []);
 
-  if (!api) return null;
-  if (!me || !active)
-    return <Onboarding api={api} signedIn={Boolean(me)} onDone={async (token) => { if (token) { api.token = token; await bridge.setToken(token); } await refresh(api); }} />;
+  const changeBinds = (next: Keybinds) => {
+    setBinds(next);
+    void bridge.setKeybinds(next);
+    if (profileRef.current) void save({ ...profileRef.current, keybinds: next });
+  };
+
+  if (!profile) return null;
+  if (!profile.callsign) return <Callsign onSave={(callsign) => void save({ ...profile, callsign })} />;
+
+  const active = profile.servers.find((s) => s.id === activeId) ?? null;
+  if (!active) {
+    return (
+      <Home
+        profile={profile}
+        onProfile={(p) => void save(p)}
+        onOpen={(server) => setActiveId(server.id)}
+        onCreated={(server, adminKey) => { setFreshKey(adminKey); setActiveId(server.id); }}
+      />
+    );
+  }
 
   return (
     <div className="app">
       <div className="titlebar" />
       <nav className="rail">
-        {communities.map((c) => (
-          <button key={c.id} className={`c ${c.id === active.id ? 'on' : ''}`} title={c.name} onClick={() => setActive(c)}>{initials(c.name)}</button>
+        {[...profile.servers].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed)).map((c) => (
+          <button key={c.id} className={`c ${c.id === active.id ? 'on' : ''}`} title={c.name} onClick={() => setActiveId(c.id)}>{initials(c.name)}</button>
         ))}
-        <button className="c add" title="Join or create a community" onClick={() => setMe(null)}>+</button>
+        <button className="c add" title="Servers" onClick={() => setActiveId(null)}>+</button>
       </nav>
-      <Radio key={active.id} api={api} community={active} me={me.displayName} />
+      <Radio
+        server={active}
+        callsign={profile.callsign}
+        binds={binds}
+        boot={profile}
+        onProfile={(p) => void save(p)}
+        onServer={(server) => {
+          const cur = profileRef.current;
+          if (!cur) return;
+          void save({ ...cur, servers: cur.servers.map((s) => s.id === server.id ? server : s) });
+        }}
+      />
+      <SettingsHost binds={binds} onChange={changeBinds} />
+      {freshKey && <AdminKeyReveal adminKey={freshKey} onClose={() => setFreshKey(null)} />}
     </div>
   );
 }
 
-function Onboarding({ api, signedIn, onDone }: { api: Api; signedIn: boolean; onDone: (token?: string) => void }) {
-  const [mode, setMode] = useState<'join' | 'create'>('join');
-  const [code, setCode] = useState('');
+/** Settings is opened from inside Radio via a custom event so the radio tree can stay the owner of tuned channels. */
+function SettingsHost({ binds, onChange }: { binds: Keybinds; onChange: (b: Keybinds) => void }) {
+  const [open, setOpen] = useState(false);
+  const [quick, setQuick] = useState<{ id: string; label: string }[]>([]);
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent<{ quick: { id: string; label: string }[] }>).detail;
+      setQuick(detail?.quick ?? []);
+      setOpen(true);
+    };
+    window.addEventListener('rn-settings', onOpen);
+    return () => window.removeEventListener('rn-settings', onOpen);
+  }, []);
+  if (!open) return null;
+  return <Settings binds={binds} quick={quick} onChange={onChange} onClose={() => setOpen(false)} />;
+}
+
+function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
   const [name, setName] = useState('');
-  const [community, setCommunity] = useState('');
-  const [setup, setSetup] = useState('');
   const [err, setErr] = useState('');
-  const go = async () => {
-    setErr('');
-    try {
-      const r = mode === 'join'
-        ? await api.join(code, signedIn ? undefined : name)
-        : await api.createCommunity(community, signedIn ? undefined : name, setup || undefined);
-      onDone(r.token);
-    } catch (e) { setErr((e as Error).message); }
+  const go = () => {
+    const n = name.trim().replace(/\s+/g, ' ');
+    if (!n || n.length > 32) { setErr('Pick a callsign (1-32 characters)'); return; }
+    onSave(n);
   };
   return (
     <div className="onboard">
       <div className="titlebar" />
       <div className="box">
-        <h1>{mode === 'join' ? 'Join your net' : 'Start a community'}</h1>
-        <p>{mode === 'join' ? 'Paste the invite code from your community admin.' : 'You’ll get an invite code to share with your group.'}</p>
+        <h1>Your callsign</h1>
+        <p>Stored on this PC. There is no account and nothing to sign in to.</p>
+        <label className="field">Callsign<input placeholder="Toby" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
+        {err && <div className="err">{err}</div>}
+        <button className="btn primary" onClick={go}>Continue</button>
+      </div>
+    </div>
+  );
+}
+
+function Home({ profile, onProfile, onOpen, onCreated }: {
+  profile: Profile;
+  onProfile: (p: Profile) => void;
+  onOpen: (server: ServerEntry) => void;
+  onCreated: (server: ServerEntry, adminKey: string) => void;
+}) {
+  const [mode, setMode] = useState<'join' | 'create'>('join');
+  const [code, setCode] = useState('');
+  const [community, setCommunity] = useState('');
+  const [setup, setSetup] = useState('');
+  const [url, setUrl] = useState(API_URL);
+  const [callsign, setCallsign] = useState(profile.callsign);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const joinExisting = async (server: ServerEntry) => {
+    setErr('');
+    setBusy(true);
+    try {
+      const name = callsign.trim().replace(/\s+/g, ' ');
+      if (!name) throw new Error('Pick a callsign (1-32 characters)');
+      const api = clientFor({ url: server.url, token: null, adminKey: server.adminKey ?? null });
+      const r = await api.join(server.inviteCode, name);
+      const entry: ServerEntry = {
+        ...server,
+        name: r.community.name,
+        inviteCode: r.community.inviteCode,
+        token: r.token,
+        tokenExp: Date.parse(r.expiresAt),
+        lastUsed: new Date().toISOString(),
+      };
+      const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
+      onProfile({ ...profile, callsign: name, servers });
+      onOpen(entry);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const go = async () => {
+    setErr('');
+    setBusy(true);
+    try {
+      const name = callsign.trim().replace(/\s+/g, ' ');
+      if (!name) throw new Error('Pick a callsign (1-32 characters)');
+      const api = clientFor({ url, token: null, adminKey: null });
+      if (mode === 'join') {
+        const r = await api.join(code, name);
+        const prev = profile.servers.find((s) => s.id === r.community.id);
+        const entry: ServerEntry = {
+          id: r.community.id,
+          name: r.community.name,
+          url,
+          inviteCode: r.community.inviteCode,
+          adminKey: prev?.adminKey,
+          token: r.token,
+          tokenExp: Date.parse(r.expiresAt),
+          lastUsed: new Date().toISOString(),
+        };
+        const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
+        onProfile({ ...profile, callsign: name, servers });
+        onOpen(entry);
+      } else {
+        const created = await api.createCommunity(community, setup || undefined);
+        const joined = await api.join(created.community.inviteCode, name);
+        const entry: ServerEntry = {
+          id: created.community.id,
+          name: created.community.name,
+          url,
+          inviteCode: created.community.inviteCode,
+          adminKey: created.adminKey,
+          token: joined.token,
+          tokenExp: Date.parse(joined.expiresAt),
+          lastUsed: new Date().toISOString(),
+        };
+        const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
+        onProfile({ ...profile, callsign: name, servers });
+        onCreated(entry, created.adminKey);
+      }
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const history = [...profile.servers].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed));
+
+  return (
+    <div className="onboard">
+      <div className="titlebar" />
+      <div className="box servers">
+        <h1>{mode === 'join' ? 'Join a server' : 'Start a community'}</h1>
+        <p>{mode === 'join' ? 'Use the invite code from your community. Servers you have joined stay on this PC.' : 'You get an invite code for the group, and an admin key that stays on this PC.'}</p>
+        <label className="field">Callsign<input placeholder="Toby" value={callsign} onChange={(e) => setCallsign(e.target.value)} /></label>
+        {history.length > 0 && mode === 'join' && (
+          <div className="history">
+            {history.map((s) => (
+              <div key={s.id} className="server">
+                <div>
+                  <div>{s.name}</div>
+                  <div className="sub" style={{ margin: 0 }}>{s.url} · {s.inviteCode}</div>
+                </div>
+                <button className="btn sm" disabled={busy} onClick={() => void joinExisting(s)}>Rejoin</button>
+              </div>
+            ))}
+          </div>
+        )}
         {mode === 'join'
           ? <label className="field">Invite code<input className="code" placeholder="ABCD-EF23" value={code} onChange={(e) => setCode(e.target.value)} /></label>
           : <>
               <label className="field">Community name<input placeholder="War Dogs NZ" value={community} onChange={(e) => setCommunity(e.target.value)} /></label>
               <label className="field">Setup code (from whoever runs the server)<input value={setup} onChange={(e) => setSetup(e.target.value)} /></label>
             </>}
-        {!signedIn && <label className="field">Your callsign / display name<input placeholder="Toby" value={name} onChange={(e) => setName(e.target.value)} /></label>}
+        <label className="field">Server<input placeholder={API_URL} value={url} onChange={(e) => setUrl(e.target.value)} /></label>
         {err && <div className="err">{err}</div>}
-        <button className="btn primary" onClick={go}>{mode === 'join' ? 'Join' : 'Create community'}</button>
-        <button className="btn ghost" onClick={() => setMode(mode === 'join' ? 'create' : 'join')}>
+        <button className="btn primary" disabled={busy} onClick={() => void go()}>{mode === 'join' ? 'Join' : 'Create community'}</button>
+        <button className="btn ghost" onClick={() => { setMode(mode === 'join' ? 'create' : 'join'); setErr(''); }}>
           {mode === 'join' ? 'Running a group? Create a community' : 'Have an invite? Join instead'}
         </button>
       </div>
@@ -98,64 +258,131 @@ function Onboarding({ api, signedIn, onDone }: { api: Api; signedIn: boolean; on
   );
 }
 
-function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me: string }) {
+function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(adminKey); setCopied(true); } catch { setCopied(false); }
+  };
+  return (
+    <div className="modal-bg">
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: 0 }}>Community admin key</h3>
+        <p className="sub" style={{ margin: 0 }}>This is shown once. It is saved on this PC. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.</p>
+        <div className="keybox">{adminKey}</div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn ghost" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
+          <button className="btn primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Radio({ server, callsign, binds, boot, onProfile, onServer }: {
+  server: ServerEntry;
+  callsign: string;
+  binds: Keybinds;
+  boot: Profile;
+  onProfile: (p: Profile) => void;
+  onServer: (s: ServerEntry) => void;
+}) {
+  const api = useMemo(
+    () => clientFor(server),
+    [server.id, server.url, server.token, server.adminKey],
+  );
   const engine: RadioControl = useMemo(
-    () => (isPreview ? new PreviewEngine() : new RadioEngine(api, community.id)),
-    [api, community.id],
+    () => (isPreview ? new PreviewEngine() : new RadioEngine(api, server.id)),
+    [api, server.id],
   );
   useSyncExternalStore(engine.subscribe, () => engine.version);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [query, setQuery] = useState('');
   const [err, setErr] = useState('');
-  const [binds, setBinds] = useState<Keybinds | null>(null);
-  const [overlayOn, setOverlayOn] = useState(true);
+  const [overlayOn, setOverlayOn] = useState(boot.overlayOn);
   const [newCh, setNewCh] = useState(false);
-  const isAdmin = community.role !== 'member';
-  const storeKey = `rn.radio.${community.id}`;
-
-  const load = useCallback(() => api.channels(community.id).then(setChannels).catch((e) => setErr(e.message)), [api, community.id]);
   const [restored, setRestored] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const isAdmin = Boolean(server.adminKey);
+  const bootRef = useRef(boot);
+  const profileRef = useRef(boot);
+  profileRef.current = boot;
 
-  // Load channel list, restore previously tuned channels, poll for admin changes.
-  // Persistence waits until this finishes, otherwise the first empty render wipes the saved tune list.
+  const load = useCallback(() => api.channels(server.id).then(setChannels).catch((e) => setErr(e.message)), [api, server.id]);
+
   useEffect(() => {
     let alive = true;
+    const saved = bootRef.current.radios[server.id] ?? emptyRadio();
+    setOverlayOn(bootRef.current.overlayOn);
     load().then(async () => {
-      const saved: { tuned: string[]; tx: string | null } = JSON.parse(localStorage.getItem(storeKey) ?? '{"tuned":[],"tx":null}');
-      const list = await api.channels(community.id);
-      for (const id of saved.tuned) { const ch = list.find((c) => c.id === id); if (ch && alive) await engine.tune(ch).catch(() => undefined); }
+      const list = await api.channels(server.id);
+      for (const id of saved.tuned) {
+        const ch = list.find((c) => c.id === id);
+        if (!ch || !alive) continue;
+        await engine.tune(ch).catch(() => undefined);
+        if (saved.volume[id] != null) engine.setVolume(id, saved.volume[id]);
+        if (saved.muted[id]) engine.setMuted(id, true);
+        if (saved.pan[id] != null) engine.setPan(id, saved.pan[id]);
+      }
       if (alive && saved.tx) engine.setTx(saved.tx);
       if (alive) setRestored(true);
+    }).catch(async (e) => {
+      if (!alive) return;
+      const msg = (e as Error).message ?? '';
+      if (!isPreview && /session expired|not signed in/i.test(msg)) {
+        try {
+          const again = await new Api(server.url, null, server.adminKey ?? null).join(server.inviteCode, callsign);
+          onServer({ ...server, token: again.token, tokenExp: Date.parse(again.expiresAt), lastUsed: new Date().toISOString() });
+          return;
+        } catch (err) { setErr((err as Error).message); return; }
+      }
+      setErr(msg);
     });
     const t = setInterval(load, 10_000);
     return () => { alive = false; clearInterval(t); void engine.dispose(); };
-  }, [api, community.id, engine, load, storeKey]);
+  }, [api, server.id, engine, load]);
 
-  // Registered after the dispose effect so a pending tune is cancelled before the engine shuts down.
-  const wheel = useChannelWheel(engine, channels);
+  const wheel = useChannelWheel(engine, channels, binds.wheel);
+  const bindsRef = useRef(binds);
+  bindsRef.current = binds;
 
-  // Persist radio state once the saved tune list has been applied.
   useEffect(() => {
     if (!restored) return;
-    localStorage.setItem(storeKey, JSON.stringify({ tuned: engine.tuned.map((t) => t.channel.id), tx: engine.txId }));
+    const prefs: RadioPrefs = {
+      tuned: engine.tuned.map((t) => t.channel.id),
+      tx: engine.txId,
+      volume: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.volume])),
+      muted: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.muted])),
+      pan: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.pan])),
+    };
+    const prev = profileRef.current.radios[server.id];
+    if (JSON.stringify(prev) === JSON.stringify(prefs) && profileRef.current.overlayOn === overlayOn) return;
+    const next = { ...profileRef.current, overlayOn, radios: { ...profileRef.current.radios, [server.id]: prefs } };
+    profileRef.current = next;
+    onProfile(next);
   });
 
-  // Global hotkeys.
   useEffect(() => {
-    bridge.defaultKeybinds().then((b) => { setBinds(b); void bridge.setKeybinds(b); });
     const off = bridge.onHotkey((e) => {
       if (e.type === 'ptt') void engine.ptt(e.down);
       if (e.type === 'cycle') engine.cycle();
       if (e.type === 'overlay') setOverlayOn((v) => !v);
       if (e.type === 'direct') void engine.ptt(e.down, e.channelId);
+      if (e.type === 'select') engine.setTx(e.channelId);
       if (e.type === 'wheel') wheel.onKey(e.down, e.heldMs);
       if (e.type === 'wheel-scroll') wheel.onFallbackScroll(e.steps, e.shift);
       if (e.type === 'wheel-number') wheel.onNumber(e.n);
       if (e.type === 'wheel-cancel') wheel.close();
     });
     const offWheel = bridge.onWheelInput(wheel.onInput);
-    // Browser fallback: hold Space to talk while the window is focused.
-    const kd = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space' && !e.repeat && !(e.target instanceof HTMLInputElement)) void engine.ptt(true); };
+    const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+    const kd = (e: KeyboardEvent) => {
+      if (inElectron || isCapturingBind() || typing(e)) return;
+      if (e.code === 'Space' && !e.repeat) void engine.ptt(true);
+      if (domEventMatchesBind(e, bindsRef.current.overlay)) { e.preventDefault(); setOverlayOn((v) => !v); }
+      for (const [id, b] of Object.entries(bindsRef.current.select)) {
+        if (domEventMatchesBind(e, b)) engine.setTx(id);
+      }
+    };
     const ku = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space') void engine.ptt(false); };
     window.addEventListener('keydown', kd); window.addEventListener('keyup', ku);
     return () => { off(); offWheel(); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
@@ -164,15 +391,12 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
   const tuned = engine.tuned;
   const tx = tuned.find((t) => t.channel.id === engine.txId) ?? null;
   const keyed = engine.transmittingOn !== null;
-  // Overlay is on by default. Each row is someone transmitting: their name and that channel.
-  // Include this user; the engine's speaker list is remote talkers only.
   const overlaySpeakers = tuned.flatMap((t) => {
     const names = [...t.speakers];
-    if (engine.transmittingOn === t.channel.id && !names.includes(me)) names.unshift(me);
+    if (engine.transmittingOn === t.channel.id && !names.includes(callsign)) names.unshift(callsign);
     return names.map((name) => ({ name, channel: t.channel.name, freq: t.channel.freq }));
   });
 
-  // Talker rows hide while nobody is transmitting. The wheel can open on top of that.
   useEffect(() => {
     bridge.setOverlay({
       visible: overlayOn && overlaySpeakers.length > 0,
@@ -192,14 +416,34 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
     await engine.tune(hit).catch((e) => setErr(e.message));
   };
 
+  const openSettings = () => {
+    const quick = tuned.map((t) => ({ id: `select:${t.channel.id}`, label: `Quick select ${t.channel.freq} ${t.channel.name}` }));
+    window.dispatchEvent(new CustomEvent('rn-settings', { detail: { quick } }));
+  };
+
+  const copyAdmin = async () => {
+    if (!server.adminKey) return;
+    try { await navigator.clipboard.writeText(server.adminKey); setCopiedKey(true); }
+    catch { setErr(server.adminKey); }
+  };
+
+  const rotateInvite = async () => {
+    const r = await api.rotateInvite(server.id);
+    onServer({ ...server, inviteCode: r.inviteCode });
+  };
+
   const tunedIds = new Set(tuned.map((t) => t.channel.id));
   const filtered = channels.filter((c) => !query || c.freq.startsWith(query) || c.name.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <>
       <aside className="dir">
-        <h2>{community.name}</h2>
-        <div className="sub">{me} · {community.role}{community.inviteCode ? <> · invite <kbd>{community.inviteCode}</kbd></> : null}</div>
+        <h2>{server.name}</h2>
+        <div className="sub">
+          {callsign}
+          {server.inviteCode ? <> · invite <kbd>{server.inviteCode}</kbd></> : null}
+          {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button></> : null}
+        </div>
         <div className="tunebox">
           <span>📻</span>
           <input placeholder="Tune: 59.5 or Command" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && tuneQuery()} />
@@ -216,13 +460,17 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
                 {tunedIds.has(c.id)
                   ? <span className="pill live">tuned</span>
                   : <button className="btn sm" onClick={() => engine.tune(c).catch((e) => setErr(e.message))}>Tune</button>}
-                {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={async () => { if (confirm(`Delete ${c.freq} ${c.name} for everyone?`)) { await api.deleteChannel(community.id, c.id); await load(); } }}>🗑</button>}
+                {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={async () => { if (confirm(`Delete ${c.freq} ${c.name} for everyone?`)) { await api.deleteChannel(server.id, c.id); await load(); } }}>🗑</button>}
               </span>
             </div>
           ))}
           {!filtered.length && <div className="sub" style={{ padding: 8 }}>No channels yet.</div>}
         </div>
-        <div className="foot"><div className="avatar">{initials(me)}</div><div><div>{me}</div><div className="sub" style={{ margin: 0 }}>{inElectron ? 'Global hotkeys on' : 'Browser preview: hold Space'}</div></div></div>
+        <div className="foot">
+          <div className="avatar">{initials(callsign)}</div>
+          <div style={{ flex: 1 }}><div>{callsign}</div><div className="sub" style={{ margin: 0 }}>{inElectron ? 'Global hotkeys on' : 'Browser preview: hold Space'}</div></div>
+          <button className="btn sm" onClick={openSettings}>Keybinds</button>
+        </div>
       </aside>
 
       <main className="radio">
@@ -233,7 +481,7 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
           </div>
           <div className="nm">{tx?.channel.name ?? 'Tune a channel to talk'}</div>
           <div className="keys">
-            Talk <kbd>{binds?.ptt?.label ?? '—'}</kbd> Wheel <kbd>{binds?.wheel?.label ?? '—'}</kbd> Overlay <kbd>{binds?.overlay?.label ?? '—'}</kbd>
+            Talk <kbd>{binds.ptt?.label ?? '—'}</kbd> Wheel <kbd>{binds.wheel?.label ?? '—'}</kbd> Overlay <kbd>{binds.overlay?.label ?? '—'}</kbd>
           </div>
         </div>
         <div className="grid">
@@ -245,9 +493,9 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
       </main>
       {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => {
         const kHz = parseFreqInput(f);
-        const bad = kHz == null ? 'Enter a frequency like 59.5' : validateFrequency(kHz);
+        const bad = kHz == null ? 'Enter a frequency like 59.5 or 50' : validateFrequency(kHz);
         if (bad) throw new Error(bad);
-        await api.createChannel(community.id, f, n);
+        await api.createChannel(server.id, f, n);
         await load();
         setNewCh(false);
       }} />}

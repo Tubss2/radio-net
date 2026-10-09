@@ -11,8 +11,8 @@ import {
   type WheelModel,
   type WheelSegmentView,
 } from '../../shared/radialWheel';
-import type { WheelView } from '../../shared/types';
-import { inElectron } from './bridge';
+import type { Bind, WheelView } from '../../shared/types';
+import { domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import type { ChannelInfo } from './lib/api';
 import type { RadioControl } from './lib/radioEngine';
 
@@ -23,11 +23,13 @@ import type { RadioControl } from './lib/radioEngine';
  * Frequency changes reconcile to the engine as a set, debounced, so a fast scroll
  * doesn't leave a stale room connected. Transmit, mute and volume apply immediately.
  */
-export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[]) {
+export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], wheelBind: Bind | null = null) {
   const engineRef = useRef(engine);
   engineRef.current = engine;
   const channelsRef = useRef(channels);
   channelsRef.current = channels;
+  const wheelBindRef = useRef(wheelBind);
+  wheelBindRef.current = wheelBind;
 
   const [model, setModel] = useState<WheelModel>(emptyWheel);
   const modelRef = useRef(model);
@@ -157,15 +159,21 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[]) {
   useEffect(() => {
     if (inElectron) return;
     const downAt = { t: null as number | null };
+    const matches = (e: KeyboardEvent) => {
+      const b = wheelBindRef.current;
+      if (isCapturingBind()) return false;
+      if (!b) return e.code === 'KeyG';
+      return domEventMatchesBind(e, b);
+    };
     const kd = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyG' || e.repeat) return;
+      if (!matches(e) || e.repeat) return;
       if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
       if (downAt.t != null) return;
       downAt.t = performance.now();
       onKey(true, 0);
     };
     const ku = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyG' || downAt.t == null) return;
+      if (!matches(e) || downAt.t == null) return;
       const held = performance.now() - downAt.t;
       downAt.t = null;
       onKey(false, held);

@@ -1,6 +1,6 @@
 # Radio Net
 
-Windows companion radio-comms app for the game WARDOGS. A group creates a community in the app and shares an invite code. Admins add channels as a frequency plus a name (for example `59.5 Command`). Frequencies are 0.5 MHz steps from 30.0 to 87.5, shown to one decimal, and stored as integer kHz. Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with passive global hotkeys (including mouse buttons) and a click-through overlay.
+Windows companion radio-comms app for the game WARDOGS. There are no accounts: the first launch stores a callsign on that PC, then the user joins a community with its invite code (the app remembers servers and rejoins in one click). Creating a community returns an admin key, kept locally, which is what create/delete channel and invite rotation require. Channels are a frequency plus a name (for example `59.5 Command`). Frequencies are 0.5 MHz steps from 30.0 to 87.5, always shown to one decimal (`50.0`, `50.5`), and stored as integer kHz. Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with a keybind settings screen (keys and mouse buttons, including Mouse 4 and Mouse 5) and a click-through overlay.
 
 This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. The spike is a working local proof of the core, not the finished app.
 
@@ -26,7 +26,7 @@ The LiveKit binary is not in git. `spike/livekit/run-dev.sh` downloads **livekit
 
 ```bash
 spike/livekit/run-dev.sh &                 # LiveKit dev server (downloads the binary on first run)
-(cd spike/server && npm i && npm start) &  # API on :8787; seeds "War Dogs NZ (dev)", invite DEVN-ET01
+(cd spike/server && npm i && npm start) &  # API on :8787; seeds "War Dogs NZ (dev)", invite DEVN-ET01, admin key rnk_dev
 (cd spike/server && npm test)              # API and unit tests
 (cd spike/tests && npm i && npm run e2e)   # headless voice checks (needs LiveKit + API)
 ```

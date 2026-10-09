@@ -11,6 +11,8 @@ export interface Keybinds {
   wheel: Bind | null; // open the channel radial (default G)
   /** Direct push-to-talk on a specific tuned channel (channel id -> bind). */
   direct: Record<string, Bind>;
+  /** Press to make that channel the transmit channel (channel id -> bind). */
+  select: Record<string, Bind>;
 }
 
 export type HotkeyEvent =
@@ -18,6 +20,7 @@ export type HotkeyEvent =
   | { type: 'cycle' }
   | { type: 'overlay' }
   | { type: 'direct'; channelId: string; down: boolean }
+  | { type: 'select'; channelId: string }
   | { type: 'wheel'; down: boolean; heldMs: number }
   | { type: 'wheel-scroll'; steps: number; shift: boolean }
   | { type: 'wheel-number'; n: number }

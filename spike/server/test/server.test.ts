@@ -1,25 +1,31 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TokenVerifier } from 'livekit-server-sdk';
 import { describe, expect, it } from 'vitest';
+import { hashAdminKey, adminKeyMatches } from '../src/accounts.js';
 import { buildApp } from '../src/app.js';
 import { formatFrequency, parseFrequency, validateFrequency } from '../src/freq.js';
-import { MemoryChannelStore } from '../src/store.js';
+import { FileChannelStore, MemoryChannelStore } from '../src/store.js';
 
 const cfg = { livekitUrl: 'ws://x', livekitHttpUrl: 'http://127.0.0.1:1', apiKey: 'devkey', apiSecret: 'secret-secret-secret-secret-secret' };
 
 async function setup(extra: Partial<typeof cfg & { communitySetupCode: string; joinRateLimit: number }> = {}) {
   const app = buildApp(new MemoryChannelStore(), { ...cfg, ...extra });
-  const created = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'War Dogs NZ', displayName: 'Toby', setupCode: extra.communitySetupCode } });
-  const { token: ownerToken, community } = created.json();
-  const joined = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode.toLowerCase().replace('-', ' '), displayName: 'Rifleman' } });
-  const owner = { authorization: `Bearer ${ownerToken}` };
+  const created = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'War Dogs NZ', setupCode: extra.communitySetupCode } });
+  const body = created.json();
+  const community = body.community;
+  const adminKey = body.adminKey as string;
+  const joined = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode.toLowerCase().replace('-', ' '), callsign: 'Rifleman' } });
   const member = { authorization: `Bearer ${joined.json().token}` };
-  const cid = community.id as string;
-  return { app, owner, member, cid, community, memberId: joined.json().account.id as string };
+  const admin = { 'x-admin-key': adminKey };
+  return { app, admin, member, adminKey, cid: community.id as string, community, session: joined.json() };
 }
 
 describe('frequencies', () => {
-  it('parses common inputs', () => {
+  it('parses common inputs and always shows one decimal', () => {
     expect(parseFrequency('59.5')).toBe(59500);
+    expect(parseFrequency('50')).toBe(50000);
     expect(parseFrequency('50.5')).toBe(50500);
     expect(parseFrequency('50.0')).toBe(50000);
     expect(parseFrequency('59.500 MHz')).toBe(59500);
@@ -42,121 +48,151 @@ describe('frequencies', () => {
   });
 });
 
-describe('accounts & communities (no Discord)', () => {
-  it('create community -> owner gets token + invite; join by code (case/format-insensitive) -> member', async () => {
-    const { app, owner, member, community } = await setup();
-    expect(community.role).toBe('owner');
+describe('communities without accounts', () => {
+  it('create returns an admin key once; join by code (any case) returns a session and the callsign', async () => {
+    const { community, adminKey, session } = await setup();
+    expect(adminKey).toMatch(/^rnk_/);
+    expect(adminKeyMatches(adminKey, hashAdminKey(adminKey))).toBe(true);
     expect(community.inviteCode).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
-    const me = (await app.inject({ url: '/api/me', headers: member })).json();
-    expect(me.account.displayName).toBe('Rifleman');
-    expect(me.communities[0]).toMatchObject({ name: 'War Dogs NZ', role: 'member' });
-    expect(me.communities[0].inviteCode).toBeUndefined(); // members don't see the invite
-    expect((await app.inject({ url: '/api/me', headers: owner })).json().communities[0].inviteCode).toBe(community.inviteCode);
+    expect(community.adminKeyHash).toBeUndefined();
+    expect(session.callsign).toBe('Rifleman');
+    expect(session.community.inviteCode).toBe(community.inviteCode);
+    expect(session.token).toContain('.');
   });
 
-  it('rejects bad invite codes, bad tokens, missing names', async () => {
-    const { app } = await setup();
-    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAAA', displayName: 'x' } })).statusCode).toBe(404);
-    expect((await app.inject({ url: '/api/me', headers: { authorization: 'Bearer rn_nope' } })).statusCode).toBe(401);
-    expect((await app.inject({ url: '/api/me' })).statusCode).toBe(401);
-    expect((await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'X' } })).statusCode).toBe(400);
+  it('rejects a bad invite, a bad session, and a missing callsign', async () => {
+    const { app, cid } = await setup();
+    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAAA', callsign: 'x' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAAA' } })).statusCode).toBe(400);
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: 'Bearer nope' } })).statusCode).toBe(401);
+    expect((await app.inject({ url: `/api/communities/${cid}/channels` })).statusCode).toBe(401);
   });
 
   it('setup code gates community creation when configured', async () => {
     const app = buildApp(new MemoryChannelStore(), { ...cfg, communitySetupCode: 'letmein' });
-    expect((await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'X', displayName: 'A' } })).statusCode).toBe(403);
-    expect((await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'X', displayName: 'A', setupCode: 'letmein' } })).statusCode).toBe(201);
+    expect((await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'X' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'X', setupCode: 'letmein' } })).statusCode).toBe(201);
   });
 
   it('rate-limits invite guessing', async () => {
     const app = buildApp(new MemoryChannelStore(), { ...cfg, joinRateLimit: 3 });
     const codes = [];
-    for (let i = 0; i < 5; i++) codes.push((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAA' + i, displayName: 'x' } })).statusCode);
+    for (let i = 0; i < 5; i++) codes.push((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAA' + i, callsign: 'x' } })).statusCode);
     expect(codes).toEqual([404, 404, 404, 429, 429]);
   });
 
-  it('invite rotation: old code stops working; members cannot rotate', async () => {
-    const { app, owner, member, cid, community } = await setup();
+  it('admin key rotates the invite; a session alone cannot', async () => {
+    const { app, admin, member, cid, community } = await setup();
     expect((await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: member })).statusCode).toBe(403);
-    const r = await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: owner });
+    const r = await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: admin });
     expect(r.json().inviteCode).not.toBe(community.inviteCode);
-    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, displayName: 'late' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'late' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: r.json().inviteCode, callsign: 'late' } })).statusCode).toBe(200);
   });
 
-  it('owner promotes member to admin; admin can then create channels; kicked member loses access', async () => {
-    const { app, owner, member, cid, memberId } = await setup();
-    const mk = (h: Record<string, string>) => app.inject({ method: 'POST', url: `/api/communities/${cid}/channels`, headers: h, payload: { freq: '45', name: 'Logi' } });
-    expect((await mk(member)).statusCode).toBe(403);
-    expect((await app.inject({ method: 'PATCH', url: `/api/communities/${cid}/members/${memberId}`, headers: owner, payload: { role: 'admin' } })).statusCode).toBe(200);
-    expect((await mk(member)).statusCode).toBe(201);
-    expect((await app.inject({ method: 'DELETE', url: `/api/communities/${cid}/members/${memberId}`, headers: owner })).statusCode).toBe(204);
-    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: member })).statusCode).toBe(404);
+  it('setup code rotates a lost admin key and the old key stops working', async () => {
+    const app = buildApp(new MemoryChannelStore(), { ...cfg, communitySetupCode: 'letmein' });
+    const created = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Unit', setupCode: 'letmein' } });
+    const { adminKey, community } = created.json();
+    const url = `/api/communities/${community.id}/channels`;
+    expect((await app.inject({ method: 'POST', url, headers: { 'x-admin-key': adminKey }, payload: { freq: '50', name: 'Net' } })).statusCode).toBe(201);
+    expect((await app.inject({ method: 'POST', url: `/api/communities/${community.id}/admin/rotate`, payload: {} })).statusCode).toBe(403);
+    const rotated = await app.inject({ method: 'POST', url: `/api/communities/${community.id}/admin/rotate`, payload: { setupCode: 'letmein' } });
+    expect(rotated.json().adminKey).toMatch(/^rnk_/);
+    expect(rotated.json().adminKey).not.toBe(adminKey);
+    expect((await app.inject({ method: 'POST', url, headers: { 'x-admin-key': adminKey }, payload: { freq: '50.5', name: 'Other' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url, headers: { 'x-admin-key': rotated.json().adminKey }, payload: { freq: '50.5', name: 'Other' } })).statusCode).toBe(201);
   });
 
-  it('one account can belong to several communities', async () => {
-    const { app, member } = await setup();
-    const other = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Other Unit', displayName: 'Boss' } });
-    await app.inject({ method: 'POST', url: '/api/join', headers: member, payload: { inviteCode: other.json().community.inviteCode } });
-    expect((await app.inject({ url: '/api/me', headers: member })).json().communities).toHaveLength(2);
+  it('the same callsign can join two communities, each with its own session', async () => {
+    const { app, community } = await setup();
+    const other = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Other Unit' } });
+    const a = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
+    const b = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: other.json().community.inviteCode, callsign: 'Toby' } });
+    expect(a.json().token).not.toBe(b.json().token);
+    expect(a.json().community.id).not.toBe(b.json().community.id);
   });
 });
 
 describe('channel API', () => {
-  it('admin creates, member lists, duplicates rejected, member cannot create/delete', async () => {
-    const { app, owner, member, cid } = await setup();
+  it('admin key creates, a session lists, duplicates rejected, a session cannot create or delete', async () => {
+    const { app, admin, member, cid } = await setup();
     const url = `/api/communities/${cid}/channels`;
-    const r1 = await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '59.5', name: 'Command' } });
+    const r1 = await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '59.5', name: 'Command' } });
     expect(r1.statusCode).toBe(201);
     expect(r1.json().channel).toMatchObject({ freq: '59.5', name: 'Command' });
-    expect((await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '41.25', name: 'Off grid' } })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '88.0', name: 'Too high' } })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'POST', url, headers: owner, payload: { freq: 59.5, name: 'Other' } })).statusCode).toBe(409);
-    expect((await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '60', name: 'command' } })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '50', name: 'Fifty' } })).json().channel.freq).toBe('50.0');
+    expect((await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '41.25', name: 'Off grid' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '88.0', name: 'Too high' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url, headers: admin, payload: { freq: 59.5, name: 'Other' } })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '60', name: 'command' } })).statusCode).toBe(409);
     expect((await app.inject({ method: 'POST', url, headers: member, payload: { freq: '60', name: 'Arty' } })).statusCode).toBe(403);
-    expect((await app.inject({ url, headers: member })).json().channels).toHaveLength(1);
+    expect((await app.inject({ method: 'POST', url, headers: { 'x-admin-key': 'rnk_wrong' }, payload: { freq: '60', name: 'Arty' } })).statusCode).toBe(403);
+    expect((await app.inject({ url, headers: member })).json().channels.map((c: { freq: string }) => c.freq)).toEqual(['50.0', '59.5']);
     const id = r1.json().channel.id;
     expect((await app.inject({ method: 'DELETE', url: `${url}/${id}`, headers: member })).statusCode).toBe(403);
-    expect((await app.inject({ method: 'DELETE', url: `${url}/${id}`, headers: owner })).statusCode).toBe(204);
-    expect((await app.inject({ url, headers: member })).json().channels).toHaveLength(0);
+    expect((await app.inject({ method: 'DELETE', url: `${url}/${id}`, headers: admin })).statusCode).toBe(204);
   });
 
   it('resolves by frequency, exact name, or unique prefix', async () => {
-    const { app, owner, member, cid } = await setup();
+    const { app, admin, member, cid } = await setup();
     const url = `/api/communities/${cid}/channels`;
-    await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '59.5', name: 'Command' } });
-    await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '41.5', name: 'Arty' } });
-    const q = async (s: string) => (await app.inject({ url: `${url}/resolve?q=${encodeURIComponent(s)}`, headers: member })).json().matches.map((m: any) => m.name);
+    await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '59.5', name: 'Command' } });
+    await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '41.5', name: 'Arty' } });
+    const q = async (s: string) => (await app.inject({ url: `${url}/resolve?q=${encodeURIComponent(s)}`, headers: member })).json().matches.map((m: { name: string }) => m.name);
     expect(await q('59.5')).toEqual(['Command']);
+    expect(await q('50')).toEqual([]);
     expect(await q('41.5 MHz')).toEqual(['Arty']);
     expect(await q('arty')).toEqual(['Arty']);
     expect(await q('Comm')).toEqual(['Command']);
     expect(await q('nope')).toEqual([]);
   });
 
-  it('outsiders cannot see a community', async () => {
+  it('a session for another community cannot see this one', async () => {
     const { app, cid } = await setup();
-    const stranger = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Mine', displayName: 'S' } });
-    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${stranger.json().token}` } })).statusCode).toBe(404);
+    const stranger = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Mine' } });
+    const joined = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: stranger.json().community.inviteCode, callsign: 'S' } });
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${joined.json().token}` } })).statusCode).toBe(404);
+  });
+
+  it('a file store keeps communities and channels across a new process', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rn-')), 'store.json');
+    const first = buildApp(new FileChannelStore(file), cfg);
+    const created = await first.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Saved' } });
+    const { adminKey, community } = created.json();
+    await first.inject({ method: 'POST', url: `/api/communities/${community.id}/channels`, headers: { 'x-admin-key': adminKey }, payload: { freq: '50.5', name: 'Net' } });
+    await first.close();
+
+    const second = buildApp(new FileChannelStore(file), cfg);
+    const joined = await second.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
+    const listed = await second.inject({ url: `/api/communities/${community.id}/channels`, headers: { authorization: `Bearer ${joined.json().token}` } });
+    expect(listed.json().channels).toEqual([expect.objectContaining({ freq: '50.5', name: 'Net' })]);
+    const again = await second.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Saved' } });
+    expect(again.json().community.id).not.toBe(community.id);
+    await second.close();
   });
 });
 
 describe('token grants', () => {
-  it('one token per tuned channel, subscribe + mic-only publish, scoped to that room', async () => {
-    const { app, owner, member, cid, memberId } = await setup();
+  it('one token per tuned channel, subscribe + mic-only publish, named with the callsign', async () => {
+    const { app, admin, member, cid } = await setup();
     const url = `/api/communities/${cid}/channels`;
-    const a = (await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '59.5', name: 'Command' } })).json().channel;
-    const b = (await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '41.5', name: 'Arty' } })).json().channel;
+    const a = (await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '59.5', name: 'Command' } })).json().channel;
+    const b = (await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '41.5', name: 'Arty' } })).json().channel;
     const r = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/tokens`, headers: member, payload: { channelIds: [a.id, b.id, 'nope'] } });
     const { grants } = r.json();
     expect(grants).toHaveLength(2);
     const verifier = new TokenVerifier(cfg.apiKey, cfg.apiSecret);
+    const subs = new Set<string>();
     for (const g of grants) {
       const claims = await verifier.verify(g.token);
-      expect(claims.sub).toBe(memberId);
+      expect(claims.sub).toBeTruthy();
+      subs.add(String(claims.sub));
       expect(claims.name).toBe('Rifleman');
       expect(claims.video).toMatchObject({ room: g.room, roomJoin: true, canSubscribe: true, canPublish: true, canPublishData: false });
       expect(claims.video?.canPublishSources).toEqual(['microphone']);
     }
-    expect(new Set(grants.map((g: any) => g.room)).size).toBe(2);
+    expect(subs.size).toBe(1);
+    expect(new Set(grants.map((g: { room: string }) => g.room)).size).toBe(2);
   });
 });

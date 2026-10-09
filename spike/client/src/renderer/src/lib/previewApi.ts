@@ -1,5 +1,5 @@
 import { formatFreqKHz, parseFreqInput, validateFrequency } from '../../../shared/freq';
-import { Api, type ChannelInfo, type CommunityInfo } from './api';
+import { Api, type ChannelInfo, type CommunityInfo, type CreateResult, type JoinResult } from './api';
 
 export const PREVIEW_COMMUNITY_ID = 'wdnz';
 
@@ -14,31 +14,36 @@ export const PREVIEW_CHANNELS: ChannelInfo[] = [
 const community = (): CommunityInfo => ({
   id: PREVIEW_COMMUNITY_ID,
   name: 'War Dogs NZ',
-  role: 'owner',
   inviteCode: 'K7QM-2XPA',
 });
 
 /** Fake server: one community and a handful of channels. No network. */
 export class PreviewApi extends Api {
   constructor() {
-    super('preview');
+    super('preview', 'preview', 'rnk_preview');
   }
 
   channelsList: ChannelInfo[] = PREVIEW_CHANNELS.map((c) => ({ ...c }));
 
-  me() {
+  join(_inviteCode: string, callsign: string): Promise<JoinResult> {
     return Promise.resolve({
-      account: { id: 'toby', displayName: 'Toby' },
-      communities: [community()],
+      token: 'preview',
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      callsign,
+      community: community(),
     });
   }
 
-  join() {
-    return Promise.resolve({ token: 'preview', community: community() });
+  createCommunity(name: string): Promise<CreateResult> {
+    return Promise.resolve({ adminKey: 'rnk_preview', community: { ...community(), name: name || community().name } });
   }
 
-  createCommunity(name: string) {
-    return Promise.resolve({ token: 'preview', community: { ...community(), name: name || community().name } });
+  rotateInvite() {
+    return Promise.resolve({ inviteCode: community().inviteCode });
+  }
+
+  rotateAdminKey() {
+    return Promise.resolve({ adminKey: 'rnk_preview' });
   }
 
   channels() {

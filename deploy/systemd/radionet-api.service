@@ -1,5 +1,5 @@
 [Unit]
-Description=Radio Net API (accounts, channels, LiveKit tokens)
+Description=Radio Net API (communities, channels, LiveKit tokens)
 After=network-online.target livekit.service
 Wants=network-online.target
 
@@ -17,6 +17,9 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+# Communities and channels live in /var/lib/radionet/store.json (RN_DATA_FILE). strict otherwise blocks the write.
+StateDirectory=radionet
+ReadWritePaths=/var/lib/radionet
 
 [Install]
 WantedBy=multi-user.target
