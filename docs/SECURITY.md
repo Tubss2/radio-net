@@ -111,4 +111,4 @@ The primary client after v0.4.3 is the site on GitHub Pages, plus a phone used a
 | Phone pairing secret | QR fragment, SHA-256 on the server | Redeems a `ptt`-scoped token for one parent session. |
 | Helper pairing secret | Shown by the helper, sent once on the socket | Authorises one page to receive talk up/down. |
 
-A malicious website is a new attacker. It cannot install a global hook from the page. It can try to open `ws://127.0.0.1:47391` and key the microphone if the helper accepts its origin, and it can frame the Pages app because GitHub Pages will not send `frame-ancestors`. The controls, and what a bad helper would let that site do, are in [`SECURITY-WEB.md`](SECURITY-WEB.md). End-to-end voice encryption stays out of scope.
+A malicious website is a new attacker. It cannot install a global hook from the page. It can try to open `ws://127.0.0.1:47321` and key the microphone if the helper accepts its origin, and it can frame the Pages app because GitHub Pages will not send `frame-ancestors`. The controls, and what a bad helper would let that site do, are in [`SECURITY-WEB.md`](SECURITY-WEB.md). End-to-end voice encryption stays out of scope.

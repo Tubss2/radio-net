@@ -4,7 +4,7 @@ The desktop installer review is [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md). This
 
 End-to-end encryption of the voice is out of scope. The server operator can still hear the radio. Say that on the join screen.
 
-No web-app, pairing, or helper code was in the tree when this was written, apart from the mocked Pages preview (CSP `connect-src 'none'`, no API). The controls below are what that code has to do. A pull request that skips one of them should not ship.
+The Pages app, the phone routes, and the Rust helper are on the product branch. The controls below are what that code has to keep. A pull request that drops one of them should not ship. The helper listens on `127.0.0.1:47321`.
 
 ## Plain English
 
@@ -20,7 +20,7 @@ A phone button is a second session with a smaller scope. The QR code is a bearer
 |---|---|---|---|
 | W1 | Session token and admin key in `localStorage` | High | Session token in `sessionStorage` only. Admin key saved only if the user ticks a box, with a one-line warning and a Forget control. Invite code in `localStorage` is an accepted trade for one-click rejoin, and the join screen says so. |
 | W2 | XSS on the Pages origin | High | No third-party scripts. `script-src 'self'`. No `unsafe-eval`. No inline event handlers. A stolen origin steals the token, the invite, and the admin key. |
-| W3 | CSP on GitHub Pages | High for scripts, open for frames | Meta CSP is the only option Pages gives us. Pin `connect-src` to the Sydney API, the Sydney LiveKit host, and `ws://127.0.0.1:47391` for the helper. Do not use `https:` or `wss:` as a wildcard. |
+| W3 | CSP on GitHub Pages | High for scripts, open for frames | Meta CSP is the only option Pages gives us. Pin `connect-src` to the Sydney API, the Sydney LiveKit host, and `ws://127.0.0.1:47321` for the helper. Do not use `https:` or `wss:` as a wildcard. |
 | W4 | Clickjacking | Medium | `frame-ancestors` and `X-Frame-Options` are ignored in a meta tag, and Pages will not send them. An attacker page can frame the radio and overlay a fake button. Treat this as accepted on Pages, or move the app behind Caddy on the VPS where the header can be set. |
 | W5 | CORS | Medium | Allow `https://tubss2.github.io`, `http://localhost` and `http://127.0.0.1` with a port, and a missing or `null` origin for the Electron `file://` build. Do not reflect other origins. This does not hide the API from a stolen bearer token. It stops a random website's JavaScript from calling it in the user's browser. |
 | W6 | Microphone | Medium | Ask on a click, not on page load. Release push-to-talk on key-up, pointer-up, pointer leave, blur, and when the tab becomes hidden. A background tab must not stay on air. The track is still opened when a channel is tuned, muted until the button, same as the desktop app. Say that next to the button. |
@@ -46,7 +46,7 @@ A malicious website that never saw the QR cannot pair. A malicious website that 
 
 ## Localhost Raw Input helper
 
-The helper is a process on the gaming PC. It registers for keyboard and mouse with `RegisterRawInputDevices` and `RIDEV_INPUTSINK`, drops every key that is not the push-to-talk bind, and speaks WebSocket on `127.0.0.1:47391` only. It does not call `SendInput`. It does not open a port on the LAN.
+The helper is a process on the gaming PC. It registers for keyboard and mouse with `RegisterRawInputDevices` and `RIDEV_INPUTSINK`, drops every key that is not the push-to-talk bind, and speaks WebSocket on `127.0.0.1:47321` only. It does not call `SendInput`. It does not open a port on the LAN.
 
 Raw Input still delivers every key into that process. The filter has to run before the key code is logged, stored, or written on the socket. The socket carries "talk down" and "talk up" for the paired page. It does not carry other key codes.
 
@@ -54,40 +54,42 @@ Raw Input still delivers every key into that process. The filter has to run befo
 |---|---|---|---|
 | H1 | Any origin accepted | A tab on `https://evil.example` opens the socket and holds the mic open, or times transmissions to annoy the squad. | `Origin` must be `https://tubss2.github.io` or a localhost dev origin. Missing `Origin` is a reject. Browsers send `Origin` on WebSocket handshakes. |
 | H2 | DNS rebinding | Attacker DNS answers `evil.example` with `127.0.0.1`. The browser connects to loopback but the site is still the attacker's origin. | Reject on `Origin`, not on the TCP peer address. Also reject a `Host` header that is not `127.0.0.1` or `localhost`. Rebinding usually keeps the attacker's Host name; that check is the belt. The origin check is the suspenders. |
-| H3 | CSRF against localhost | A public page `fetch`es `http://127.0.0.1:47391` and hopes a GET keys the radio. | No GET, POST, or query parameter changes talk state. The only command channel is the WebSocket, and it ignores input until an `auth` message with the pairing secret. |
+| H3 | CSRF against localhost | A public page `fetch`es `http://127.0.0.1:47321` and hopes a GET keys the radio. | No GET, POST, or query parameter changes talk state. The only command channel is the WebSocket, and it ignores input until an `auth` message with the pairing secret. |
 | H4 | Private Network Access | Chrome blocks a public origin from touching loopback unless the helper answers the preflight with `Access-Control-Allow-Private-Network: true`. | Send that header, and `Access-Control-Allow-Origin`, only for an allowlisted origin. Do not send `*` . A failed preflight is what we want for every other site. |
 | H5 | Pairing secret left in the page, replayed | XSS or a second tab reuses the secret and attaches its own socket. | One success burns the secret. A second socket does not get the button. The user can pair again from the helper. |
 | H6 | Helper listens on `0.0.0.0` | Phones and other PCs on the LAN key the mic, or an attacker on the cafe Wi-Fi does. | Bind `127.0.0.1` only. Firewall is not the control. The bind is. |
 | H7 | The process logs keys | A crash dump or a debug line becomes a key log. | The native callback prints nothing except talk up/down for the one bound button. |
 
-The Pages CSP has to list `ws://127.0.0.1:47391` and `http://127.0.0.1:47391` (the preflight). A wildcard `ws:` would let a cross-site script on our origin talk to any local port. Pin the port.
+The Pages CSP has to list `ws://127.0.0.1:47321` and `http://127.0.0.1:47321` (the preflight). A wildcard `ws:` would let a cross-site script on our origin talk to any local port. Pin the port.
 
-## Checklist for the pull requests that build this
+## Checklist
 
-- [ ] Browser profile split: `sessionStorage` for the bearer token, opt-in admin key, warning text.
-- [ ] Meta CSP on the real app, not the mock. Mock stays on `/preview/` with `connect-src 'none'`.
-- [ ] API CORS allowlist includes `https://tubss2.github.io` and still allows a null origin for Electron.
-- [ ] Push-to-talk releases on blur and hidden.
-- [ ] Pairing secret is 32 bytes, fragment only, hashed at rest, single use, 2 minutes.
-- [ ] Phone token scope is `ptt`, tied to the parent session epoch.
-- [ ] Helper binds `127.0.0.1:47391`, checks `Origin` and `Host`, answers Private Network Access only for the allowlist, and does not key the mic before `auth`.
-- [ ] Raw Input drops non-bound keys inside the native callback. No `WH_*_LL` hook in this helper.
+- [x] Session token in `sessionStorage`. Invite code may stay in `localStorage`.
+- [ ] Admin key in `localStorage` only if the user ticks a box, with a warning and Forget. That is [#21](https://github.com/Tubss2/radio-net/pull/21).
+- [x] Meta CSP on the real app pins Sydney and `127.0.0.1:47321`. The mock stays on `/preview/`. `connect-src 'none'` for that build is [#23](https://github.com/Tubss2/radio-net/pull/23).
+- [x] API CORS allowlist includes `https://tubss2.github.io` and still allows a missing origin for Electron. Not deployed.
+- [x] In-page push-to-talk releases on key-up, blur, and hidden. A phone or helper hold is allowed to keep talking when the game is in front. Voice activation waits for a click ([#23](https://github.com/Tubss2/radio-net/pull/23)).
+- [x] Phone code is 32 bytes, in the URL fragment, hashed at rest, single use, two minutes ([#23](https://github.com/Tubss2/radio-net/pull/23)). The phone page waits for a tap before redeeming.
+- [ ] Phone token tied to the parent session epoch, so invite rotation kills it. The epoch is [#12](https://github.com/Tubss2/radio-net/pull/12). Closing the phone dialog is the kick that exists today.
+- [x] Helper binds `127.0.0.1:47321`, checks `Origin` and `Host`, answers Private Network Access only for the allowlist, and burns the pairing code after one success ([#23](https://github.com/Tubss2/radio-net/pull/23)).
+- [x] Raw Input drops non-bound keys inside the callback. No `WH_*_LL` hook in this helper. The desktop Electron app still has the low-level hook.
 
 ## Decisions still with the owner
 
 - Stay on GitHub Pages and accept clickjacking, or serve the app from Caddy so `frame-ancestors 'none'` is a real header.
-- Whether the phone may also listen, or only press the button. Listening means the phone holds a normal LiveKit token. This note assumes button only.
+- The phone that landed is button-only. It cannot publish a microphone. Leave it that way unless you explicitly want the phone to hear the radio.
 - Code signing for the helper. An unsigned local EXE is the same SmartScreen problem as the desktop installer, on a smaller file.
 
 ## Where the controls landed
 
-No web-app UI, pairing route, or Windows helper installer is in the tree yet. The other agent’s product pull requests were not open when this was written. The pieces below are the controls those pull requests have to use.
+[#18](https://github.com/Tubss2/radio-net/pull/18), [#19](https://github.com/Tubss2/radio-net/pull/19), [#20](https://github.com/Tubss2/radio-net/pull/20), and [#22](https://github.com/Tubss2/radio-net/pull/22) are merged into `cursor/local-callsign-keybinds-3d59`. [#15](https://github.com/Tubss2/radio-net/pull/15), [#16](https://github.com/Tubss2/radio-net/pull/16), and [#17](https://github.com/Tubss2/radio-net/pull/17) were earlier designs and are closed. The product did not use that Node helper or that HMAC pairing module.
 
-| Control | Pull request | Still open |
+| Control | Where it is | Still open |
 |---|---|---|
-| Session token in `sessionStorage`, opt-in admin key, browser push-to-talk release on blur and hidden | [#15](https://github.com/Tubss2/radio-net/pull/15) | The real Pages app is not built. `WEB_CSP` is the policy that build has to emit. It will conflict with the desktop trust pull request in `bridge.ts`. |
-| Mock preview `connect-src 'none'` on the production build | [#15](https://github.com/Tubss2/radio-net/pull/15) | The preview workflow still publishes the mock at the site root. It belongs at `/preview/`. |
-| API CORS allows `https://tubss2.github.io` and still allows a null origin | [#12](https://github.com/Tubss2/radio-net/pull/12) | Not deployed. Lookalike hosts are refused. |
-| Pairing secret, fragment URL, single use, 2 minutes, `ptt` scope, epoch | [#17](https://github.com/Tubss2/radio-net/pull/17) | No HTTP route calls it yet. A route that invents its own token should not ship. |
-| Helper origin, Host, Private Network Access, single-use secret, bind `127.0.0.1` | [#16](https://github.com/Tubss2/radio-net/pull/16) | No Windows UI and no message loop. The C filter is what that loop has to call before a key is logged. |
-| Raw Input inside the Electron app, replacing `uiohook-napi` | Not started | The desktop hook is unchanged. The helper filter is a separate process for the website. |
+| Session token in `sessionStorage` | Product branch | Admin key is still stored until [#21](https://github.com/Tubss2/radio-net/pull/21). |
+| Pages CSP pins Sydney and port `47321` | [#23](https://github.com/Tubss2/radio-net/pull/23) | `frame-ancestors` cannot be set on GitHub Pages. |
+| Mock at `/preview/` with `connect-src 'none'` | Workflow is on the product branch. The CSP meta tag is [#23](https://github.com/Tubss2/radio-net/pull/23). | None for the path. |
+| API CORS allowlist | [#19](https://github.com/Tubss2/radio-net/pull/19), merged | Not deployed to Sydney. |
+| Phone code, fragment, single use, data-only LiveKit grant, tap before redeem | Product branch, with the length, API host, and tap in [#23](https://github.com/Tubss2/radio-net/pull/23) | No session epoch. Redeem is a hash-map lookup. At 32 bytes that is not a practical guess. |
+| Helper origin, Host, Private Network Access, one-time code, bind `127.0.0.1:47321` | Product branch plus [#23](https://github.com/Tubss2/radio-net/pull/23) | The exe is unsigned. The workflow uploads an Actions artifact and does not publish a Release. |
+| Raw Input inside the Electron app, replacing `uiohook-napi` | Not started | The desktop hook is unchanged. The Rust helper is a separate process for the website. |
