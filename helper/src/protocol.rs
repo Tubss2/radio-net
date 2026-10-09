@@ -102,11 +102,10 @@ pub fn read_client_frame(buf: &[u8]) -> Result<(String, usize), &'static str> {
     Ok((text, offset + len))
 }
 
-fn json_string(json: &str, key: &str) -> Option<String> {
-    let pattern = format!("\"{key}\"");
+pub(crate) fn json_string(json: &str, key: &str) -> Option<String> {
+    let pattern = format!("\"{key}\":");
     let start = json.find(&pattern)? + pattern.len();
     let rest = json[start..].trim_start();
-    let rest = rest.strip_prefix(':')?.trim_start();
     let rest = rest.strip_prefix('"')?;
     let mut out = String::new();
     let mut chars = rest.chars();
@@ -123,18 +122,18 @@ fn json_string(json: &str, key: &str) -> Option<String> {
     None
 }
 
-fn json_number(json: &str, key: &str) -> Option<u32> {
-    let pattern = format!("\"{key}\"");
+pub(crate) fn json_number(json: &str, key: &str) -> Option<u32> {
+    let pattern = format!("\"{key}\":");
     let start = json.find(&pattern)? + pattern.len();
-    let rest = json[start..].trim_start().strip_prefix(':')?.trim_start();
+    let rest = json[start..].trim_start();
     let digits: String = rest.chars().take_while(|ch| ch.is_ascii_digit()).collect();
     digits.parse().ok()
 }
 
-fn object_after<'a>(json: &'a str, key: &str) -> Option<&'a str> {
-    let pattern = format!("\"{key}\"");
+pub(crate) fn object_after<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+    let pattern = format!("\"{key}\":");
     let start = json.find(&pattern)? + pattern.len();
-    let rest = json[start..].trim_start().strip_prefix(':')?.trim_start();
+    let rest = json[start..].trim_start();
     let brace = rest.find('{')?;
     Some(&rest[brace..])
 }
@@ -217,6 +216,74 @@ pub fn host_allowed(host: &str) -> bool {
     name.eq_ignore_ascii_case("127.0.0.1") || name.eq_ignore_ascii_case("localhost")
 }
 
+/// One key or one side button. A DOM `code` comes from the page. `vk` is the stored form.
+pub fn parse_watch(json: &str) -> Result<Watch, &'static str> {
+    let kind = json_string(json, "kind").ok_or("bad watch")?;
+    if kind == "mouse" {
+        let button = json_number(json, "button").ok_or("bad watch")?;
+        if button != 4 && button != 5 {
+            return Err("unsupported button");
+        }
+        return Ok(Watch::Mouse { button: button as u8 });
+    }
+    if kind == "key" {
+        if let Some(dom) = json_string(json, "code") {
+            let vk = dom_code_to_vk(&dom).ok_or("unsupported key")?;
+            return Ok(Watch::Key { vk });
+        }
+        if let Some(vk) = json_number(json, "vk") {
+            if vk > u16::MAX as u32 {
+                return Err("unsupported key");
+            }
+            return Ok(Watch::Key { vk: vk as u16 });
+        }
+        return Err("bad watch");
+    }
+    Err("bad watch")
+}
+
+pub enum Hello {
+    Pair { watch: Watch },
+    Resume { token: String },
+}
+
+/// The first socket message. A resume token is not a pairing code.
+pub fn parse_hello(text: &str, expected_code: &str) -> Result<Hello, &'static str> {
+    let kind = json_string(text, "t").unwrap_or_else(|| "pair".to_string());
+    if kind == "resume" {
+        let token = json_string(text, "token").ok_or("bad token")?;
+        return Ok(Hello::Resume { token });
+    }
+    if kind == "pair" {
+        let watch = parse_pair(text, expected_code)?;
+        return Ok(Hello::Pair { watch });
+    }
+    Err("bad pair")
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum LinkedCommand {
+    Watch(Watch),
+    Forget,
+}
+
+/// Messages after the link is up. Anything else is refused, so the socket cannot carry other keys.
+pub fn parse_linked(text: &str) -> Result<LinkedCommand, &'static str> {
+    let kind = json_string(text, "t").ok_or("bad message")?;
+    if kind == "forget" {
+        return Ok(LinkedCommand::Forget);
+    }
+    if kind == "watch" {
+        let watch = object_after(text, "watch").ok_or("bad watch")?;
+        // The page names a DOM key or a side button. A raw virtual-key number is only for the stored file.
+        if json_string(watch, "kind").as_deref() == Some("key") && json_string(watch, "code").is_none() {
+            return Err("bad watch");
+        }
+        return Ok(LinkedCommand::Watch(parse_watch(watch)?));
+    }
+    Err("unsupported")
+}
+
 fn get_random(buf: &mut [u8]) {
     getrandom::getrandom(buf).expect("os random");
 }
@@ -259,6 +326,22 @@ mod tests {
         assert_eq!(parse_pair(left, "K7QM2P").unwrap_err(), "unsupported button");
         assert_eq!(dom_code_to_vk("Space"), Some(0x20));
         assert_eq!(dom_code_to_vk("F2"), Some(0x71));
+    }
+
+    #[test]
+    fn resume_and_watch_updates_do_not_accept_other_buttons() {
+        let resume = r#"{"t":"resume","token":"abc"}"#;
+        match parse_hello(resume, "K7QM2P").unwrap() {
+            Hello::Resume { token } => assert_eq!(token, "abc"),
+            Hello::Pair { .. } => panic!("resume was read as a pair"),
+        }
+        let watch = r#"{"t":"watch","watch":{"kind":"key","code":"KeyV"}}"#;
+        assert_eq!(parse_linked(watch).unwrap(), LinkedCommand::Watch(Watch::Key { vk: b'V' as u16 }));
+        assert_eq!(parse_linked(r#"{"t":"forget"}"#).unwrap(), LinkedCommand::Forget);
+        assert!(parse_linked(r#"{"t":"down","code":"KeyA"}"#).is_err());
+        assert!(parse_linked(r#"{"t":"watch","watch":{"kind":"key","vk":65}}"#).is_err());
+        let left = r#"{"t":"watch","watch":{"kind":"mouse","button":1}}"#;
+        assert_eq!(parse_linked(left).unwrap_err(), "unsupported button");
     }
 
     #[test]
