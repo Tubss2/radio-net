@@ -52,7 +52,7 @@ npm run preview
 
 That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `F2` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the whole 30.0–87.5 grid (a frequency another slice already has is skipped), Shift+scroll for volume, and `+` to pick a channel that is not tuned yet (an admin can enter a frequency to create one). Tuning a channel plays a short squelch; settings can turn UI sounds off or change their volume. Hold Space to talk. `F10` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
 
-`npm run preview:build` writes a static site to `spike/client/preview-dist` with relative asset paths. The **UI preview** GitHub Action builds that on every push and uploads it as the `ui-preview` artifact. Pushes to `main` and the current feature branch also deploy GitHub Pages: [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/).
+`npm run preview:build` writes a static site to `spike/client/preview-dist` with relative asset paths. The **UI preview** GitHub Action builds that on every push and uploads it as the `ui-preview` artifact. Pushes to `main` and the current feature branch also deploy GitHub Pages at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/) once the repository source is GitHub Actions. The Actions token cannot create that site: the first time, open **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**. Until then the artifact is still uploaded and the deploy job skips.
 
 ## Windows installer
 

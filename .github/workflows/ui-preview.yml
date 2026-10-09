@@ -48,17 +48,24 @@ jobs:
         with:
           name: ui-preview
           path: preview-site
-      # enablement needs a token that can administer the repo. GITHUB_TOKEN is tried
-      # first; if the site does not exist yet this step fails until Pages is set to
-      # GitHub Actions in the repository settings.
+      # Creating the Pages site needs a repo admin token. GITHUB_TOKEN cannot do it.
+      # After Settings → Pages → Source is GitHub Actions, this configure step succeeds
+      # and the same job publishes the site.
       - name: Configure GitHub Pages
+        id: pages
+        continue-on-error: true
         uses: actions/configure-pages@v5
         with:
           enablement: true
+      - name: Pages site is not enabled yet
+        if: steps.pages.outcome != 'success'
+        run: echo "Set Settings → Pages → Source to GitHub Actions. The next push will publish https://tubss2.github.io/radio-net/"
       - name: Upload the Pages artifact
+        if: steps.pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: preview-site
       - name: Deploy to GitHub Pages
         id: deployment
+        if: steps.pages.outcome == 'success'
         uses: actions/deploy-pages@v4
