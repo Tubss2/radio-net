@@ -185,6 +185,7 @@ The ratings above are the published installer. Later pull requests change the so
 | [#14](https://github.com/Tubss2/radio-net/pull/14) | Threat model for the Pages app, the phone button, and the localhost helper. | The controls themselves are in the pull requests below. The helper port in that note was `47391`. The program that landed listens on `47321`. |
 | [#21](https://github.com/Tubss2/radio-net/pull/21) | Admin key stays out of `localStorage` unless the user ticks a box, with Forget. | Every repository on `https://tubss2.github.io` shares one origin. A key the user chooses to keep is readable by another Pages site on that account. |
 | [#23](https://github.com/Tubss2/radio-net/pull/23) | Helper code burns after one successful link. `Host` must be loopback. Private Network Access is not `*`. Pages CSP pins port `47321`. Phone codes are 32 bytes. A rewritten API host is ignored. Voice activation waits for a click. The phone does not redeem until a tap. The mock preview build gets `connect-src 'none'`. | No session epoch, so invite rotation does not kill a phone token that was already issued. Clickjacking is still open on Pages. The helper exe is unsigned. |
+| [#34](https://github.com/Tubss2/radio-net/pull/34) | After one pairing code, a 32-byte device token reconnects the helper. The page keeps it in `localStorage`. The helper keeps a DPAPI-sealed SHA-256 and the one watched key. Unlink on the page or the tray deletes it. | A script on `https://tubss2.github.io` can read that token and hold the one key until Unlink. The token is not an admin key. |
 
 [#15](https://github.com/Tubss2/radio-net/pull/15), [#16](https://github.com/Tubss2/radio-net/pull/16), and [#17](https://github.com/Tubss2/radio-net/pull/17) were earlier designs. The product branch shipped its own web app, Rust helper, and phone routes. Those three are closed so they are not a second copy of the same work.
 
@@ -209,9 +210,10 @@ These rows are the product branch (`cursor/local-callsign-keybinds-3d59`), not t
 | H2 | DNS rebinding | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). `Host` must be `127.0.0.1` or `localhost`. |
 | H3 | A GET to localhost keys the radio | High | Fixed on the product branch. Talk state changes only after the WebSocket pair message. |
 | H4 | Private Network Access for every site | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). The preflight header is the exact allowlisted origin, never `*`. |
-| H5 | Pairing code reused for the life of the helper | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). One success burns the 12-character code. |
+| H5 | Pairing code reused for the life of the helper | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). One success burns the 12-character code. [#34](https://github.com/Tubss2/radio-net/pull/34) then issues a device token so the page does not ask for a code again. |
 | H6 | Helper listens on the LAN | High | Fixed on the product branch. Bind is `127.0.0.1:47321` only. |
 | H7 | Helper logs other keys | High | Fixed on the product branch. Raw Input drops every key that is not the watched one, before anything is written to the socket. The callback does not print key codes. |
+| H8 | Device token in Pages `localStorage` | Medium | Accepted. The helper file holds a DPAPI-sealed SHA-256, not the token. Unlink on the page or the tray revokes it. Any script on `https://tubss2.github.io` can still copy the token and hold that one key until then. |
 
 `npm audit` on the client production tree is clean. The high and critical counts are in dev tooling (the installer toolchain). Dependabot is the ongoing watch for those. The server tree is clean.
 
