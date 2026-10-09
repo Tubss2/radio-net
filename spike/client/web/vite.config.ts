@@ -1,7 +1,16 @@
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
-import { PAGES_CSP, injectCsp } from '../src/shared/pagesCsp';
+
+const pagesCsp = [
+  "default-src 'self'",
+  "connect-src 'self' https://radio-149-28-170-200.sslip.io wss://lk-149-28-170-200.sslip.io https://lk-149-28-170-200.sslip.io",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob: mediastream:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
+  "worker-src 'self' blob:",
+].join('; ');
 
 /** The product web app. GitHub Pages serves it at /radio-net/. */
 export default defineConfig(({ command }) => ({
@@ -13,7 +22,7 @@ export default defineConfig(({ command }) => ({
       name: 'pages-csp',
       transformIndexHtml(html: string) {
         if (command === 'serve') return html;
-        return injectCsp(html, PAGES_CSP);
+        return html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${pagesCsp}" />`);
       },
     },
   ],
