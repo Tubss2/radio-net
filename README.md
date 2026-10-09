@@ -16,7 +16,7 @@ This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. 
 | [`docs/radio-net-feasibility.md`](docs/radio-net-feasibility.md) | Feasibility study that led to this project |
 | [`docs/anticheat-and-contacts.md`](docs/anticheat-and-contacts.md) | Anti-cheat notes, who to contact, and lower-risk input designs |
 | [`spike/`](spike/README.md) | M1 spike: API server, Electron client, LiveKit dev runner, tests, screenshots |
-| [`deploy/`](deploy/README.md) | Vultr Sydney deploy kit: cloud-init, setup, systemd units |
+| [`deploy/`](deploy/README.md) | Vultr Sydney deploy kit: cloud-init, setup, pack/deploy scripts, systemd units |
 
 ## Run the spike
 

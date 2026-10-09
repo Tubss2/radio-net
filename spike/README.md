@@ -30,6 +30,7 @@ On Windows, for the M1 test: point `VITE_API_URL` at the API, run `npm run dev` 
 ## Results (Fri 9 Oct 2026)
 
 - server unit tests **13/13**, voice e2e **14/14**, Electron smoke **8/8**. Details in `../docs/PLAN.md` §11.
+- `tests/radio-e2e.ts` can target a remote server with `API_URL`, `SETUP_CODE`, `LIVEKIT_WS`, `LIVEKIT_HTTP`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`. A run from NZ against the Sydney VPS also passed 14/14 (`../deploy/README.md`).
 - client channel-wheel tests cover the radial behaviour (open/hold, mute, frequency steps, volume, add). The Electron smoke run above is from before the wheel and was not repeated.
 - Not verified: anything Windows-specific (anti-cheat, hotkeys while WARDOGS has focus, overlay transparency over the game, DPAPI), real mics, real network.
 

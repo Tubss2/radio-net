@@ -180,7 +180,7 @@ cat <<DONE
  Radio Net server $( ((ok)) && echo READY || echo 'needs attention (see above)')
  API (put in the client as VITE_API_URL): https://${API_HOST}
  LiveKit (handed to clients by the API):  wss://${LK_HOST}
- Community setup code (keep private):     ${COMMUNITY_SETUP_CODE}
+ Community setup code (keep private):     ${COMMUNITY_SETUP_CODE:0:4}-****-**** (full value in ${SECRETS_FILE})
  Secrets: ${SECRETS_FILE}
  Logs:    journalctl -u livekit -u radionet-api -u radionet-caddy -f
 ==========================================================
