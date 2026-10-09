@@ -195,6 +195,7 @@ See [`spike/README.md`](../spike/README.md) for how to run it.
 - [ ] Code signing if SmartScreen puts people off
 - [ ] Mac/Linux builds; phone listen-only
 - [ ] **Radio voice filters** (backlog, user-toggleable, off unless the user turns them on): band-pass radio EQ, light distortion/compression, optional static/crackle bed, a squelch tail when someone else keys up, and maybe a signal-strength flavour. Issue [#6](https://github.com/Tubss2/radio-net/issues/6). Not part of 0.4.x.
+- [ ] **Web app and Simple mode** (scope only, not built): a Pages client for the Sydney server ([#7](https://github.com/Tubss2/radio-net/issues/7)), and a compact second-monitor layout ([#8](https://github.com/Tubss2/radio-net/issues/8)). [`SCOPE-web-and-simple-mode.md`](SCOPE-web-and-simple-mode.md).
 - **Explicitly out:** range/terrain simulation, and anything that reads or hooks the game. Radio-style voice processing is the backlog item above.
 
 ## 13. Questions for Tobias (short)
