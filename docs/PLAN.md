@@ -135,6 +135,21 @@ Self-hosted **LiveKit** (Sydney VPS; kit in [`../deploy/README.md`](../deploy/RE
 
 Dropping Discord login saves about a day in M2. In-app channel management adds about a day in M3. Net effect is roughly the same timeline.
 
+### Next milestone (0.5)
+
+Planning only. Not part of 0.4.x. Issue [#5](https://github.com/Tubss2/radio-net/issues/5).
+
+**Sounds in Settings.** A Sounds section lets the user choose when sounds play. A master UI volume still scales every event. Each event has its own on/off and its own volume:
+
+- Channel added / tuned (the squelch that plays today)
+- Own PTT press
+- Own PTT release
+- Incoming transmission start
+- Incoming transmission end
+- Channel switch
+
+Today's single UI-sounds switch and one volume stay until this lands.
+
 ## 10. Running cost (Tobias pays)
 
 | Item | Cost | Notes |
@@ -179,7 +194,8 @@ See [`spike/README.md`](../spike/README.md) for how to run it.
 - [ ] Sync radio state across PCs
 - [ ] Code signing if SmartScreen puts people off
 - [ ] Mac/Linux builds; phone listen-only
-- **Explicitly out:** radio effects, range/terrain simulation, anything that reads or hooks the game.
+- [ ] **Radio voice filters** (backlog, user-toggleable, off unless the user turns them on): band-pass radio EQ, light distortion/compression, optional static/crackle bed, a squelch tail when someone else keys up, and maybe a signal-strength flavour. Issue [#6](https://github.com/Tubss2/radio-net/issues/6). Not part of 0.4.x.
+- **Explicitly out:** range/terrain simulation, and anything that reads or hooks the game. Radio-style voice processing is the backlog item above.
 
 ## 13. Questions for Tobias (short)
 
