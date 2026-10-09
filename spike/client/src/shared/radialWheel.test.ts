@@ -9,6 +9,7 @@ import {
   digitFromKeycode,
   emptyWheel,
   duplicateWheelNotch,
+  forgetMissingChannels,
   hitTest,
   hookScrollReachesPage,
   hookShouldEmitScroll,
@@ -335,6 +336,25 @@ describe('scroll before the wheel window is focused', () => {
     expect(duplicateWheelNotch(page, { ...page, at: 1010 })).toBe(false);
     expect(duplicateWheelNotch(null, hook)).toBe(false);
     expect(duplicateWheelNotch(page, { ...hook, shift: true })).toBe(false);
+  });
+});
+
+describe('a deleted channel', () => {
+  it('leaves the wheel, keeps other segments and a free dial, and does not reshuffle the hover', () => {
+    const open = model([
+      slot({ freqKHz: 41500, channelId: 'arty' }),
+      slot({ freqKHz: 45000, channelId: 'logi' }),
+      slot({ freqKHz: 50000, channelId: null }),
+    ], { hover: 2, volumeReveal: 3 });
+    const left = forgetMissingChannels(open, channels.filter((c) => c.id !== 'logi'));
+    expect(left.slots.map((s) => s.channelId)).toEqual(['arty', null]);
+    expect(left.slots.map((s) => s.freqKHz)).toEqual([41500, 50000]);
+    expect(left.hover).toBe(1);
+    expect(left.volumeReveal).toBe(2);
+    expect(forgetMissingChannels(left, channels.filter((c) => c.id !== 'logi'))).toBe(left);
+    const cleared = forgetMissingChannels(open, channels.filter((c) => c.id !== 'logi' && c.id !== 'arty'));
+    expect(cleared.slots.map((s) => s.channelId)).toEqual([null]);
+    expect(cleared.hover).toBe(0);
   });
 });
 

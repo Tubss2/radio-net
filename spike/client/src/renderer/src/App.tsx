@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { withBindDefaults } from '../../shared/keybinds';
 import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
 import type { Keybinds } from '../../shared/types';
+import { acceptChannelList, removedTunedIds } from '../../shared/channelList';
 import { matchChannel } from '../../shared/radialWheel';
 import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
@@ -344,6 +345,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
   );
   useSyncExternalStore(engine.subscribe, () => engine.version);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [listReady, setListReady] = useState(false);
   const [query, setQuery] = useState('');
   const [err, setErr] = useState('');
   const [overlayOn, setOverlayOn] = useState(boot.overlayOn);
@@ -355,11 +357,23 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
   const bootRef = useRef(boot);
   const profileRef = useRef(boot);
   profileRef.current = boot;
+  const loadGen = useRef(0);
 
-  const load = useCallback(() => api.channels(server.id).then((list) => {
-    setChannels(list);
-    setErr((cur) => cur === RECONNECTING ? '' : cur);
-  }).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)), [api, server.id]);
+  const load = useCallback(() => {
+    const gen = ++loadGen.current;
+    return api.channels(server.id).then((list) => {
+      const accepted = acceptChannelList(gen, loadGen.current, list);
+      if (accepted) {
+        setChannels(accepted);
+        setListReady(true);
+        setErr((cur) => cur === RECONNECTING ? '' : cur);
+      }
+      return list;
+    }).catch((e) => {
+      if (gen === loadGen.current) setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+      throw e;
+    });
+  }, [api, server.id]);
 
   useEffect(() => {
     if (!isAdmin || isPreview) return;
@@ -378,23 +392,27 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const boot = async () => {
       while (alive) {
+        const gen = ++loadGen.current;
         try {
           const list = await api.channels(server.id);
           if (!alive) return;
-          setChannels(list);
+          const accepted = acceptChannelList(gen, loadGen.current, list);
+          // A delete landed while this fetch was in flight. That path owns the list now.
+          if (!accepted) { if (alive) setRestored(true); return; }
+          setChannels(accepted);
+          setListReady(true);
+          setErr((cur) => cur === RECONNECTING ? '' : cur);
           for (const id of saved.tuned) {
-            const ch = list.find((c) => c.id === id);
-            if (!ch || !alive) continue;
+            if (!alive || gen !== loadGen.current) { if (alive) setRestored(true); return; }
+            const ch = accepted.find((c) => c.id === id);
+            if (!ch) continue;
             await engine.tune(ch).catch((e) => { if (isReconnectError(e)) throw e; });
             if (saved.volume[id] != null) engine.setVolume(id, saved.volume[id]);
             if (saved.muted[id]) engine.setMuted(id, true);
             if (saved.pan[id] != null) engine.setPan(id, saved.pan[id]);
           }
-          if (alive && saved.tx) engine.setTx(saved.tx);
-          if (alive) {
-            setRestored(true);
-            setErr((cur) => cur === RECONNECTING ? '' : cur);
-          }
+          if (alive && gen === loadGen.current && saved.tx) engine.setTx(saved.tx);
+          if (alive) setRestored(true);
           return;
         } catch (e) {
           if (!alive) return;
@@ -429,6 +447,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
 
   const wheel = useChannelWheel(engine, channels, binds.wheel, {
     canCreate: isAdmin,
+    listReady,
     createChannel: async (freq, name) => {
       const ch = await api.createChannel(server.id, freq, name);
       await load();
@@ -437,6 +456,24 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
   });
   const bindsRef = useRef(binds);
   bindsRef.current = binds;
+
+  // The list is the server's channel set. Anything tuned that is no longer in it was deleted:
+  // leave the LiveKit room, drop the card, and let the saved radio prefs forget the id.
+  useEffect(() => {
+    if (!listReady) return;
+    for (const id of removedTunedIds(engine.tuned.map((t) => t.channel.id), channels.map((c) => c.id))) {
+      void engine.untune(id);
+    }
+  }, [channels, listReady, engine]);
+
+  useEffect(() => {
+    engine.onChannelDeleted = (id) => {
+      loadGen.current += 1;
+      setChannels((prev) => prev.filter((c) => c.id !== id));
+      void load();
+    };
+    return () => { engine.onChannelDeleted = undefined; };
+  }, [engine, load]);
 
   useEffect(() => {
     if (!restored) return;
@@ -526,6 +563,23 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
     onServer({ ...server, inviteCode: r.inviteCode });
   };
 
+  const deleteChannel = async (ch: ChannelInfo) => {
+    if (!confirm(`Delete ${ch.freq} ${ch.name} for everyone?`)) return;
+    try {
+      await api.deleteChannel(server.id, ch.id);
+    } catch (e) {
+      if (e instanceof ApiError && e.routeMissing) { setDeleteSupported(false); return; }
+      setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+      return;
+    }
+    // Invalidate a list fetch that started before the delete, then drop the channel locally
+    // so the sidebar, the tuned card, and the wheel update without waiting for the next poll.
+    loadGen.current += 1;
+    setChannels((prev) => prev.filter((c) => c.id !== ch.id));
+    setListReady(true);
+    try { await load(); } catch { /* load records the error */ }
+  };
+
   const removeCommunity = async () => {
     if (!confirm(`Delete ${server.name} for everyone? Its channels go with it.`)) return;
     try {
@@ -566,7 +620,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
                 {tunedIds.has(c.id)
                   ? <span className="pill live">tuned</span>
                   : <button className="btn sm" onClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>Tune</button>}
-                {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={async () => { if (confirm(`Delete ${c.freq} ${c.name} for everyone?`)) { await api.deleteChannel(server.id, c.id); await load(); } }}>🗑</button>}
+                {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={() => { void deleteChannel(c); }}>🗑</button>}
               </span>
             </div>
           ))}

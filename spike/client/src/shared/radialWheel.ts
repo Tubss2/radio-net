@@ -127,6 +127,28 @@ export function availableChannels(channels: DialChannel[], slots: WheelSlot[]): 
   return channels.filter((c) => !tuned.has(c.id)).sort((a, b) => a.freqKHz - b.freqKHz || a.name.localeCompare(b.name));
 }
 
+/**
+ * A channel deleted on the server leaves the wheel. A free dial ("no net", no channel id) stays.
+ * Returns the same model when nothing was tuned to a missing channel.
+ */
+export function forgetMissingChannels(model: WheelModel, channels: { id: string }[]): WheelModel {
+  const live = new Set(channels.map((c) => c.id));
+  const kept: WheelSlot[] = [];
+  const indexOf = new Map<number, number>();
+  model.slots.forEach((slot, index) => {
+    if (slot.channelId != null && !live.has(slot.channelId)) return;
+    indexOf.set(index, kept.length);
+    kept.push(slot);
+  });
+  if (kept.length === model.slots.length) return model;
+  const remap = (index: number | null) => {
+    if (index == null) return null;
+    if (index === model.slots.length) return kept.length;
+    return indexOf.get(index) ?? null;
+  };
+  return { ...model, slots: kept, hover: remap(model.hover), volumeReveal: remap(model.volumeReveal) };
+}
+
 export type WheelInput =
   | { type: 'hover'; index: number | null }
   | { type: 'left'; index: number }
