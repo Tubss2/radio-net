@@ -1,0 +1,7 @@
+node_modules/
+out/
+dist/
+*.log
+livekit/bin/
+tests/smoke.log
+tests/e2e.log

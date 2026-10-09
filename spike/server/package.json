@@ -1,0 +1,26 @@
+{
+  "name": "radio-net-server",
+  "version": "1.0.0",
+  "description": "Radio Net token/channel API (M1 spike)",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@fastify/cors": "^11.3.1",
+    "fastify": "^5.12.5",
+    "livekit-server-sdk": "^2.19.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "type": "module",
+  "private": true
+}

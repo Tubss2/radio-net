@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+build/
+*.tsbuildinfo
+
+# Logs
+*.log
+logs/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Downloaded LiveKit server binary (see spike/livekit/run-dev.sh)
+spike/livekit/bin/
+livekit-server
+livekit_*.tar.gz

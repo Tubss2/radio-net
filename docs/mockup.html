@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Radio Net: UI mockup</title>
+<style>
+/* Radio Net, UI direction: calm dark graphite, one accent for "live", one for "transmitting".
+   Consumer polish (think Discord/Spotify): generous spacing, rounded cards, no dev chrome. */
+:root {
+  --bg: #0e1014; --panel: #14171d; --card: #1a1e26; --card-hi: #212632; --line: #262b36;
+  --text: #e8ebf1; --muted: #8f98a8; --faint: #5d6575;
+  --live: #3ddc97; --live-dim: rgba(61, 220, 151, .14);
+  --tx: #ff5a4e; --tx-dim: rgba(255, 90, 78, .16);
+  --accent: #7c8cff; --radius: 14px;
+  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", "Consolas", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); -webkit-font-smoothing: antialiased; user-select: none; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+input { font: inherit; color: var(--text); }
+.app { display: grid; grid-template-columns: 72px 280px 1fr; height: 100%; }
+.titlebar { position: fixed; inset: 0 0 auto 0; height: 36px; -webkit-app-region: drag; z-index: 5; }
+
+/* community rail */
+.rail { background: #0a0c0f; padding: 48px 0 12px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.rail .c { width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; font-weight: 700; background: var(--card); color: var(--muted); transition: .15s; }
+.rail .c.on { background: var(--accent); color: #fff; border-radius: 14px; }
+.rail .c.add { color: var(--live); font-size: 22px; }
+
+/* directory */
+.dir { background: var(--panel); border-right: 1px solid var(--line); padding: 44px 14px 14px; display: flex; flex-direction: column; min-height: 0; }
+.dir h2 { font-size: 15px; margin: 4px 6px 2px; }
+.dir .sub { color: var(--muted); font-size: 12px; margin: 0 6px 14px; }
+.tunebox { display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
+.tunebox:focus-within { border-color: var(--accent); }
+.tunebox input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; }
+.tunebox .hint { color: var(--faint); font-size: 11px; }
+.section { color: var(--faint); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; margin: 10px 6px 6px; display: flex; justify-content: space-between; }
+.chlist { overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.ch { display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 8px; padding: 8px 8px; border-radius: 10px; color: var(--muted); }
+.ch:hover { background: var(--card); color: var(--text); }
+.ch .f { font-family: var(--mono); font-size: 13px; color: var(--text); }
+.ch .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch .act { opacity: 0; display: flex; gap: 4px; }
+.ch:hover .act { opacity: 1; }
+.ch.tuned .f { color: var(--live); }
+.pill { font-size: 11px; padding: 3px 8px; border-radius: 999px; background: var(--card-hi); color: var(--muted); }
+.pill.live { background: var(--live-dim); color: var(--live); }
+.btn { padding: 8px 14px; border-radius: 10px; background: var(--card-hi); font-weight: 600; }
+.btn:hover { background: #2a3040; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.ghost { background: none; color: var(--muted); }
+.btn.sm { padding: 4px 9px; font-size: 12px; border-radius: 8px; }
+.dir .foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; background: #3a4255; display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; }
+.avatar.talk { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--live); }
+
+/* main radio */
+.radio { padding: 44px 28px 24px; overflow: auto; }
+.txbar { display: flex; align-items: center; gap: 18px; padding: 18px 22px; border-radius: 18px; background: linear-gradient(135deg, #1b2130, #161a22); border: 1px solid var(--line); margin-bottom: 22px; transition: .12s; }
+.txbar.keyed { background: linear-gradient(135deg, #3a1d1f, #22171a); border-color: var(--tx); box-shadow: 0 0 0 4px var(--tx-dim); }
+.txbar .lbl { color: var(--muted); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+.txbar .big { font-family: var(--mono); font-size: 30px; font-weight: 600; letter-spacing: .02em; }
+.txbar .nm { font-size: 18px; font-weight: 600; }
+.txbar .keys { margin-left: auto; display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; }
+kbd { font: 600 12px var(--mono); padding: 3px 8px; border-radius: 7px; background: var(--card-hi); border-bottom: 2px solid #0a0c0f; color: var(--text); }
+.onair { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--tx); font-size: 12px; letter-spacing: .12em; }
+.onair::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--tx); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 14px; position: relative; transition: .12s; }
+.card:hover { background: var(--card-hi); }
+.card.tx { border-color: var(--live); box-shadow: inset 0 0 0 1px var(--live); }
+.card.keyed { border-color: var(--tx); box-shadow: inset 0 0 0 1px var(--tx), 0 0 24px var(--tx-dim); }
+.card.gone { opacity: .5; }
+.card .top { display: flex; align-items: flex-start; gap: 10px; }
+.card .freq { font-family: var(--mono); font-size: 24px; font-weight: 600; line-height: 1; }
+.card .freq small { font-size: 12px; color: var(--muted); margin-left: 4px; }
+.card .name { font-weight: 600; margin-top: 6px; }
+.card .x { margin-left: auto; color: var(--faint); font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 6px; }
+.card .x:hover { background: var(--bg); color: var(--text); }
+.who { display: flex; align-items: center; gap: 6px; min-height: 32px; color: var(--muted); font-size: 12px; }
+.who .talking { color: var(--live); font-weight: 600; }
+.row { display: flex; align-items: center; gap: 10px; }
+.row .k { width: 18px; color: var(--faint); font-size: 12px; }
+input[type=range] { -webkit-appearance: none; flex: 1; height: 4px; border-radius: 4px; background: var(--line); outline: 0; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--text); }
+.seg { display: inline-flex; background: var(--bg); border-radius: 9px; padding: 2px; }
+.seg button { padding: 3px 10px; border-radius: 7px; font-size: 12px; color: var(--muted); }
+.seg button.on { background: var(--card-hi); color: var(--text); }
+.card .bottom { display: flex; align-items: center; gap: 8px; }
+.txbtn { padding: 7px 12px; border-radius: 9px; font-weight: 600; font-size: 12px; background: var(--bg); color: var(--muted); }
+.txbtn.on { background: var(--live-dim); color: var(--live); }
+.empty { border: 1.5px dashed var(--line); border-radius: var(--radius); display: grid; place-items: center; color: var(--muted); min-height: 200px; text-align: center; padding: 20px; }
+
+/* onboarding */
+.onboard { height: 100%; display: grid; place-items: center; background: radial-gradient(circle at 30% 20%, #1c2233, var(--bg) 60%); }
+.onboard .box { width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 32px; display: flex; flex-direction: column; gap: 14px; }
+.onboard h1 { margin: 0; font-size: 26px; }
+.onboard p { margin: 0; color: var(--muted); }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.field input { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; outline: 0; font-size: 15px; }
+.field input:focus { border-color: var(--accent); }
+.field input.code { font-family: var(--mono); letter-spacing: .15em; text-transform: uppercase; }
+.err { color: var(--tx); font-size: 13px; }
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 10; }
+.modal { width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+
+/* overlay window */
+.overlay { padding: 8px; font-size: 13px; background: transparent; }
+.ov { display: inline-flex; flex-direction: column; gap: 6px; }
+.ov .tx { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(14,16,20,.78); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.08); }
+.ov .tx.keyed { border-color: var(--tx); background: rgba(58,29,31,.85); }
+.ov .tx .f { font: 600 15px var(--mono); }
+.ov .sp { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px 5px 6px; border-radius: 999px; background: rgba(14,16,20,.7); width: fit-content; }
+.ov .sp .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); }
+.ov .sp .on { color: var(--muted); font: 12px var(--mono); }
+
+/* mockup page only */
+body { user-select: auto; background: #07080a; padding: 32px; overflow: auto; }
+.page h1 { margin: 0 0 4px; font-size: 22px; } .page > p { color: var(--muted); margin: 0 0 22px; max-width: 900px; }
+.frame { width: 1180px; height: 720px; border-radius: 14px; overflow: hidden; border: 1px solid #2a2f3a; box-shadow: 0 30px 80px rgba(0,0,0,.6); position: relative; background: var(--bg); }
+.frame .app { height: 100%; }
+.winbar { position: absolute; top: 0; right: 0; display: flex; z-index: 6; color: var(--muted); }
+.winbar span { width: 46px; height: 36px; display: grid; place-items: center; font-size: 12px; }
+.titlebar-label { position: absolute; top: 10px; left: 88px; color: var(--faint); font-size: 12px; z-index: 6; }
+.row2 { display: flex; gap: 28px; margin-top: 36px; align-items: flex-start; flex-wrap: wrap; }
+.cap { color: var(--muted); font-size: 12px; margin: 10px 2px 0; max-width: 560px; }
+.game { width: 640px; height: 360px; border-radius: 12px; position: relative; overflow: hidden; border: 1px solid #2a2f3a;
+  background: linear-gradient(180deg, #5b6b55 0%, #3d4a3b 45%, #2b3327 46%, #1d231a 100%); }
+.game::after { content: "WARDOGS (borderless windowed)"; position: absolute; right: 12px; bottom: 10px; color: rgba(255,255,255,.35); font-size: 11px; letter-spacing: .1em; }
+.game .crosshair { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px; border: 2px solid rgba(255,255,255,.6); border-radius: 50%; }
+.game .overlay { position: absolute; left: 14px; top: 14px; padding: 0; }
+.panel { width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+.bindrow { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--card); border-radius: 10px; }
+.bindrow .d { color: var(--muted); font-size: 12px; }
+.meter { height: 6px; border-radius: 6px; background: linear-gradient(90deg, var(--live) 0 58%, var(--line) 58%); }
+.note { background: var(--card); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 8px; color: var(--muted); font-size: 12px; }
+.ch.sel { background: var(--card); color: var(--text); }
+</style></head>
+<body><div class="page">
+<h1>Radio Net: UI direction (static mockup)</h1>
+<p>Calm dark graphite with two signal colours: <b style="color:var(--live)">green = live / your TX channel</b>, <b style="color:var(--tx)">red = you are on air</b>. Frequencies are always in a monospace face so they read like a radio dial. Every action is one click or one key: tune by typing <kbd>59.5</kbd> or <kbd>command</kbd>, click "Transmit here" or press the switch key. No radio effects, no fake knobs.</p>
+
+<div class="frame">
+  <div class="titlebar-label">Radio Net</div>
+  <div class="winbar"><span>—</span><span>▢</span><span>✕</span></div>
+  <div class="app">
+    <nav class="rail">
+      <button class="c on">WD</button><button class="c">5R</button><button class="c add">+</button>
+    </nav>
+    <aside class="dir">
+      <h2>War Dogs NZ</h2>
+      <div class="sub">Toby · owner · invite <kbd>K7QM-2XPA</kbd></div>
+      <div class="tunebox"><span>📻</span><input placeholder="Tune: 59.5 or Command"><span class="hint">Enter</span></div>
+      <div class="section"><span>Channels · 6</span><button class="btn sm">+ New</button></div>
+      <div class="chlist">
+        <div class="ch tuned"><span class="f">41.250</span><span class="n">Arty</span><span class="pill live" style="opacity:1">tuned</span></div>
+        <div class="ch"><span class="f">45.000</span><span class="n">Logi</span><span class="pill">3</span></div>
+        <div class="ch tuned sel"><span class="f">59.500</span><span class="n">Command</span><span class="pill live">tuned</span></div>
+        <div class="ch tuned"><span class="f">62.100</span><span class="n">Alpha FT</span><span class="pill live">tuned</span></div>
+        <div class="ch"><span class="f">62.125</span><span class="n">Bravo FT</span><span class="pill">4</span></div>
+        <div class="ch"><span class="f">70.000</span><span class="n">Air</span><span class="pill">0</span></div>
+      </div>
+      <div class="foot"><div class="avatar">T</div><div><div>Toby</div><div class="sub" style="margin:0">Mic ✓ · Hotkeys ✓ · Overlay on</div></div><span style="margin-left:auto;color:var(--muted)">⚙</span></div>
+    </aside>
+    <main class="radio">
+      <div class="txbar keyed">
+        <div><div class="lbl"><span class="onair">On air</span></div><div class="big">62.100</div></div>
+        <div class="nm">Alpha FT</div>
+        <div class="keys">Talk <kbd>Mouse 4</kbd> Switch <kbd>G</kbd> Overlay <kbd>F10</kbd></div>
+      </div>
+      <div class="grid">
+        <div class="card">
+          <div class="top"><div><div class="freq">41.250<small>MHz</small></div><div class="name">Arty</div></div><button class="x">×</button></div>
+          <div class="who"><span>5 others tuned</span></div>
+          <div class="row"><span class="k">🔊</span><input type="range" value="60"><button class="btn sm ghost">Mute</button></div>
+          <div class="bottom"><div class="seg"><button class="on">L</button><button>C</button><button>R</button></div><button class="txbtn" style="margin-left:auto">Transmit here</button></div>
+        </div>
+        <div class="card">
+          <div class="top"><div><div class="freq">59.500<small>MHz</small></div><div class="name">Command</div></div><button class="x">×</button></div>
+          <div class="who"><span class="avatar talk">RH</span><span class="talking">Rhys (Plt Sgt)</span></div>
+          <div class="row"><span class="k">🔊</span><input type="range" value="90"><button class="btn sm ghost">Mute</button></div>
+          <div class="bottom"><div class="seg"><button>L</button><button>C</button><button class="on">R</button></div><button class="txbtn" style="margin-left:auto">Transmit here <kbd style="margin-left:6px">F2</kbd></button></div>
+        </div>
+        <div class="card tx keyed">
+          <div class="top"><div><div class="freq">62.100<small>MHz</small></div><div class="name">Alpha FT</div></div><button class="x">×</button></div>
+          <div class="who"><span>3 others tuned · you're talking</span></div>
+          <div class="row"><span class="k">🔊</span><input type="range" value="75"><button class="btn sm ghost">Mute</button></div>
+          <div class="bottom"><div class="seg"><button>L</button><button class="on">C</button><button>R</button></div><button class="txbtn on" style="margin-left:auto">● Transmitting here</button></div>
+        </div>
+        <div class="empty"><div><div style="font-size:28px">＋</div>Tune more channels from the list,<br>or type a frequency or name.</div></div>
+      </div>
+    </main>
+  </div>
+</div>
+<p class="cap">Main window. Left: your communities (like Discord servers). Middle: the community's channel list, with tune box and admin "+ New". Right: your radio, a card per tuned channel with volume, ear (L/C/R) and "Transmit here". The big bar always says where you'll talk; it turns red while you're keyed.</p>
+
+<div class="row2">
+  <div>
+    <div class="game"><div class="crosshair"></div>
+      <div class="overlay"><div class="ov">
+        <div class="tx keyed"><span class="onair">TX</span><span class="f">62.100</span><span>Alpha FT</span></div>
+        <div class="sp"><span class="dot"></span>Rhys (Plt Sgt)<span class="on">59.500</span></div>
+        <div class="sp"><span class="dot"></span>Mack<span class="on">41.250</span></div>
+      </div></div>
+    </div>
+    <p class="cap">In-game overlay: a separate see-through, click-through window on top of the game (nothing injected). Shows your TX channel and who is talking on which frequency. Position, size and opacity in settings; <kbd>F10</kbd> hides it.</p>
+  </div>
+  <div class="panel">
+    <h3 style="margin:0">Keys</h3>
+    <div class="bindrow"><div>Push to talk<div class="d">Talk on your TX channel</div></div><kbd>Mouse 4</kbd></div>
+    <div class="bindrow"><div>Switch channel<div class="d">Cycle TX through tuned channels</div></div><kbd>G</kbd></div>
+    <div class="bindrow"><div>Talk on Command<div class="d">Direct key for one channel</div></div><kbd>F2</kbd></div>
+    <div class="bindrow"><div>Show/hide overlay</div><kbd>F10</kbd></div>
+    <div class="note">Click a key, then press the button or mouse button you want. Keys are only listened to, never blocked, so the game still gets them.</div>
+    <h3 style="margin:8px 0 0">Microphone</h3>
+    <div class="meter"></div>
+    <div class="bindrow"><div>Noise suppression</div><span class="pill live">On</span></div>
+  </div>
+  <div class="panel">
+    <h3 style="margin:0">Join your net</h3>
+    <p style="margin:0;color:var(--muted)">Paste the invite code from your community admin.</p>
+    <label class="field">Invite code<input class="code" value="K7QM-2XPA"></label>
+    <label class="field">Your callsign / display name<input value="Toby"></label>
+    <button class="btn primary">Join</button>
+    <button class="btn ghost">Running a group? Create a community</button>
+    <div class="note">No Discord, email or password. The app keeps a private device key in Windows' encrypted storage. Admins can change the invite code any time.</div>
+  </div>
+</div>
+</div></body></html>
