@@ -1,6 +1,6 @@
 {
   "name": "radio-net-client",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Radio Net desktop client (M1 spike)",
   "repository": {

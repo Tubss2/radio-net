@@ -65,7 +65,7 @@ The **Windows installer** workflow builds an unsigned NSIS installer on `windows
 
 `RN_FAKE_MEDIA` is not set. The job fails if that variable is present, so a release build cannot ship the fake microphone.
 
-The current client version is **0.4.0**. The release is `RadioNet-Setup-0.4.0.exe` on the public GitHub Release `v0.4.0` (Actions artifact name `RadioNet-Setup-0.4.0`, which also holds `latest.yml` and the blockmap). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
+The current client version is **0.4.1**. The release is `RadioNet-Setup-0.4.1.exe` on the public GitHub Release `v0.4.1` (Actions artifact name `RadioNet-Setup-0.4.1`, which also holds `latest.yml` and the blockmap). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
 
 The installed app checks that public release on startup and every four hours, downloads in the background, and shows **Update ready** with **Restart now** and **Later**. Signature checks are off until the installer is code-signed. Anyone who can publish a GitHub Release on this repo can ship a build the client will install.
 
@@ -86,11 +86,11 @@ git push origin v0.5.0
 
 The tag must be `v` plus the `package.json` version. That workflow run publishes `RadioNet-Setup-<version>.exe`, `RadioNet-Setup-<version>.exe.blockmap`, and `latest.yml` to a public GitHub Release with `GITHUB_TOKEN`. A manual **Windows installer** run does the same when **publish** is left on (it also creates the tag). Every other push only uploads the Actions artifact.
 
-| Piece | Name for 0.4.0 |
+| Piece | Name for 0.4.1 |
 |---|---|
-| NSIS file | `RadioNet-Setup-0.4.0.exe` |
-| Blockmap | `RadioNet-Setup-0.4.0.exe.blockmap` |
-| Update feed | `latest.yml` on the `v0.4.0` GitHub Release |
-| Actions artifact | `RadioNet-Setup-0.4.0` |
-| Installer and app exe properties | File version and Product version `0.4.0` |
-| In-app keybinds settings | `Radio Net 0.4.0` |
+| NSIS file | `RadioNet-Setup-0.4.1.exe` |
+| Blockmap | `RadioNet-Setup-0.4.1.exe.blockmap` |
+| Update feed | `latest.yml` on the `v0.4.1` GitHub Release |
+| Actions artifact | `RadioNet-Setup-0.4.1` |
+| Installer and app exe properties | File version and Product version `0.4.1` |
+| In-app keybinds settings | `Radio Net 0.4.1` |

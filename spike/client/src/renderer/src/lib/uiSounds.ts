@@ -2,8 +2,9 @@ import squelchUrl from '../assets/squelch.wav?url';
 import { clampSoundVolume, DEFAULT_SOUND_VOLUME, uiSoundGain } from '../../../shared/sounds';
 
 /**
- * squelch.wav is an original synthesized clip: a short band-passed noise burst
- * and a click. It is not a third-party recording.
+ * squelch.wav is a short mono edit of "Radio Sign Off / Squelch" by JovianSounds
+ * (CC0). Credit is in CREDITS/SOUNDS.md. The file is levelled for the default
+ * 40% UI volume.
  */
 let enabled = true;
 let volume = DEFAULT_SOUND_VOLUME;
