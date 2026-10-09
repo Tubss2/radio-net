@@ -186,9 +186,22 @@ mod tests {
             request.extend_from_slice(&pair);
             stream.write_all(&request).unwrap();
             stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-            let mut buf = [0u8; 256];
-            let n = stream.read(&mut buf).unwrap();
-            String::from_utf8_lossy(&buf[..n]).into_owned()
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 256];
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while std::time::Instant::now() < deadline {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&chunk[..n]);
+                        if buf.windows(br#"{"t":"ok"}"#.len()).any(|w| w == br#"{"t":"ok"}"#) {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            String::from_utf8_lossy(&buf).into_owned()
         });
         let (watch, _stream) = handshake(&listener, "K7QM2P").unwrap();
         assert_eq!(watch, Watch::Key { vk: b'K' as u16 });
