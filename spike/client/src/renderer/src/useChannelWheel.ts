@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   applyWheelInput,
+  availableChannels,
   buildSegments,
   emptyWheel,
   onWheelKey,
@@ -11,10 +12,17 @@ import {
   type WheelModel,
   type WheelSegmentView,
 } from '../../shared/radialWheel';
-import type { Bind, WheelView } from '../../shared/types';
+import { formatFreqKHz, parseFreqInput, validateFrequency } from '../../shared/freq';
+import type { Bind, WheelChannelChoice, WheelView } from '../../shared/types';
 import { domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import type { ChannelInfo } from './lib/api';
 import type { RadioControl } from './lib/radioEngine';
+import { playSquelch } from './lib/uiSounds';
+
+export interface WheelOptions {
+  canCreate?: boolean;
+  createChannel?: (freq: string, name: string) => Promise<ChannelInfo>;
+}
 
 /**
  * Wheel state lives next to the radio engine (the overlay window is only a view).
@@ -23,13 +31,15 @@ import type { RadioControl } from './lib/radioEngine';
  * Frequency changes reconcile to the engine as a set, debounced, so a fast scroll
  * doesn't leave a stale room connected. Transmit, mute and volume apply immediately.
  */
-export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], wheelBind: Bind | null = null) {
+export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], wheelBind: Bind | null = null, options?: WheelOptions) {
   const engineRef = useRef(engine);
   engineRef.current = engine;
   const channelsRef = useRef(channels);
   channelsRef.current = channels;
   const wheelBindRef = useRef(wheelBind);
   wheelBindRef.current = wheelBind;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const [model, setModel] = useState<WheelModel>(emptyWheel);
   const modelRef = useRef(model);
@@ -90,10 +100,36 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
     if (tune) scheduleReconcile();
   };
 
-  const apply = (input: WheelInput) => {
-    const { model: next, intents } = applyWheelInput(modelRef.current, input, dials(), engineRef.current.txId);
+  const applyResult = (next: WheelModel, intents: WheelIntent[], squelch: boolean) => {
     commit(next);
     applyIntents(intents);
+    if (squelch && intents.some((i) => i.type === 'tune')) playSquelch();
+  };
+
+  const createAndTune = async (freq: string, name: string) => {
+    const create = optionsRef.current?.createChannel;
+    if (!create) return;
+    const kHz = parseFreqInput(freq);
+    const bad = kHz == null ? 'Enter a frequency like 50.0' : validateFrequency(kHz);
+    if (bad || !name.trim()) {
+      commit({ ...modelRef.current, addError: bad || 'Name the channel' });
+      return;
+    }
+    try {
+      const ch = await create(freq.trim(), name.trim());
+      const list = dials();
+      if (!list.some((c) => c.id === ch.id)) list.push({ id: ch.id, freqKHz: ch.freqKHz, name: ch.name });
+      const { model: next, intents } = applyWheelInput(modelRef.current, { type: 'add-pick', channelId: ch.id }, list, engineRef.current.txId);
+      applyResult(next, intents, true);
+    } catch (e) {
+      commit({ ...modelRef.current, addError: (e as Error).message });
+    }
+  };
+
+  const apply = (input: WheelInput) => {
+    if (input.type === 'add-create') { void createAndTune(input.freq, input.name); return; }
+    const { model: next, intents } = applyWheelInput(modelRef.current, input, dials(), engineRef.current.txId);
+    applyResult(next, intents, input.type === 'add-pick');
   };
 
   const openWheel = () => {
@@ -150,9 +186,12 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
 
   const close = useCallback(() => { if (openRef.current) closeWheel(); }, []);
 
-  useEffect(() => () => {
-    aliveRef.current = false;
-    if (timerRef.current != null) window.clearTimeout(timerRef.current);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+    };
   }, []);
 
   // Browser preview has no global hook. F2 opens the wheel; hold F2 and scroll away from the ring to retune.
@@ -206,12 +245,19 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
     };
   });
 
+  const available: WheelChannelChoice[] = availableChannels(
+    channels.map((c) => ({ id: c.id, freqKHz: c.freqKHz, name: c.name })),
+    model.slots,
+  ).map((c) => ({ id: c.id, freq: formatFreqKHz(c.freqKHz), name: c.name }));
+
   const view: WheelView = {
     open,
     segments: open ? segments : [],
     adding: open && model.adding,
     addError: open ? model.addError : '',
+    available: open ? available : [],
+    canCreate: Boolean(options?.canCreate),
   };
 
-  return { open, segments, adding: model.adding, addError: model.addError, view, onKey, onInput, onFallbackScroll, onNumber, close };
+  return { open, segments, adding: model.adding, addError: model.addError, available, canCreate: view.canCreate, view, onKey, onInput, onFallbackScroll, onNumber, close };
 }

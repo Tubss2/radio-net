@@ -27,11 +27,21 @@ export type HotkeyEvent =
   | { type: 'wheel-cancel' };
 
 /** What the overlay draws for the channel wheel. The main window owns the model. */
+export interface WheelChannelChoice {
+  id: string;
+  freq: string;
+  name: string;
+}
+
 export interface WheelView {
   open: boolean;
   segments: WheelSegmentView[];
   adding: boolean;
   addError: string;
+  /** Community channels not already tuned, shown when the + slice is open. */
+  available: WheelChannelChoice[];
+  /** Admins can type a frequency to create a channel from that list. */
+  canCreate: boolean;
 }
 
 export type { WheelInput };

@@ -129,7 +129,18 @@ html.overlay-root, html.overlay-root body, html.overlay-root #root { background:
 /* channel wheel */
 .wheel-screen { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 30; background: transparent; }
 .radial { width: min(560px, 86vmin); height: min(560px, 86vmin); overflow: visible; pointer-events: none; }
-.radial-add { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 190px; display: flex; flex-direction: column; gap: 6px; pointer-events: auto; }
-.radial-add input { width: 100%; background: rgba(14,16,20,.94); border: 1px solid rgba(255,255,255,.22); border-radius: 10px; padding: 9px 10px; text-align: center; outline: none; }
+.radial-add { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 220px; max-height: 250px; display: flex; flex-direction: column; gap: 6px; pointer-events: auto; background: rgba(14,16,20,.94); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; padding: 8px; }
+.radial-add .picks { overflow: auto; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+.radial-add .pick { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 8px; text-align: left; }
+.radial-add .pick:hover { background: rgba(255,255,255,.08); }
+.radial-add .pick .f { font-family: var(--mono); }
+.radial-add .empty-add { color: var(--muted); font-size: 12px; text-align: center; padding: 8px 4px; }
+.radial-add .link { font-size: 12px; }
+.radial-add .create { display: flex; gap: 4px; }
+.radial-add input { min-width: 0; background: rgba(14,16,20,.94); border: 1px solid rgba(255,255,255,.22); border-radius: 8px; padding: 6px 8px; outline: none; }
+.radial-add .create input:first-child { width: 64px; font-family: var(--mono); }
 .radial-add input:focus { border-color: var(--accent); }
 .radial-add .err { text-align: center; font-size: 11px; }
+.sounds { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line); }
+.sounds .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sounds input[type="range"] { width: 140px; }

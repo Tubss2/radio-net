@@ -3,6 +3,7 @@ import { cloneBinds, conflicts, DEFAULT_BINDS, setSlot } from '../../shared/keyb
 import type { Bind, Keybinds } from '../../shared/types';
 import { APP_VERSION } from '../../shared/version';
 import { bridge } from './bridge';
+import { playSquelch } from './lib/uiSounds';
 
 export interface BindRow { id: string; label: string }
 
@@ -19,9 +20,12 @@ function current(binds: Keybinds, id: string): Bind | null {
   return null;
 }
 
-export function Settings({ binds, quick, onChange, onClose }: {
+export function Settings({ binds, quick, soundsOn, soundVolume, onSounds, onChange, onClose }: {
   binds: Keybinds;
   quick: BindRow[];
+  soundsOn: boolean;
+  soundVolume: number;
+  onSounds: (on: boolean, volume: number) => void;
   onChange: (next: Keybinds) => void;
   onClose: () => void;
 }) {
@@ -70,6 +74,15 @@ export function Settings({ binds, quick, onChange, onClose }: {
         {quick.length === 0 && <div className="sub">Tune a channel to add a quick-select key for it.</div>}
         {clashes.map((c) => <div key={c} className="err">{c}</div>)}
         {err && <div className="err">{err}</div>}
+        <div className="sounds">
+          <div className="row">
+            <label><input type="checkbox" checked={soundsOn} onChange={(e) => onSounds(e.target.checked, soundVolume)} /> UI sounds</label>
+            <button className="btn sm ghost" type="button" onClick={() => playSquelch()} disabled={!soundsOn}>Play squelch</button>
+          </div>
+          <label className="row">Volume
+            <input type="range" min={0} max={100} value={Math.round(soundVolume * 100)} disabled={!soundsOn} aria-label="UI sound volume" onChange={(e) => onSounds(soundsOn, Number(e.target.value) / 100)} />
+          </label>
+        </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn ghost" onClick={() => onChange(cloneBinds(DEFAULT_BINDS))}>Reset to defaults</button>
           <button className="btn primary" onClick={onClose}>Done</button>

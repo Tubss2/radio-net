@@ -1,3 +1,4 @@
+import { clampSoundVolume, DEFAULT_SOUND_VOLUME } from './sounds';
 import type { Keybinds } from './types';
 
 /** A community this PC has joined. The admin key is present only if this PC created it or imported one. */
@@ -27,11 +28,15 @@ export interface Profile {
   servers: ServerEntry[];
   keybinds: Keybinds | null;
   overlayOn: boolean;
+  /** Short UI cues, including the squelch when a channel is tuned. */
+  soundsOn: boolean;
+  /** Master level for those cues, 0 to 1. */
+  soundVolume: number;
   radios: Record<string, RadioPrefs>;
 }
 
 export function emptyProfile(): Profile {
-  return { callsign: '', servers: [], keybinds: null, overlayOn: true, radios: {} };
+  return { callsign: '', servers: [], keybinds: null, overlayOn: true, soundsOn: true, soundVolume: DEFAULT_SOUND_VOLUME, radios: {} };
 }
 
 export function emptyRadio(): RadioPrefs {
@@ -47,6 +52,8 @@ export function normaliseProfile(raw: unknown): Profile {
     servers: Array.isArray(p.servers) ? p.servers.filter((s) => s && typeof s.id === 'string' && typeof s.url === 'string') : [],
     keybinds: p.keybinds ?? null,
     overlayOn: p.overlayOn !== false,
+    soundsOn: p.soundsOn !== false,
+    soundVolume: clampSoundVolume(p.soundVolume),
     radios: p.radios && typeof p.radios === 'object' ? p.radios : {},
   };
 }

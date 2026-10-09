@@ -85,6 +85,12 @@ export function slotsFromTuned(tuned: WheelSlot[]): WheelSlot[] {
   return [...tuned].sort((a, b) => a.freqKHz - b.freqKHz).map((s) => ({ ...s }));
 }
 
+/** Community channels that are not already on this radio, lowest frequency first. */
+export function availableChannels(channels: DialChannel[], slots: WheelSlot[]): DialChannel[] {
+  const tuned = new Set(slots.map((s) => s.channelId).filter((id): id is string => id != null));
+  return channels.filter((c) => !tuned.has(c.id)).sort((a, b) => a.freqKHz - b.freqKHz || a.name.localeCompare(b.name));
+}
+
 export type WheelInput =
   | { type: 'hover'; index: number | null }
   | { type: 'left'; index: number }
@@ -92,6 +98,8 @@ export type WheelInput =
   | { type: 'scroll'; index: number; steps: number; shift: boolean }
   | { type: 'scroll-fallback'; steps: number; shift: boolean }
   | { type: 'number'; n: number }
+  | { type: 'add-pick'; channelId: string }
+  | { type: 'add-create'; freq: string; name: string }
   | { type: 'add-commit'; query: string }
   | { type: 'close' };
 
@@ -241,8 +249,18 @@ export function applyWheelInput(model: WheelModel, input: WheelInput, channels: 
     if (!slot?.channelId || !slot.canTransmit) return { model: { ...model, hover: input.index }, intents: [] };
     return { model: { ...model, hover: input.index }, intents: [{ type: 'set-tx', channelId: slot.channelId }] };
   }
+  if (input.type === 'add-create') return { model, intents: [] };
+  if (input.type === 'add-pick') {
+    const hit = channels.find((c) => c.id === input.channelId) ?? null;
+    if (!hit) return { model: { ...model, addError: 'That channel is no longer available' }, intents: [] };
+    return tuneHit(model, hit);
+  }
   const hit = matchChannel(input.query, channels);
   if (!hit) return { model: { ...model, addError: input.query.trim() ? `No channel matches “${input.query.trim()}”` : 'Type a frequency or name' }, intents: [] };
+  return tuneHit(model, hit);
+}
+
+function tuneHit(model: WheelModel, hit: DialChannel): { model: WheelModel; intents: WheelIntent[] } {
   const existing = model.slots.findIndex((s) => s.channelId === hit.id);
   if (existing >= 0) return { model: { ...model, adding: false, addError: '', hover: existing }, intents: [] };
   const slots = [...model.slots, { freqKHz: hit.freqKHz, channelId: hit.id, volume: 1, muted: false, canTransmit: true }];

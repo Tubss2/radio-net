@@ -4,6 +4,7 @@ import { withBindDefaults } from '../../shared/keybinds';
 import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
 import type { Keybinds } from '../../shared/types';
 import { matchChannel } from '../../shared/radialWheel';
+import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import { API_URL, Api, type ChannelInfo } from './lib/api';
 import { parseFreqInput, validateFrequency } from './lib/freq';
@@ -32,6 +33,7 @@ export function App() {
   const save = useCallback(async (next: Profile) => {
     profileRef.current = next;
     setProfile(next);
+    setUiSounds(next.soundsOn, next.soundVolume);
     await bridge.setProfile(next);
   }, []);
 
@@ -44,6 +46,7 @@ export function App() {
       }
       profileRef.current = p;
       setProfile(p);
+      setUiSounds(p.soundsOn, p.soundVolume);
       setBinds(nextBinds);
       await bridge.setKeybinds(withBindDefaults(p.keybinds));
       if (isPreview && p.servers[0]) setActiveId(p.servers[0].id);
@@ -100,14 +103,30 @@ export function App() {
           setActiveId(null);
         }}
       />
-      <SettingsHost binds={binds} onChange={changeBinds} />
+      <SettingsHost
+        binds={binds}
+        soundsOn={profile.soundsOn}
+        soundVolume={profile.soundVolume}
+        onSounds={(soundsOn, soundVolume) => {
+          const cur = profileRef.current;
+          if (!cur) return;
+          void save({ ...cur, soundsOn, soundVolume });
+        }}
+        onChange={changeBinds}
+      />
       {freshKey && <AdminKeyReveal adminKey={freshKey} onClose={() => setFreshKey(null)} />}
     </div>
   );
 }
 
 /** Settings is opened from inside Radio via a custom event so the radio tree can stay the owner of tuned channels. */
-function SettingsHost({ binds, onChange }: { binds: Keybinds; onChange: (b: Keybinds) => void }) {
+function SettingsHost({ binds, soundsOn, soundVolume, onSounds, onChange }: {
+  binds: Keybinds;
+  soundsOn: boolean;
+  soundVolume: number;
+  onSounds: (on: boolean, volume: number) => void;
+  onChange: (b: Keybinds) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [quick, setQuick] = useState<{ id: string; label: string }[]>([]);
   useEffect(() => {
@@ -120,7 +139,7 @@ function SettingsHost({ binds, onChange }: { binds: Keybinds; onChange: (b: Keyb
     return () => window.removeEventListener('rn-settings', onOpen);
   }, []);
   if (!open) return null;
-  return <Settings binds={binds} quick={quick} onChange={onChange} onClose={() => setOpen(false)} />;
+  return <Settings binds={binds} quick={quick} soundsOn={soundsOn} soundVolume={soundVolume} onSounds={onSounds} onChange={onChange} onClose={() => setOpen(false)} />;
 }
 
 function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
@@ -350,7 +369,20 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
     return () => { alive = false; clearInterval(t); void engine.dispose(); };
   }, [api, server.id, engine, load]);
 
-  const wheel = useChannelWheel(engine, channels, binds.wheel);
+  const tuneChannel = async (ch: ChannelInfo) => {
+    const fresh = !engine.tuned.some((t) => t.channel.id === ch.id);
+    await engine.tune(ch);
+    if (fresh) playSquelch();
+  };
+
+  const wheel = useChannelWheel(engine, channels, binds.wheel, {
+    canCreate: isAdmin,
+    createChannel: async (freq, name) => {
+      const ch = await api.createChannel(server.id, freq, name);
+      await load();
+      return ch;
+    },
+  });
   const bindsRef = useRef(binds);
   bindsRef.current = binds;
 
@@ -423,7 +455,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
     const hit = channels.find((c) => c.id === matchChannel(q, channels)?.id);
     if (!hit) { setErr(kHz ? `Nothing on ${q} MHz yet${isAdmin ? ' — create it?' : ''}` : `No channel matches “${q}”`); return; }
     setQuery('');
-    await engine.tune(hit).catch((e) => setErr(e.message));
+    await tuneChannel(hit).catch((e) => setErr(e.message));
   };
 
   const openSettings = () => {
@@ -471,13 +503,13 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         <div className="section"><span>Channels</span>{isAdmin && <button className="btn sm" onClick={() => setNewCh(true)}>+ New</button>}</div>
         <div className="chlist">
           {filtered.map((c) => (
-            <div key={c.id} className={`ch ${tunedIds.has(c.id) ? 'tuned' : ''}`} onDoubleClick={() => engine.tune(c)}>
+            <div key={c.id} className={`ch ${tunedIds.has(c.id) ? 'tuned' : ''}`} onDoubleClick={() => { void tuneChannel(c).catch((e) => setErr(e.message)); }}>
               <span className="f">{c.freq}</span>
               <span className="n">{c.name}</span>
               <span className="act">
                 {tunedIds.has(c.id)
                   ? <span className="pill live">tuned</span>
-                  : <button className="btn sm" onClick={() => engine.tune(c).catch((e) => setErr(e.message))}>Tune</button>}
+                  : <button className="btn sm" onClick={() => { void tuneChannel(c).catch((e) => setErr(e.message)); }}>Tune</button>}
                 {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={async () => { if (confirm(`Delete ${c.freq} ${c.name} for everyone?`)) { await api.deleteChannel(server.id, c.id); await load(); } }}>🗑</button>}
               </span>
             </div>
@@ -518,7 +550,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         setNewCh(false);
       }} />}
       {!inElectron && wheel.open && createPortal(
-        <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} onInput={wheel.onInput} />,
+        <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} available={wheel.available} canCreate={wheel.canCreate} onInput={wheel.onInput} />,
         document.body,
       )}
     </>

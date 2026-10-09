@@ -1,6 +1,6 @@
 {
   "name": "radio-net-client",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Radio Net desktop client (M1 spike)",
   "main": "out/main/index.js",

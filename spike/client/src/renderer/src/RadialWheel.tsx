@@ -11,6 +11,7 @@ import {
   type WheelInput,
   type WheelSegmentView,
 } from '../../shared/radialWheel';
+import type { WheelChannelChoice } from '../../shared/types';
 
 /**
  * The channel ring. Pointer math is the same hitTest the unit tests use.
@@ -20,14 +21,18 @@ export function RadialWheel({
   segments,
   adding,
   addError,
+  available,
+  canCreate,
   onInput,
   onPointer,
 }: {
   segments: WheelSegmentView[];
   adding: boolean;
   addError: string;
+  available: WheelChannelChoice[];
+  canCreate: boolean;
   onInput: (input: WheelInput) => void;
-  /** Overlay window: true while the pointer is over the ring or the add field, so clicks are captured. */
+  /** Overlay window: true while the pointer is over the ring or the add list, so clicks are captured. */
   onPointer?: (over: boolean) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -40,7 +45,9 @@ export function RadialWheel({
   const addingRef = useRef(adding);
   addingRef.current = adding;
   const hoverRef = useRef<number | null>(null);
-  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [freq, setFreq] = useState('');
+  const [name, setName] = useState('');
 
   const indexAt = (clientX: number, clientY: number) => {
     const svg = svgRef.current;
@@ -102,7 +109,7 @@ export function RadialWheel({
     return () => window.removeEventListener('keydown', kd);
   }, []);
 
-  useEffect(() => { if (adding) setQuery(''); }, [adding]);
+  useEffect(() => { if (adding) { setCreating(false); setFreq(''); setName(''); } }, [adding]);
 
   const angles = segmentAngles(segments.length);
   return (
@@ -152,10 +159,28 @@ export function RadialWheel({
         })}
       </svg>
       {adding && (
-        <form className="radial-add" onSubmit={(e) => { e.preventDefault(); onInput({ type: 'add-commit', query }); }}>
-          <input autoFocus placeholder="59.5 or Command" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Add channel" />
+        <div className="radial-add">
+          <div className="picks">
+            {available.map((c) => (
+              <button key={c.id} type="button" className="pick" onClick={() => onInput({ type: 'add-pick', channelId: c.id })}>
+                <span className="f">{c.freq}</span>
+                <span>{c.name}</span>
+              </button>
+            ))}
+            {available.length === 0 && <div className="empty-add">Every channel is already tuned.</div>}
+          </div>
+          {canCreate && !creating && (
+            <button type="button" className="link" onClick={() => setCreating(true)}>Enter frequency</button>
+          )}
+          {canCreate && creating && (
+            <form className="create" onSubmit={(e) => { e.preventDefault(); onInput({ type: 'add-create', freq, name }); }}>
+              <input aria-label="New frequency" placeholder="50.0" value={freq} onChange={(e) => setFreq(e.target.value)} autoFocus />
+              <input aria-label="New name" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+              <button type="submit" className="btn sm">Add</button>
+            </form>
+          )}
           {addError && <div className="err">{addError}</div>}
-        </form>
+        </div>
       )}
     </div>
   );

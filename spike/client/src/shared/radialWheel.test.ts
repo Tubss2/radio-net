@@ -3,6 +3,7 @@ import { formatFreqKHz, stepFrequency } from './freq';
 import {
   WHEEL,
   applyWheelInput,
+  availableChannels,
   buildSegments,
   digitFromCode,
   digitFromKeycode,
@@ -175,6 +176,19 @@ describe('wheel actions', () => {
     expect(scrolled.model.slots[1].freqKHz).toBe(59000);
     const hovered = applyWheelInput({ ...m, hover: 0 }, { type: 'scroll-fallback', steps: 1, shift: false }, channels, 'cmd');
     expect(hovered.model.slots[0].freqKHz).toBe(42000);
+  });
+
+  it('the add list offers channels that are not tuned, and picking one tunes it', () => {
+    const open = model([slot({ freqKHz: 41500, channelId: 'arty' }), slot({ freqKHz: 59500, channelId: 'cmd' })], { adding: true });
+    expect(availableChannels(channels, open.slots).map((c) => c.id)).toEqual(['logi', 'alpha']);
+    const picked = applyWheelInput(open, { type: 'add-pick', channelId: 'alpha' }, channels);
+    expect(picked.model.slots.map((s) => s.channelId)).toEqual(['arty', 'cmd', 'alpha']);
+    expect(picked.intents).toEqual([{ type: 'tune', channelId: 'alpha' }]);
+    expect(picked.model.adding).toBe(false);
+    const again = applyWheelInput(picked.model, { type: 'add-pick', channelId: 'cmd' }, channels);
+    expect(again.model.slots).toHaveLength(3);
+    expect(again.intents).toEqual([]);
+    expect(again.model.hover).toBe(1);
   });
 
   it('the add segment tunes by frequency or name and ignores scroll', () => {

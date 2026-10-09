@@ -50,7 +50,7 @@ npm i
 npm run preview
 ```
 
-That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `F2` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the frequency, Shift+scroll for volume, and `+` to add a channel. Hold Space to talk. `F10` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
+That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `F2` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the frequency, Shift+scroll for volume, and `+` to pick a channel that is not tuned yet (an admin can enter a frequency to create one). Tuning a channel plays a short squelch; settings can turn UI sounds off or change their volume. Hold Space to talk. `F10` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
 
 `npm run preview:build` writes a static site to `spike/client/preview-dist` with relative asset paths. The **UI preview** GitHub Action builds that on every push and uploads it as the `ui-preview` artifact.
 
@@ -67,7 +67,7 @@ The **Windows installer** workflow builds an unsigned NSIS installer on `windows
 
 `RN_FAKE_MEDIA` is not set. The job fails if that variable is present, so a release build cannot ship the fake microphone.
 
-The current client version is **0.3.0**. Download `RadioNet-Setup-0.3.0.exe` from the workflow artifacts (artifact name `RadioNet-Setup-0.3.0`). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
+The current client version is **0.3.1**. Download `RadioNet-Setup-0.3.1.exe` from the workflow artifacts (artifact name `RadioNet-Setup-0.3.1`). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
 
 ### Bumping the version
 
@@ -79,9 +79,9 @@ npm version 0.4.0 --no-git-tag-version
 
 Use the next version in place of `0.4.0`. That updates `package.json` and `package-lock.json`. Commit the result and push; the installer workflow reads the version and names everything from it:
 
-| Piece | Name for 0.3.0 |
+| Piece | Name for 0.3.1 |
 |---|---|
-| NSIS file | `RadioNet-Setup-0.3.0.exe` |
-| Actions artifact | `RadioNet-Setup-0.3.0` |
-| Installer and app exe properties | File version and Product version `0.3.0` |
-| In-app keybinds settings | `Radio Net 0.3.0` |
+| NSIS file | `RadioNet-Setup-0.3.1.exe` |
+| Actions artifact | `RadioNet-Setup-0.3.1` |
+| Installer and app exe properties | File version and Product version `0.3.1` |
+| In-app keybinds settings | `Radio Net 0.3.1` |
