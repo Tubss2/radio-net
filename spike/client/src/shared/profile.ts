@@ -12,6 +12,11 @@ export interface ServerEntry {
   /** Short-lived join session. Refreshed by joining again with the invite code and callsign. */
   token?: string;
   tokenExp?: number;
+  /**
+   * Browser only. When true, the admin key may be written to localStorage.
+   * The session token is never written there. See browserStore.ts.
+   */
+  rememberAdmin?: boolean;
 }
 
 export interface RadioPrefs {

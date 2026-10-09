@@ -17,6 +17,7 @@ if (!localStorage.getItem(PROFILE_KEY)) {
       url: 'preview',
       inviteCode: 'K7QM-2XPA',
       adminKey: 'rnk_preview',
+      rememberAdmin: true,
       lastUsed: new Date().toISOString(),
       token: 'preview',
       tokenExp: Date.now() + 86_400_000,

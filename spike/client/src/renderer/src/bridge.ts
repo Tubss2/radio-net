@@ -1,14 +1,13 @@
 import type { RadioNetBridge } from '../../preload';
+import { loadBrowserProfile, saveBrowserProfile } from '../../shared/browserStore';
 import { DEFAULT_BINDS } from '../../shared/keybinds';
-import { emptyProfile, normaliseProfile, type Profile } from '../../shared/profile';
+import type { Profile } from '../../shared/profile';
 import type { Bind, Keybinds, OverlayState, WheelInput } from '../../shared/types';
 import { emitPreviewWheel, onPreviewHotkey, onPreviewOverlay, onPreviewUpdate, onPreviewWheel, publishOverlay } from './lib/previewBus';
 import { isPreview } from './lib/previewMode';
 
 /** window.radionet in Electron; a browser fallback (localStorage + in-page keys) for UI dev. */
 declare global { interface Window { radionet?: RadioNetBridge } }
-
-const PROFILE_KEY = 'rn.profile';
 
 const fallbackBinds: Keybinds = {
   ...DEFAULT_BINDS,
@@ -83,14 +82,17 @@ export function captureBind(): Promise<Bind | null> {
 }
 
 function readLocalProfile(): Profile {
-  try { return normaliseProfile(JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null')); }
-  catch { return emptyProfile(); }
+  return loadBrowserProfile(localStorage, sessionStorage);
+}
+
+function writeLocalProfile(profile: Profile): void {
+  saveBrowserProfile(profile, localStorage, sessionStorage);
 }
 
 function previewBridge(): RadioNetBridge {
   return {
     getProfile: async () => readLocalProfile(),
-    setProfile: async (p) => { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); },
+    setProfile: async (p) => { writeLocalProfile(p); },
     setKeybinds: async () => undefined,
     defaultKeybinds: async () => previewBinds,
     recordBind: () => captureBind(),
@@ -108,7 +110,7 @@ function previewBridge(): RadioNetBridge {
 
 const browserFallback: RadioNetBridge = {
   getProfile: async () => readLocalProfile(),
-  setProfile: async (p) => { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); },
+  setProfile: async (p) => { writeLocalProfile(p); },
   setKeybinds: async () => undefined,
   defaultKeybinds: async () => fallbackBinds,
   recordBind: () => captureBind(),

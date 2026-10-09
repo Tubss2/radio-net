@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
+import { shouldDropBrowserPtt } from '../../shared/browserPtt';
 import { withBindDefaults } from '../../shared/keybinds';
 import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
 import type { Keybinds } from '../../shared/types';
@@ -315,7 +316,9 @@ function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () =
     <div className="modal-bg">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3 style={{ margin: 0 }}>Community admin key</h3>
-        <p className="sub" style={{ margin: 0 }}>This is shown once. It is saved on this PC. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.</p>
+        <p className="sub" style={{ margin: 0 }}>{inElectron
+          ? 'This is shown once. It is saved on this PC. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.'
+          : 'This is shown once. This browser forgets it when the tab closes, unless you tick “Keep the admin key in this browser” on the radio. A script on this site can read a key you choose to keep. Copy it if another admin needs it. There is no account to recover it; the server setup code can mint a new one.'}</p>
         <div className="keybox">{adminKey}</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn ghost" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
@@ -513,9 +516,30 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         if (domEventMatchesBind(e, b)) engine.setTx(id);
       }
     };
-    const ku = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space') void engine.ptt(false); };
-    window.addEventListener('keydown', kd); window.addEventListener('keyup', ku);
-    return () => { off(); offWheel(); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
+    const release = () => {
+      const id = engine.transmittingOn;
+      if (id) void engine.ptt(false, id);
+    };
+    const ku = (e: KeyboardEvent) => {
+      if (!inElectron && shouldDropBrowserPtt({ type: 'keyup', code: e.code })) release();
+    };
+    const onBlur = () => { if (shouldDropBrowserPtt({ type: 'blur' })) release(); };
+    const onVis = () => {
+      if (shouldDropBrowserPtt({ type: 'visibilitychange', visibilityState: document.visibilityState })) release();
+    };
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup', ku);
+    if (!inElectron) {
+      window.addEventListener('blur', onBlur);
+      document.addEventListener('visibilitychange', onVis);
+    }
+    return () => {
+      off(); offWheel();
+      window.removeEventListener('keydown', kd);
+      window.removeEventListener('keyup', ku);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [engine, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close]);
 
   const tuned = engine.tuned;
@@ -603,6 +627,11 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
           {callsign}
           {server.inviteCode ? <> · invite <kbd>{server.inviteCode}</kbd></> : null}
           {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button>{deleteSupported ? <> · <button className="link" onClick={() => void removeCommunity()}>delete community</button></> : null}</> : null}
+          {isAdmin && !inElectron ? <> · <label className="sub" style={{ margin: 0 }}>
+            <input type="checkbox" checked={server.rememberAdmin === true} onChange={(e) => onServer({ ...server, rememberAdmin: e.target.checked })} />
+            {' '}Keep the admin key in this browser
+          </label></> : null}
+          {isAdmin && !inElectron && server.rememberAdmin ? <> · <button className="link" onClick={() => onServer({ ...server, rememberAdmin: false, adminKey: undefined })}>Forget admin key</button></> : null}
         </div>
         <div className="tunebox">
           <span>📻</span>
@@ -628,7 +657,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         </div>
         <div className="foot">
           <div className="avatar">{initials(callsign)}</div>
-          <div style={{ flex: 1 }}><div>{callsign}</div><div className="sub" style={{ margin: 0 }}>{inElectron ? 'Global hotkeys on' : 'Browser preview: hold Space'}</div></div>
+          <div style={{ flex: 1 }}><div>{callsign}</div><div className="sub" style={{ margin: 0 }}>{inElectron ? 'Global hotkeys on' : 'Hold Space to talk. The mic opens when a channel is tuned and stays muted until then. Leaving this tab drops the button.'}</div></div>
           <button className="btn sm" onClick={openSettings}>Keybinds</button>
         </div>
       </aside>
