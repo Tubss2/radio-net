@@ -60,8 +60,10 @@ async function main() {
   const ov = wins.find((w) => w.url().includes('overlay.html'));
   await page.setViewportSize({ width: 1180, height: 760 }).catch(() => undefined);
 
-  // Callsign, then join the dev community. Both live on this PC; there is no account.
+  // First-run explanation, then callsign, then join the dev community.
   await page.screenshot({ path: SHOTS + '1-onboarding.png' });
+  const privacy = page.locator('button.privacy-continue');
+  if (await privacy.count()) await privacy.click();
   await page.fill('input[placeholder="Toby"]', 'Toby');
   await page.click('button.btn.primary');
   await page.fill('input.code', 'devn et01');

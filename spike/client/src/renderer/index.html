@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:8787 ws://127.0.0.1:7880 http://127.0.0.1:7880 https: wss:; style-src 'self' 'unsafe-inline'; media-src 'self' blob: mediastream:" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: mediastream:; connect-src 'self' http://127.0.0.1:8787 ws://127.0.0.1:7880 http://127.0.0.1:7880 https: wss:; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'none'" />
     <title>Radio Net</title>
   </head>
   <body><div id="root"></div><script type="module" src="./src/main.tsx"></script></body>

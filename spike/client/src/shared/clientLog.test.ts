@@ -9,6 +9,7 @@ describe('client log', () => {
     const line = logLine('api', 'GET /health Bearer abc.def.ghi key rnk_supersecret', new Date('2026-10-09T00:00:00.000Z'));
     expect(line).toBe('2026-10-09T00:00:00.000Z api GET /health Bearer [redacted] key rnk_[redacted]\n');
     expect(redactLog(line)).not.toContain('supersecret');
+    expect(redactLog('session eyJjaWQiOiJkZXYi.macvalue access_token=sekrit')).not.toMatch(/eyJ|sekrit/);
   });
 
   it('rotates the file and keeps a bounded set', () => {

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { UPDATE_CHECK_INTERVAL_MS, UPDATE_OWNER, UPDATE_REPO } from './updates';
+import { isPinnedUpdateFeed, UPDATE_CHECK_INTERVAL_MS, UPDATE_OWNER, UPDATE_REPO } from './updates';
 
 const repoRoot = join(import.meta.dirname, '../../../..');
 
@@ -10,6 +10,9 @@ describe('GitHub Releases updates', () => {
     expect(UPDATE_OWNER).toBe('Tubss2');
     expect(UPDATE_REPO).toBe('radio-net');
     expect(UPDATE_CHECK_INTERVAL_MS).toBe(4 * 60 * 60 * 1000);
+    expect(isPinnedUpdateFeed({ provider: 'github', owner: UPDATE_OWNER, repo: UPDATE_REPO })).toBe(true);
+    expect(isPinnedUpdateFeed({ provider: 'github', owner: 'someone', repo: UPDATE_REPO })).toBe(false);
+    expect(isPinnedUpdateFeed({ provider: 'generic', owner: UPDATE_OWNER, repo: UPDATE_REPO })).toBe(false);
   });
 
   it('publishes a public release and does not require a code signature', () => {

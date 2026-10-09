@@ -1,12 +1,14 @@
 import { join } from 'node:path';
-import { BrowserWindow, app, ipcMain, safeStorage, screen, session } from 'electron';
+import { BrowserWindow, app, ipcMain, safeStorage, screen, session, type WebContents } from 'electron';
+import { parseKeybinds, parseLogEvent, parseOverlayState, parseWheelInput } from '../shared/ipcValidate';
 import { withBindDefaults } from '../shared/keybinds';
 import { duplicateWheelNotch, hookScrollReachesPage, type WheelNotch } from '../shared/radialWheel';
-import { emptyProfile, normaliseProfile, type Profile } from '../shared/profile';
-import type { HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
+import { emptyProfile, normaliseProfile, persistableProfile, type Profile } from '../shared/profile';
+import { isAllowedAppUrl, mediaTypesOf, RENDERER_CSP, rendererWebPreferences, shouldAllowMedia } from '../shared/windowPolicy';
+import type { HotkeyEvent } from '../shared/types';
 import { clientLog } from './clientLog';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
-import { installDownloadedUpdate, startUpdater } from './updater';
+import { downloadAvailableUpdate, installDownloadedUpdate, startUpdater } from './updater';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 // Test-only: fake microphone (a beep) so the app can be exercised headlessly. Never set in release builds.
@@ -25,13 +27,30 @@ const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 const page = (name: string, w: BrowserWindow) =>
   rendererUrl ? w.loadURL(`${rendererUrl}/${name}.html`) : w.loadFile(join(__dirname, `../renderer/${name}.html`));
 
+const preloadPath = () => join(__dirname, '../preload/index.js');
+
+function guardWindow(win: BrowserWindow) {
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  const stop = (event: Electron.Event, url: string) => {
+    if (!isAllowedAppUrl(url, rendererUrl)) event.preventDefault();
+  };
+  win.webContents.on('will-navigate', stop);
+  win.webContents.on('will-redirect', stop);
+  win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+}
+
+function fromApp(sender: WebContents): boolean {
+  return isAllowedAppUrl(sender.getURL(), rendererUrl);
+}
+
 function createMain() {
   main = new BrowserWindow({
     width: 1120, height: 760, minWidth: 880, minHeight: 600,
     backgroundColor: '#0e1014', title: 'Radio Net', show: false,
     titleBarStyle: 'hidden', titleBarOverlay: { color: '#0e1014', symbolColor: '#9aa3b2', height: 36 },
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: false, backgroundThrottling: false },
+    webPreferences: rendererWebPreferences(preloadPath(), { backgroundThrottling: false }),
   });
+  guardWindow(main);
   main.once('ready-to-show', () => main?.show());
   page('index', main);
 }
@@ -50,8 +69,9 @@ function createOverlay() {
     ...corner,
     transparent: true, frame: false, resizable: false, movable: false, focusable: false,
     skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false,
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: false },
+    webPreferences: rendererWebPreferences(preloadPath()),
   });
+  guardWindow(overlay);
   overlay.setAlwaysOnTop(true, 'screen-saver');
   overlay.setIgnoreMouseEvents(true);
   overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -70,13 +90,19 @@ function readProfile(): Profile {
     return emptyProfile();
   }
 }
+let warnedPlaintext = false;
 function writeProfile(p: Profile) {
-  const text = JSON.stringify(p);
-  const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : Buffer.from(text, 'utf8');
+  const encrypt = safeStorage.isEncryptionAvailable();
+  const text = JSON.stringify(persistableProfile(p, { encrypt }));
+  const data = encrypt ? safeStorage.encryptString(text) : Buffer.from(text, 'utf8');
   writeFileSync(profileFile(), data, { mode: 0o600 });
+  if (!encrypt && !warnedPlaintext) {
+    warnedPlaintext = true;
+    clientLog('profile', 'OS encryption unavailable; admin key and session were not written');
+  }
 }
-ipcMain.handle('profile:get', () => readProfile());
-ipcMain.handle('profile:set', (_e, p: Profile) => writeProfile(normaliseProfile(p)));
+ipcMain.handle('profile:get', (e) => (fromApp(e.sender) ? readProfile() : emptyProfile()));
+ipcMain.handle('profile:set', (e, p: unknown) => { if (fromApp(e.sender)) writeProfile(normaliseProfile(p)); });
 
 let wheelShown = false;
 /** True while the wheel window is letting mouse input pass through to the game. forward does not include the wheel. */
@@ -162,12 +188,26 @@ const hotkeys = new Hotkeys((e: HotkeyEvent) => {
   }
   main?.webContents.send('hotkey', e);
 });
-ipcMain.handle('hotkeys:set', (_e, b: Keybinds) => hotkeys.setBinds(b));
-ipcMain.handle('hotkeys:defaults', () => DEFAULT_BINDS);
-ipcMain.handle('hotkeys:record', () => hotkeys.record());
+ipcMain.handle('hotkeys:set', (e, b: unknown) => {
+  if (!fromApp(e.sender)) return;
+  const parsed = parseKeybinds(b);
+  if (parsed) hotkeys.setBinds(parsed);
+});
+ipcMain.handle('hotkeys:defaults', (e) => (fromApp(e.sender) ? DEFAULT_BINDS : DEFAULT_BINDS));
+ipcMain.handle('hotkeys:record', (e) => (fromApp(e.sender) ? hotkeys.record() : null));
+ipcMain.handle('hotkeys:setEnabled', (e, enabled: unknown) => {
+  if (!fromApp(e.sender) || typeof enabled !== 'boolean') return;
+  if (enabled) {
+    try { hotkeys.start(); } catch { clientLog('hotkeys', 'start failed'); }
+  } else {
+    hotkeys.stop();
+  }
+});
 
-ipcMain.on('overlay:state', (_e, s: OverlayState) => {
-  if (!overlay) return;
+ipcMain.on('overlay:state', (e, raw: unknown) => {
+  if (!fromApp(e.sender) || !overlay) return;
+  const s = parseOverlayState(raw);
+  if (!s) return;
   const want = Boolean(s.wheel?.open);
   if (want && !wheelShown) {
     wheelShown = true;
@@ -185,14 +225,17 @@ ipcMain.on('overlay:state', (_e, s: OverlayState) => {
 });
 
 /** While the pointer is over the ring (or the add field is open) the wheel window accepts clicks. Elsewhere they pass through to the game. */
-ipcMain.on('overlay:ignore-mouse', (_e, ignore: boolean) => {
-  if (!overlay || !wheelShown) return;
+ipcMain.on('overlay:ignore-mouse', (e, ignore: unknown) => {
+  if (!fromApp(e.sender) || !overlay || !wheelShown || typeof ignore !== 'boolean') return;
   wheelIgnoresMouse = ignore;
   if (ignore) overlay.setIgnoreMouseEvents(true, { forward: true });
   else overlay.setIgnoreMouseEvents(false);
 });
 
-ipcMain.on('wheel:input', (_e, input: WheelInput) => {
+ipcMain.on('wheel:input', (e, raw: unknown) => {
+  if (!fromApp(e.sender)) return;
+  const input = parseWheelInput(raw);
+  if (!input) return;
   if (input.type === 'scroll') {
     const notch: WheelNotch = { at: Date.now(), steps: input.steps, shift: input.shift, source: 'page' };
     if (duplicateWheelNotch(recentWheel, notch)) return;
@@ -201,21 +244,35 @@ ipcMain.on('wheel:input', (_e, input: WheelInput) => {
   main?.webContents.send('wheel:input', input);
 });
 
-ipcMain.on('update:install', () => installDownloadedUpdate());
-ipcMain.on('log:event', (_e, event: unknown, detail: unknown) => {
-  if (typeof event !== 'string') return;
-  clientLog(event.slice(0, 40), typeof detail === 'string' ? detail.slice(0, 300) : undefined);
+ipcMain.on('update:install', (e) => { if (fromApp(e.sender)) installDownloadedUpdate(); });
+ipcMain.on('update:download', (e) => { if (fromApp(e.sender)) downloadAvailableUpdate(); });
+ipcMain.on('log:event', (e, event: unknown, detail: unknown) => {
+  if (!fromApp(e.sender)) return;
+  const parsed = parseLogEvent(event, detail);
+  if (parsed) clientLog(parsed.event, parsed.detail);
 });
 
 app.whenReady().then(() => {
-  // Only allow the microphone; deny every other permission request.
-  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'media'));
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+    callback(shouldAllowMedia(permission, mediaTypesOf(details)));
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) => shouldAllowMedia(permission, mediaTypesOf(details)));
+  if (app.isPackaged) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [RENDERER_CSP] },
+      });
+    });
+  }
   createMain();
   createOverlay();
-  hotkeys.setBinds(withBindDefaults(readProfile().keybinds ?? DEFAULT_BINDS));
-  try { hotkeys.start(); } catch (err) {
-    clientLog('hotkeys', 'start failed');
-    console.error('global hotkeys unavailable', err);
+  const profile = readProfile();
+  hotkeys.setBinds(withBindDefaults(profile.keybinds ?? DEFAULT_BINDS));
+  if (profile.privacyAccepted && profile.hotkeysEnabled) {
+    try { hotkeys.start(); } catch (err) {
+      clientLog('hotkeys', 'start failed');
+      console.error('global hotkeys unavailable', err);
+    }
   }
   startUpdater(() => main);
 });

@@ -8,6 +8,7 @@ const api = {
   setKeybinds: (b: Keybinds): Promise<void> => ipcRenderer.invoke('hotkeys:set', b),
   defaultKeybinds: (): Promise<Keybinds> => ipcRenderer.invoke('hotkeys:defaults'),
   recordBind: (): Promise<Bind | null> => ipcRenderer.invoke('hotkeys:record'),
+  setHotkeysEnabled: (enabled: boolean): Promise<void> => ipcRenderer.invoke('hotkeys:setEnabled', enabled),
   onHotkey: (cb: (e: HotkeyEvent) => void) => {
     const h = (_: unknown, e: HotkeyEvent) => cb(e);
     ipcRenderer.on('hotkey', h);
@@ -29,11 +30,17 @@ const api = {
     ipcRenderer.on('wheel:input', h);
     return () => { ipcRenderer.removeListener('wheel:input', h); };
   },
+  onUpdateAvailable: (cb: (info: UpdateReady) => void): (() => void) => {
+    const h = (_: unknown, info: UpdateReady) => cb(info);
+    ipcRenderer.on('update:available', h);
+    return () => { ipcRenderer.removeListener('update:available', h); };
+  },
   onUpdateReady: (cb: (info: UpdateReady) => void): (() => void) => {
     const h = (_: unknown, info: UpdateReady) => cb(info);
     ipcRenderer.on('update:ready', h);
     return () => { ipcRenderer.removeListener('update:ready', h); };
   },
+  downloadUpdate: () => ipcRenderer.send('update:download'),
   installUpdate: () => ipcRenderer.send('update:install'),
   log: (event: string, detail?: string) => ipcRenderer.send('log:event', event, detail),
 };

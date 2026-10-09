@@ -23,6 +23,8 @@ if (!localStorage.getItem(PROFILE_KEY)) {
     }],
     keybinds: null,
     overlayOn: true,
+    privacyAccepted: true,
+    hotkeysEnabled: true,
     radios: { wdnz: { tuned: ['arty', 'logi', 'cmd'], tx: 'cmd', volume: {}, muted: {}, pan: {} } },
   }));
 }

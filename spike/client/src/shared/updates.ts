@@ -8,3 +8,14 @@ export const UPDATE_REPO = 'radio-net';
  * build reaches an open client the same day.
  */
 export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+export interface UpdateFeed {
+  provider?: string;
+  owner?: string;
+  repo?: string;
+}
+
+/** The only feed the packaged app is allowed to check. */
+export function isPinnedUpdateFeed(feed: UpdateFeed): boolean {
+  return feed.provider === 'github' && feed.owner === UPDATE_OWNER && feed.repo === UPDATE_REPO;
+}

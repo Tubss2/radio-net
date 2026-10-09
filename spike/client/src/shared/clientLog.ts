@@ -9,7 +9,9 @@ export const LOG_MAX_BYTES = 256 * 1024;
 export function redactLog(text: string): string {
   return text
     .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-    .replace(/rnk_[A-Za-z0-9]+/g, 'rnk_[redacted]');
+    .replace(/rnk_[A-Za-z0-9_-]+/g, 'rnk_[redacted]')
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?/g, '[redacted-token]')
+    .replace(/access_token=[^&\s]+/gi, 'access_token=[redacted]');
 }
 
 export function logLine(event: string, detail?: string, at = new Date()): string {

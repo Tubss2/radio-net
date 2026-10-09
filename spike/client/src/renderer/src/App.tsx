@@ -16,21 +16,26 @@ import { PreviewEngine } from './lib/previewEngine';
 import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
 import { RadialWheel } from './RadialWheel';
 import { Settings } from './Settings';
+import { PrivacyConsent, PrivacyNotes } from './Privacy';
 import { useChannelWheel } from './useChannelWheel';
 
 const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
 /** Shown after electron-updater has downloaded a build. Later hides it until the next check. */
 function UpdateBar() {
+  const [phase, setPhase] = useState<'available' | 'ready' | null>(null);
   const [version, setVersion] = useState<string | null>(null);
-  useEffect(() => bridge.onUpdateReady((info) => setVersion(info.version)), []);
-  if (!version) return null;
+  useEffect(() => bridge.onUpdateAvailable((info) => { setVersion(info.version); setPhase('available'); }), []);
+  useEffect(() => bridge.onUpdateReady((info) => { setVersion(info.version); setPhase('ready'); }), []);
+  if (!version || !phase) return null;
   return (
     <div className="update-ready" role="status">
-      <span>Update ready</span>
-      <span className="ver">Radio Net {version}</span>
-      <button className="btn sm primary" type="button" onClick={() => bridge.installUpdate()}>Restart now</button>
-      <button className="btn sm ghost" type="button" onClick={() => setVersion(null)}>Later</button>
+      <span>{phase === 'ready' ? 'Update downloaded' : 'Update available'}</span>
+      <span className="ver">Radio Net {version} · unsigned</span>
+      {phase === 'available'
+        ? <button className="btn sm primary" type="button" onClick={() => bridge.downloadUpdate()}>Download</button>
+        : <button className="btn sm primary" type="button" onClick={() => bridge.installUpdate()}>Restart now</button>}
+      <button className="btn sm ghost" type="button" onClick={() => setPhase(null)}>Later</button>
     </div>
   );
 }
@@ -45,6 +50,8 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [binds, setBinds] = useState<Keybinds>(() => withBindDefaults(null));
   const [freshKey, setFreshKey] = useState<string | null>(null);
+  const [hotkeysOn, setHotkeysOn] = useState(true);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const profileRef = useRef<Profile | null>(null);
 
   const save = useCallback(async (next: Profile) => {
@@ -63,12 +70,30 @@ export function App() {
       }
       profileRef.current = p;
       setProfile(p);
+      setHotkeysOn(p.hotkeysEnabled);
       setUiSounds(p.soundsOn, p.soundVolume);
       setBinds(nextBinds);
       await bridge.setKeybinds(withBindDefaults(p.keybinds));
+      if (p.privacyAccepted) await bridge.setHotkeysEnabled(p.hotkeysEnabled);
       if (isPreview && p.servers[0]) setActiveId(p.servers[0].id);
     });
   }, []);
+
+  const setListening = (enabled: boolean) => {
+    setHotkeysOn(enabled);
+    const cur = profileRef.current;
+    if (!cur) return;
+    void save({ ...cur, hotkeysEnabled: enabled });
+    void bridge.setHotkeysEnabled(enabled && cur.privacyAccepted);
+  };
+
+  const acceptPrivacy = () => {
+    const cur = profileRef.current;
+    if (!cur) return;
+    setHotkeysOn(true);
+    void save({ ...cur, privacyAccepted: true, hotkeysEnabled: true });
+    void bridge.setHotkeysEnabled(true);
+  };
 
   const changeBinds = (next: Keybinds) => {
     setBinds(next);
@@ -77,6 +102,7 @@ export function App() {
   };
 
   if (!profile) return <UpdateBar />;
+  if (!profile.privacyAccepted) return <><PrivacyConsent onAccept={acceptPrivacy} /><UpdateBar /></>;
   if (!profile.callsign) return <><Callsign onSave={(callsign) => void save({ ...profile, callsign })} /><UpdateBar /></>;
 
   const active = profile.servers.find((s) => s.id === activeId) ?? null;
@@ -85,10 +111,14 @@ export function App() {
       <>
         <Home
           profile={profile}
+          hotkeysOn={hotkeysOn}
+          onHotkeys={setListening}
+          onPrivacy={() => setPrivacyOpen(true)}
           onProfile={(p) => void save(p)}
           onOpen={(server) => setActiveId(server.id)}
           onCreated={(server, adminKey) => { setFreshKey(adminKey); setActiveId(server.id); }}
         />
+        {privacyOpen && <PrivacyNotes onClose={() => setPrivacyOpen(false)} />}
         <UpdateBar />
       </>
     );
@@ -108,6 +138,8 @@ export function App() {
         callsign={profile.callsign}
         binds={binds}
         boot={profile}
+        hotkeysOn={hotkeysOn}
+        onHotkeys={setListening}
         onProfile={(p) => void save(p)}
         onServer={(server) => {
           const cur = profileRef.current;
@@ -125,6 +157,9 @@ export function App() {
       />
       <SettingsHost
         binds={binds}
+        hotkeysOn={hotkeysOn}
+        onHotkeys={setListening}
+        onPrivacy={() => setPrivacyOpen(true)}
         soundsOn={profile.soundsOn}
         soundVolume={profile.soundVolume}
         onSounds={(soundsOn, soundVolume) => {
@@ -135,14 +170,18 @@ export function App() {
         onChange={changeBinds}
       />
       {freshKey && <AdminKeyReveal adminKey={freshKey} onClose={() => setFreshKey(null)} />}
+      {privacyOpen && <PrivacyNotes onClose={() => setPrivacyOpen(false)} />}
       <UpdateBar />
     </div>
   );
 }
 
 /** Settings is opened from inside Radio via a custom event so the radio tree can stay the owner of tuned channels. */
-function SettingsHost({ binds, soundsOn, soundVolume, onSounds, onChange }: {
+function SettingsHost({ binds, hotkeysOn, onHotkeys, onPrivacy, soundsOn, soundVolume, onSounds, onChange }: {
   binds: Keybinds;
+  hotkeysOn: boolean;
+  onHotkeys: (enabled: boolean) => void;
+  onPrivacy: () => void;
   soundsOn: boolean;
   soundVolume: number;
   onSounds: (on: boolean, volume: number) => void;
@@ -160,7 +199,7 @@ function SettingsHost({ binds, soundsOn, soundVolume, onSounds, onChange }: {
     return () => window.removeEventListener('rn-settings', onOpen);
   }, []);
   if (!open) return null;
-  return <Settings binds={binds} quick={quick} soundsOn={soundsOn} soundVolume={soundVolume} onSounds={onSounds} onChange={onChange} onClose={() => setOpen(false)} />;
+  return <Settings binds={binds} quick={quick} hotkeysOn={hotkeysOn} onHotkeys={onHotkeys} onPrivacy={onPrivacy} soundsOn={soundsOn} soundVolume={soundVolume} onSounds={onSounds} onChange={onChange} onClose={() => setOpen(false)} />;
 }
 
 function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
@@ -185,8 +224,11 @@ function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
   );
 }
 
-function Home({ profile, onProfile, onOpen, onCreated }: {
+function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onCreated }: {
   profile: Profile;
+  hotkeysOn: boolean;
+  onHotkeys: (enabled: boolean) => void;
+  onPrivacy: () => void;
   onProfile: (p: Profile) => void;
   onOpen: (server: ServerEntry) => void;
   onCreated: (server: ServerEntry, adminKey: string) => void;
@@ -301,6 +343,10 @@ function Home({ profile, onProfile, onOpen, onCreated }: {
         <button className="btn ghost" onClick={() => { setMode(mode === 'join' ? 'create' : 'join'); setErr(''); }}>
           {mode === 'join' ? 'Running a group? Create a community' : 'Have an invite? Join instead'}
         </button>
+        <div className="row">
+          <button className="btn sm ghost" type="button" onClick={() => onHotkeys(!hotkeysOn)}>{hotkeysOn ? 'Keybinds on' : 'Keybinds paused'}</button>
+          <button className="btn sm ghost" type="button" onClick={onPrivacy}>Privacy notes</button>
+        </div>
       </div>
     </div>
   );
@@ -326,11 +372,13 @@ function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () =
   );
 }
 
-function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }: {
+function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile, onServer, onRemoved }: {
   server: ServerEntry;
   callsign: string;
   binds: Keybinds;
   boot: Profile;
+  hotkeysOn: boolean;
+  onHotkeys: (enabled: boolean) => void;
   onProfile: (p: Profile) => void;
   onServer: (s: ServerEntry) => void;
   onRemoved: () => void;
@@ -628,7 +676,12 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         </div>
         <div className="foot">
           <div className="avatar">{initials(callsign)}</div>
-          <div style={{ flex: 1 }}><div>{callsign}</div><div className="sub" style={{ margin: 0 }}>{inElectron ? 'Global hotkeys on' : 'Browser preview: hold Space'}</div></div>
+          <div style={{ flex: 1 }}>
+            <div>{callsign}</div>
+            <button className="link" type="button" onClick={() => onHotkeys(!hotkeysOn)}>
+              {inElectron ? (hotkeysOn ? 'Keybinds on — bound keys only' : 'Keybinds paused') : (hotkeysOn ? 'Preview: hold Space' : 'Keybinds paused')}
+            </button>
+          </div>
           <button className="btn sm" onClick={openSettings}>Keybinds</button>
         </div>
       </aside>

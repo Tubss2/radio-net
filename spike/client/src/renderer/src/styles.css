@@ -106,6 +106,9 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 .settings-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .about { color: var(--faint); font: 12px var(--mono); }
 .onboard .box.servers { width: 480px; }
+.onboard .box.privacy { width: 520px; max-height: calc(100vh - 80px); overflow: auto; }
+.onboard .box.privacy ul, .privacy-notes ul { margin: 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 8px; }
+.modal.privacy-notes { width: 480px; }
 .history { display: flex; flex-direction: column; max-height: 180px; overflow: auto; }
 .server { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .binds { display: flex; flex-direction: column; gap: 6px; }
