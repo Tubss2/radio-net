@@ -202,8 +202,8 @@ ipcMain.on('wheel:input', (_e, input: WheelInput) => {
 });
 
 /** Simple mode is this same window, resized. A second window would open a second microphone. */
-ipcMain.on('window:simple', (_e, payload: unknown) => {
-  if (!main || !payload || typeof payload !== 'object') return;
+ipcMain.on('window:simple', (e, payload: unknown) => {
+  if (!main || e.sender !== main.webContents || !payload || typeof payload !== 'object') return;
   const body = payload as { compact?: unknown; alwaysOnTop?: unknown };
   const compact = body.compact === true;
   const onTop = body.alwaysOnTop === true;

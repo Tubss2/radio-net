@@ -5,15 +5,34 @@ export interface BrowserSession {
   tokenExp?: number;
 }
 
-/** Callsign, server history, and settings. The join session is not part of this copy. */
+/**
+ * Callsign, server history, and settings.
+ * The join session is never in this copy. The admin key is included only when the user opted in.
+ */
 export function profileForDisk(profile: Profile): Profile {
   return {
     ...profile,
     servers: profile.servers.map((server) => {
-      const { token: _token, tokenExp: _exp, ...rest } = server;
+      const { token: _token, tokenExp: _exp, adminKey, rememberAdmin: _remember, ...rest } = server;
+      if (server.rememberAdmin === true && typeof adminKey === 'string' && adminKey) {
+        return { ...rest, adminKey, rememberAdmin: true as const };
+      }
       return rest;
     }),
   };
+}
+
+/** A previous build stored the session token, or the admin key, in the durable blob. */
+export function browserDiskNeedsScrub(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const servers = (raw as { servers?: unknown }).servers;
+  if (!Array.isArray(servers)) return false;
+  return servers.some((server) => {
+    if (!server || typeof server !== 'object') return false;
+    const row = server as { token?: unknown; adminKey?: unknown; rememberAdmin?: unknown };
+    if (typeof row.token === 'string' && row.token) return true;
+    return typeof row.adminKey === 'string' && Boolean(row.adminKey) && row.rememberAdmin !== true;
+  });
 }
 
 export function sessionsFromProfile(profile: Profile): Record<string, BrowserSession> {
@@ -31,8 +50,10 @@ export function profileWithSessions(profile: Profile, sessions: Record<string, {
     ...profile,
     servers: profile.servers.map((server): ServerEntry => {
       const saved = sessions[server.id];
-      if (!saved?.token) return { ...server, token: undefined, tokenExp: undefined };
-      return { ...server, token: saved.token, tokenExp: saved.tokenExp };
+      const keepAdmin = server.rememberAdmin === true && typeof server.adminKey === 'string' && server.adminKey;
+      const base: ServerEntry = keepAdmin ? { ...server } : { ...server, adminKey: undefined, rememberAdmin: undefined };
+      if (!saved?.token) return { ...base, token: undefined, tokenExp: undefined };
+      return { ...base, token: saved.token, tokenExp: saved.tokenExp };
     }),
   };
 }

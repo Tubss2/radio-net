@@ -8,6 +8,8 @@ export interface ServerEntry {
   url: string;
   inviteCode: string;
   adminKey?: string;
+  /** Web only. The admin key is written to localStorage only when this is true. */
+  rememberAdmin?: boolean;
   lastUsed: string;
   /** Short-lived join session. Refreshed by joining again with the invite code and callsign. */
   token?: string;

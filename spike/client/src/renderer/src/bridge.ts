@@ -1,5 +1,5 @@
 import type { RadioNetBridge } from '../../preload';
-import { profileForDisk, profileWithSessions, sessionsFromProfile } from '../../shared/browserProfile';
+import { browserDiskNeedsScrub, profileForDisk, profileWithSessions, sessionsFromProfile } from '../../shared/browserProfile';
 import { DEFAULT_BINDS } from '../../shared/keybinds';
 import { emptyProfile, normaliseProfile, type Profile } from '../../shared/profile';
 import type { Bind, Keybinds, OverlayState, WheelInput } from '../../shared/types';
@@ -85,14 +85,24 @@ export function captureBind(): Promise<Bind | null> {
   });
 }
 
+function readSessions(): Record<string, { token?: string; tokenExp?: number }> {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(SESSION_KEY) || '{}') as unknown;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return value as Record<string, { token?: string; tokenExp?: number }>;
+  } catch {
+    return {};
+  }
+}
+
 function readLocalProfile(): Profile {
   let raw: unknown = null;
   try { raw = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); } catch { raw = null; }
   const profile = normaliseProfile(raw);
   if (!webBuild) return profile;
-  let sessions: Record<string, { token?: string; tokenExp?: number }> = {};
-  try { sessions = JSON.parse(sessionStorage.getItem(SESSION_KEY) || '{}') as typeof sessions; } catch { sessions = {}; }
-  return profileWithSessions(profile, sessions);
+  const merged = profileWithSessions(profile, readSessions());
+  if (browserDiskNeedsScrub(raw)) localStorage.setItem(PROFILE_KEY, JSON.stringify(profileForDisk(merged)));
+  return merged;
 }
 
 function writeLocalProfile(p: Profile) {
