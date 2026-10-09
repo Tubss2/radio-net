@@ -8,7 +8,7 @@ import { isPreview } from './lib/previewMode';
 import { PreviewApi } from './lib/previewApi';
 import { PreviewEngine } from './lib/previewEngine';
 import { matchChannel } from '../../shared/radialWheel';
-import { parseFreqInput } from './lib/freq';
+import { parseFreqInput, validateFrequency } from './lib/freq';
 import { RadialWheel } from './RadialWheel';
 import { useChannelWheel } from './useChannelWheel';
 
@@ -243,7 +243,14 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
           </div>
         </div>
       </main>
-      {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => { await api.createChannel(community.id, f, n); await load(); setNewCh(false); }} />}
+      {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => {
+        const kHz = parseFreqInput(f);
+        const bad = kHz == null ? 'Enter a frequency like 59.5' : validateFrequency(kHz);
+        if (bad) throw new Error(bad);
+        await api.createChannel(community.id, f, n);
+        await load();
+        setNewCh(false);
+      }} />}
       {!inElectron && wheel.open && createPortal(
         <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} onInput={wheel.onInput} />,
         document.body,
@@ -295,7 +302,7 @@ function NewChannel({ onClose, onCreate }: { onClose: () => void; onCreate: (fre
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3 style={{ margin: 0 }}>New channel</h3>
-        <label className="field">Frequency (MHz, 30.000–87.975)<input className="code" placeholder="59.500" value={f} onChange={(e) => setF(e.target.value)} /></label>
+        <label className="field">Frequency (MHz, 30.0–87.5, steps of 0.5)<input className="code" placeholder="59.5" value={f} onChange={(e) => setF(e.target.value)} /></label>
         <label className="field">Name<input placeholder="Command" value={n} onChange={(e) => setN(e.target.value)} /></label>
         {err && <div className="err">{err}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

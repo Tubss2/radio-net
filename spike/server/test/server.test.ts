@@ -20,16 +20,25 @@ async function setup(extra: Partial<typeof cfg & { communitySetupCode: string; j
 describe('frequencies', () => {
   it('parses common inputs', () => {
     expect(parseFrequency('59.5')).toBe(59500);
+    expect(parseFrequency('50.5')).toBe(50500);
+    expect(parseFrequency('50.0')).toBe(50000);
     expect(parseFrequency('59.500 MHz')).toBe(59500);
-    expect(parseFrequency('41.25')).toBe(41250);
-    expect(parseFrequency('59500')).toBe(59500);
+    expect(parseFrequency('50500')).toBe(50500);
     expect(parseFrequency('abc')).toBeNull();
-    expect(formatFrequency(41250)).toBe('41.250');
+    expect(formatFrequency(50500)).toBe('50.5');
+    expect(formatFrequency(50000)).toBe('50.0');
+    expect(formatFrequency(59500)).toBe('59.5');
   });
-  it('enforces band and step', () => {
+  it('enforces band and 0.5 MHz steps', () => {
     expect(validateFrequency(59500)).toBeNull();
+    expect(validateFrequency(50500)).toBeNull();
+    expect(validateFrequency(30000)).toBeNull();
+    expect(validateFrequency(87500)).toBeNull();
     expect(validateFrequency(20000)).toMatch(/between/);
-    expect(validateFrequency(59510)).toMatch(/steps/);
+    expect(validateFrequency(88000)).toMatch(/between/);
+    expect(validateFrequency(87975)).toMatch(/between/);
+    expect(validateFrequency(59510)).toMatch(/0\.5 MHz steps/);
+    expect(validateFrequency(41250)).toMatch(/0\.5 MHz steps/);
   });
 });
 
@@ -98,7 +107,9 @@ describe('channel API', () => {
     const url = `/api/communities/${cid}/channels`;
     const r1 = await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '59.5', name: 'Command' } });
     expect(r1.statusCode).toBe(201);
-    expect(r1.json().channel).toMatchObject({ freq: '59.500', name: 'Command' });
+    expect(r1.json().channel).toMatchObject({ freq: '59.5', name: 'Command' });
+    expect((await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '41.25', name: 'Off grid' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '88.0', name: 'Too high' } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url, headers: owner, payload: { freq: 59.5, name: 'Other' } })).statusCode).toBe(409);
     expect((await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '60', name: 'command' } })).statusCode).toBe(409);
     expect((await app.inject({ method: 'POST', url, headers: member, payload: { freq: '60', name: 'Arty' } })).statusCode).toBe(403);
@@ -113,10 +124,10 @@ describe('channel API', () => {
     const { app, owner, member, cid } = await setup();
     const url = `/api/communities/${cid}/channels`;
     await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '59.5', name: 'Command' } });
-    await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '41.25', name: 'Arty' } });
+    await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '41.5', name: 'Arty' } });
     const q = async (s: string) => (await app.inject({ url: `${url}/resolve?q=${encodeURIComponent(s)}`, headers: member })).json().matches.map((m: any) => m.name);
     expect(await q('59.5')).toEqual(['Command']);
-    expect(await q('41.250 MHz')).toEqual(['Arty']);
+    expect(await q('41.5 MHz')).toEqual(['Arty']);
     expect(await q('arty')).toEqual(['Arty']);
     expect(await q('Comm')).toEqual(['Command']);
     expect(await q('nope')).toEqual([]);
@@ -134,7 +145,7 @@ describe('token grants', () => {
     const { app, owner, member, cid, memberId } = await setup();
     const url = `/api/communities/${cid}/channels`;
     const a = (await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '59.5', name: 'Command' } })).json().channel;
-    const b = (await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '41.25', name: 'Arty' } })).json().channel;
+    const b = (await app.inject({ method: 'POST', url, headers: owner, payload: { freq: '41.5', name: 'Arty' } })).json().channel;
     const r = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/tokens`, headers: member, payload: { channelIds: [a.id, b.id, 'nope'] } });
     const { grants } = r.json();
     expect(grants).toHaveLength(2);

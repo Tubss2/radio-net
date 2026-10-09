@@ -5,13 +5,13 @@
 
 ## 1. The one-paragraph version
 
-**Radio Net** (working name) is a small **Windows desktop app** that runs beside WARDOGS or any game. A group creates a **community** in the app and shares an **invite code**; members join with the code and a display name. No Discord, email or password. Community **admins create and delete channels**, each a **frequency + name** (e.g. `59.500 Command`). Every user has their own **radio**: tune any number of channels to **listen** (type `59.5` or `command`), each with its own **volume and left/centre/right ear**, and pick **one to transmit** on. **Push-to-talk** talks on the TX channel. A **channel-wheel** hotkey (default `G`, Arma Reforger style) opens a radial menu centred on the screen. Hover a segment, left-click to make it the transmit channel, right-click to mute or unmute, scroll to step that frequency by 25 kHz (30.000–87.975 MHz), Shift+scroll to change that channel’s volume, and use the **+** segment to add a channel by frequency or name. The wheel takes mouse focus briefly. The fallback, which does not need that focus, is hold `G` and scroll or press a number key. Release or Esc closes. Push-to-talk stays its own key. See [`radial-wheel.png`](radial-wheel.png). A click-through **overlay** is on by default: a small box in a screen corner that stays empty when nobody is transmitting, and while someone transmits shows only their display name and the channel (frequency + name) they are transmitting on, stacked if several people are talking. Voice runs on **self-hosted LiveKit** in Sydney. Clean voice, no radio effects.
+**Radio Net** (working name) is a small **Windows desktop app** that runs beside WARDOGS or any game. A group creates a **community** in the app and shares an **invite code**; members join with the code and a display name. No Discord, email or password. Community **admins create and delete channels**, each a **frequency + name** (e.g. `59.5 Command`). Every user has their own **radio**: tune any number of channels to **listen** (type `59.5` or `command`), each with its own **volume and left/centre/right ear**, and pick **one to transmit** on. **Push-to-talk** talks on the TX channel. A **channel-wheel** hotkey (default `G`, Arma Reforger style) opens a radial menu centred on the screen. Hover a segment, left-click to make it the transmit channel, right-click to mute or unmute, scroll to step that frequency by 0.5 MHz (30.0–87.5 MHz), Shift+scroll to change that channel’s volume, and use the **+** segment to add a channel by frequency or name. The wheel takes mouse focus briefly. The fallback, which does not need that focus, is hold `G` and scroll or press a number key. Release or Esc closes. Push-to-talk stays its own key. See [`radial-wheel.png`](radial-wheel.png). A click-through **overlay** is on by default: a small box in a screen corner that stays empty when nobody is transmitting, and while someone transmits shows only their display name and the channel (frequency + name) they are transmitting on, stacked if several people are talking. Voice runs on **self-hosted LiveKit** in Sydney. Clean voice, no radio effects.
 
 ## 2. What changed from v0.1
 
 | Area | v0.1 | v0.2 |
 |---|---|---|
-| Channels | Fixed nets (Command/Arty/Logi/FT-1..4) in a server config file | **Admins create/delete channels in-app**: frequency (30.000–87.975 MHz, 25 kHz steps) + name. Fireteams are just ad-hoc frequencies. |
+| Channels | Fixed nets (Command/Arty/Logi/FT-1..4) in a server config file | **Admins create/delete channels in-app**: frequency (30.0–87.5 MHz, 0.5 MHz steps) + name. Fireteams are just ad-hoc frequencies. |
 | Who hears what | Discord roles per net | **MVP: anyone in the community can tune and talk on any channel.** Per-channel restriction is backlog. |
 | Accounts | Sign in with Discord | **Own lightweight accounts: invite code + display name → device key** (see §4). Discord login is backlog. |
 | Admins | Discord roles | **Owner** (creator of the community) promotes **admins**. Admins: create/delete channels, rotate invite, remove members. |
@@ -41,13 +41,13 @@ erDiagram
   }
   CHANNEL {
     string id "LiveKit room derives from this"
-    int freqKHz "59500 = 59.500 MHz, unique per community"
+    int freqKHz "59500 = 59.5 MHz, unique per community"
     string name "unique per community, case-insensitive"
     string restrictedTag "BACKLOG, null = open"
   }
 ```
 
-- **Frequencies are stored as integer kHz** (no float bugs). Input accepts `59.5`, `59.500`, `59.5 MHz`, `59500`. Default band 30.000–87.975 MHz in 25 kHz steps (like military VHF sets). Configurable per community.
+- **Frequencies are stored as integer kHz** (no float bugs). Display is one decimal (`50.5`, `50.0`). Input accepts `50.5`, `50.50`, `50.5 MHz`, `50500`. Values that are not a 0.5 MHz step are rejected. Default band 30.0–87.5 MHz. Configurable per community.
 - **User radio state stays on the client** (per community: tuned channel ids, TX channel, per-channel volume/pan/mute, keybinds). The server doesn't need it. Syncing it across PCs is backlog.
 - **Storage:** SQLite on the VPS for M2 (one file, nightly backup). The spike uses an in-memory store behind the same interface.
 
@@ -78,7 +78,7 @@ erDiagram
 | PATCH | `/api/communities/:cid/members/:aid` | owner | Make admin / member. |
 | DELETE | `/api/communities/:cid/members/:aid` | admin (or self = leave) | Remove member + kick from all voice rooms. |
 | GET | `/api/communities/:cid/channels` | member | Channel list, sorted by frequency. |
-| GET | `/api/communities/:cid/channels/resolve?q=` | member | `59.5` / `41.250 MHz` / `command` / unique prefix `comm` → channel. |
+| GET | `/api/communities/:cid/channels/resolve?q=` | member | `59.5` / `41.5 MHz` / `command` / unique prefix `comm` → channel. |
 | POST | `/api/communities/:cid/channels` | admin | `{freq, name}`. 409 if frequency or name already used. |
 | DELETE | `/api/communities/:cid/channels/:chid` | admin | Delete + LiveKit `DeleteRoom` (everyone tuned is dropped). |
 | POST | `/api/communities/:cid/radio/tokens` | member | `{channelIds[]}` → one LiveKit token per channel. |
@@ -87,7 +87,7 @@ Backlog: a push channel (SSE/WebSocket) so channel list changes appear instantly
 
 ## 6. How channels map to LiveKit (decision)
 
-- **1 channel = 1 LiveKit room**, named `g{communityId}.ch{channelId}`. Keyed on the channel **id**, so deleting `59.500` and recreating it later gives a fresh, empty room.
+- **1 channel = 1 LiveKit room**, named `g{communityId}.ch{channelId}`. Keyed on the channel **id**, so deleting `59.5` and recreating it later gives a fresh, empty room.
 - The client opens **one LiveKit connection per tuned channel** (tested with 2 rooms per client; up to 16 allowed by the API). Each room's audio goes through its own **gain + stereo-pan** node.
 - **Token grants per room:** `roomJoin`, `canSubscribe: true`, `canPublish: true` **microphone only** (`canPublishSources: [microphone]`), `canPublishData: false`, 10-minute join TTL.
 - **Transmit:** the app pre-publishes a **muted** mic track in each tuned room. PTT **un-mutes only the TX room**. Changing TX (channel wheel) is instant: no reconnect, no renegotiation.
@@ -117,16 +117,16 @@ flowchart LR
 ## 7. Client UX (see [`UI.md`](UI.md), [`mockup.html`](mockup.html))
 
 - **First run:** "Join your net" (invite code + callsign) or "Create a community" (name + setup code).
-- **Main window:** community rail (left) → community's channel list with a **Tune** box ("59.5 or Command", Enter) and admin **+ New / delete** → **radio** area: a big **"Transmit on 59.500 Command"** bar (turns red "On air" while keyed) and a **card per tuned channel**: frequency, name, who's talking, volume + mute, **L/C/R ear**, "Transmit here", untune ×.
+- **Main window:** community rail (left) → community's channel list with a **Tune** box ("59.5 or Command", Enter) and admin **+ New / delete** → **radio** area: a big **"Transmit on 59.5 Command"** bar (turns red "On air" while keyed) and a **card per tuned channel**: frequency, name, who's talking, volume + mute, **L/C/R ear**, "Transmit here", untune ×.
 - **Keys (decision, 9 Oct 2026):** one **push-to-talk** key (spike default `Mouse 4`), plus a **channel-wheel** hotkey (default `G`, Arma Reforger style). Hide overlay stays `F10`. Confirmation blips on key-up/down and on a channel change (not a radio effect; can be turned off). Picture: [`radial-wheel.png`](radial-wheel.png).
   - **Open.** Hold or press `G`. The wheel is a ring of segments centred on the screen, one per tuned channel (lowest frequency is CH1 at 12 o’clock, then clockwise) plus a final **+** segment. A short press latches it open. Holding and releasing closes it. `Esc`, or `G` again while it is latched, also closes it. While the add field is open, `G` does not dismiss the wheel, so a name can be typed.
-  - **Each channel segment** shows its label (`CH1`), frequency (`41.250 MHz`), and the channel name. A green dot means that channel is live and not muted. The transmit segment uses a gold label and a speaker icon. A muted segment is grey, with a mute icon and no green dot. A frequency with no community channel on it shows the dialled frequency and “no net”.
-  - **Hover** selects a segment. **Left-click** makes it the active transmit channel (only if you can talk on it). **Right-click** mutes or unmutes it. **Scroll** changes that segment’s frequency in 25 kHz steps, staying inside 30.000–87.975 MHz. Scrolling off a channel untunes it; scrolling onto a community channel tunes it. Two segments cannot sit on the same channel. **Shift+scroll** raises or lowers that channel’s volume (5% steps, 0–150%) and shows a volume bar and percentage on the segment. The bar also shows while the segment is hovered.
+  - **Each channel segment** shows its label (`CH1`), frequency (`41.5 MHz`), and the channel name. A green dot means that channel is live and not muted. The transmit segment uses a gold label and a speaker icon. A muted segment is grey, with a mute icon and no green dot. A frequency with no community channel on it shows the dialled frequency and “no net”.
+  - **Hover** selects a segment. **Left-click** makes it the active transmit channel (only if you can talk on it). **Right-click** mutes or unmutes it. **Scroll** changes that segment’s frequency in 0.5 MHz steps, staying inside 30.0–87.5 MHz. Scrolling off a channel untunes it; scrolling onto a community channel tunes it. Two segments cannot sit on the same channel. **Shift+scroll** raises or lowers that channel’s volume (5% steps, 0–150%) and shows a volume bar and percentage on the segment. The bar also shows while the segment is hovered.
   - **+ Add.** Left-click the last segment (it also carries the radio icon). A small field in the hole accepts a frequency or a name, same match as the main tune box: exact frequency, exact name, or a unique name prefix. That tunes an existing channel. It does not create one (admins still use + New). Adding a channel you already have just highlights that segment.
   - **Focus.** Opening the wheel expands the overlay to the full screen and focuses it, so the mouse can hover and click a segment. That takes focus from the game for this moment. On close, the corner talker box comes back and clicks pass through again. **Fallback, if that focus fights the game:** hold `G` and scroll, or press `1`–`9`. Those stay on the global input path and do not need the wheel window focused. Scroll and number keys then act on the hovered segment, otherwise the transmit segment. Push-to-talk is never this key.
   - The spike implements this on `G`. `Mouse 5` still cycles the transmit channel so the earlier smoke path keeps working. The main-window mockup ([`mockup.html`](mockup.html)) shows the Wheel keycap; the ring itself is [`radial-wheel.png`](radial-wheel.png).
 - **Input capture (decision, 9 Oct 2026, not built yet):** before the Windows anti-cheat test, switch global input from the low-level hook (`uiohook-napi`, `WH_KEYBOARD_LL` / `WH_MOUSE_LL`) to Windows Raw Input (`RegisterRawInputDevices` with `RIDEV_INPUTSINK`). Lower risk: nothing sits in the input chain. Same approach as Mumble 1.4+. The spike keeps uiohook until that change. Contacts, the draft Bulkhead email, and the ranked options are in [`anticheat-and-contacts.md`](anticheat-and-contacts.md).
-- **Overlay:** always on by default. A small click-through box in a screen corner. It draws nothing while nobody is transmitting. When someone transmits, it shows only that person's display name and the channel they are transmitting on (frequency + name, for example `Rhys  59.500 Command`). Several talkers stack, one line each.
+- **Overlay:** always on by default. A small click-through box in a screen corner. It draws nothing while nobody is transmitting. When someone transmits, it shows only that person's display name and the channel they are transmitting on (frequency + name, for example `Rhys  59.5 Command`). Several talkers stack, one line each.
 - **Remembers** tuned channels, TX channel, volumes per community. Tray icon, start minimised, auto-reconnect.
 
 ## 8. Stack (unchanged except auth)

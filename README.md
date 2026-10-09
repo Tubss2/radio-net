@@ -1,6 +1,6 @@
 # Radio Net
 
-Windows companion radio-comms app for the game WARDOGS. A group creates a community in the app and shares an invite code. Admins add channels as a frequency plus a name (for example `59.500 Command`). Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with passive global hotkeys (including mouse buttons) and a click-through overlay.
+Windows companion radio-comms app for the game WARDOGS. A group creates a community in the app and shares an invite code. Admins add channels as a frequency plus a name (for example `59.5 Command`). Frequencies are 0.5 MHz steps from 30.0 to 87.5, shown to one decimal, and stored as integer kHz. Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with passive global hotkeys (including mouse buttons) and a click-through overlay.
 
 This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. The spike is a working local proof of the core, not the finished app.
 

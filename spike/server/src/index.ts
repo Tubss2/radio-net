@@ -14,7 +14,7 @@ if (seedDev) {
   const owner = accounts.createAccount('Toby');
   store.upsertCommunity({ id: 'dev', name: 'War Dogs NZ (dev)', band: DEFAULT_BAND, inviteCode: 'DEVN-ET01', createdAt: new Date().toISOString() });
   accounts.addMembership('dev', owner.account.id, 'owner');
-  for (const [freq, name] of [['59.500', 'Command'], ['41.250', 'Arty'], ['45.000', 'Logi'], ['62.100', 'Alpha FT']] as const)
+  for (const [freq, name] of [['59.5', 'Command'], ['41.5', 'Arty'], ['45.0', 'Logi'], ['62.0', 'Alpha FT']] as const)
     store.create('dev', { freq, name }, owner.account.id);
 }
 

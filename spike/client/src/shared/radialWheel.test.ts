@@ -20,9 +20,9 @@ import {
 
 const channels: DialChannel[] = [
   { id: 'cmd', freqKHz: 59500, name: 'Command' },
-  { id: 'arty', freqKHz: 41250, name: 'Arty' },
+  { id: 'arty', freqKHz: 41500, name: 'Arty' },
   { id: 'logi', freqKHz: 45000, name: 'Logi' },
-  { id: 'alpha', freqKHz: 62100, name: 'Alpha FT' },
+  { id: 'alpha', freqKHz: 62000, name: 'Alpha FT' },
 ];
 
 function slot(partial: Partial<WheelSlot> & Pick<WheelSlot, 'freqKHz' | 'channelId'>): WheelSlot {
@@ -34,18 +34,19 @@ function model(slots: WheelSlot[], extra: Partial<WheelModel> = {}): WheelModel 
 }
 
 describe('frequency steps', () => {
-  it('moves in 25 kHz steps and stays inside 30.000–87.975', () => {
-    expect(stepFrequency(59500, 1)).toBe(59525);
-    expect(stepFrequency(59500, -1)).toBe(59475);
+  it('moves in 0.5 MHz steps and stays inside 30.0–87.5', () => {
+    expect(stepFrequency(59500, 1)).toBe(60000);
+    expect(stepFrequency(59500, -1)).toBe(59000);
     expect(stepFrequency(30000, -1)).toBe(30000);
-    expect(stepFrequency(87975, 1)).toBe(87975);
-    expect(stepFrequency(87950, 1)).toBe(87975);
-    expect(formatFreqKHz(59500)).toBe('59.500');
-    expect(formatFreqKHz(41250)).toBe('41.250');
+    expect(stepFrequency(87500, 1)).toBe(87500);
+    expect(stepFrequency(87000, 1)).toBe(87500);
+    expect(formatFreqKHz(59500)).toBe('59.5');
+    expect(formatFreqKHz(50500)).toBe('50.5');
+    expect(formatFreqKHz(50000)).toBe('50.0');
   });
 
   it('snaps an off-grid frequency onto the step before moving', () => {
-    expect(stepFrequency(59510, 1)).toBe(59525);
+    expect(stepFrequency(59510, 1)).toBe(60000);
     expect(stepFrequency(59510, 0)).toBe(59500);
   });
 });
@@ -114,7 +115,7 @@ describe('opening the wheel', () => {
   it('orders tuned channels by frequency for CH1 at the top', () => {
     const slots = slotsFromTuned([
       slot({ freqKHz: 59500, channelId: 'cmd' }),
-      slot({ freqKHz: 41250, channelId: 'arty' }),
+      slot({ freqKHz: 41500, channelId: 'arty' }),
     ]);
     expect(slots.map((s) => s.channelId)).toEqual(['arty', 'cmd']);
   });
@@ -122,14 +123,14 @@ describe('opening the wheel', () => {
 
 describe('wheel actions', () => {
   const base = () => model([
-    slot({ freqKHz: 41250, channelId: 'arty' }),
+    slot({ freqKHz: 41500, channelId: 'arty' }),
     slot({ freqKHz: 59500, channelId: 'cmd' }),
   ]);
 
   it('left-click sets the transmit channel and the number keys do the same', () => {
     expect(applyWheelInput(base(), { type: 'left', index: 1 }, channels).intents).toEqual([{ type: 'set-tx', channelId: 'cmd' }]);
     expect(applyWheelInput(base(), { type: 'number', n: 1 }, channels).intents).toEqual([{ type: 'set-tx', channelId: 'arty' }]);
-    const quiet = model([slot({ freqKHz: 41250, channelId: 'arty', canTransmit: false })]);
+    const quiet = model([slot({ freqKHz: 41500, channelId: 'arty', canTransmit: false })]);
     expect(applyWheelInput(quiet, { type: 'left', index: 0 }, channels).intents).toEqual([]);
   });
 
@@ -145,16 +146,16 @@ describe('wheel actions', () => {
 
   it('scroll steps frequency, leaves the channel when nothing is on the new freq, and will not stack two slots', () => {
     const up = applyWheelInput(base(), { type: 'scroll', index: 1, steps: 1, shift: false }, channels);
-    expect(up.model.slots[1].freqKHz).toBe(59525);
+    expect(up.model.slots[1].freqKHz).toBe(60000);
     expect(up.model.slots[1].channelId).toBeNull();
     expect(up.intents).toEqual([{ type: 'untune', channelId: 'cmd' }]);
     const onto = applyWheelInput(base(), { type: 'scroll', index: 0, steps: 1, shift: false }, channels);
-    expect(onto.model.slots[0]).toMatchObject({ freqKHz: 41275, channelId: null });
-    const blocked = applyWheelInput(base(), { type: 'scroll', index: 0, steps: (59500 - 41250) / 25, shift: false }, channels);
+    expect(onto.model.slots[0]).toMatchObject({ freqKHz: 42000, channelId: null });
+    const blocked = applyWheelInput(base(), { type: 'scroll', index: 0, steps: (59500 - 41500) / 500, shift: false }, channels);
     expect(blocked.model.slots[0].channelId).toBe('arty');
     expect(blocked.intents).toEqual([]);
-    const rail = applyWheelInput(model([slot({ freqKHz: 87975, channelId: null })]), { type: 'scroll', index: 0, steps: 1, shift: false }, channels);
-    expect(rail.model.slots[0].freqKHz).toBe(87975);
+    const rail = applyWheelInput(model([slot({ freqKHz: 87500, channelId: null })]), { type: 'scroll', index: 0, steps: 1, shift: false }, channels);
+    expect(rail.model.slots[0].freqKHz).toBe(87500);
   });
 
   it('shift-scroll changes volume, clamps it, and reveals the bar', () => {
@@ -171,9 +172,9 @@ describe('wheel actions', () => {
   it('fallback scroll and number keys hit the transmit segment when nothing is hovered', () => {
     const m = base();
     const scrolled = applyWheelInput(m, { type: 'scroll-fallback', steps: -1, shift: false }, channels, 'cmd');
-    expect(scrolled.model.slots[1].freqKHz).toBe(59475);
+    expect(scrolled.model.slots[1].freqKHz).toBe(59000);
     const hovered = applyWheelInput({ ...m, hover: 0 }, { type: 'scroll-fallback', steps: 1, shift: false }, channels, 'cmd');
-    expect(hovered.model.slots[0].freqKHz).toBe(41275);
+    expect(hovered.model.slots[0].freqKHz).toBe(42000);
   });
 
   it('the add segment tunes by frequency or name and ignores scroll', () => {
@@ -194,9 +195,9 @@ describe('wheel actions', () => {
 
   it('builds a ring: channel labels, the transmit speaker, a muted segment, and a radio add slice', () => {
     const muted = model([
-      slot({ freqKHz: 41250, channelId: 'arty' }),
+      slot({ freqKHz: 41500, channelId: 'arty' }),
       slot({ freqKHz: 59500, channelId: 'cmd' }),
-      slot({ freqKHz: 62100, channelId: 'alpha', muted: true }),
+      slot({ freqKHz: 62000, channelId: 'alpha', muted: true }),
     ], { hover: 0 });
     const view = buildSegments(muted, (s) => ({
       name: channels.find((c) => c.id === s.channelId)?.name ?? '',
@@ -204,7 +205,7 @@ describe('wheel actions', () => {
       transmitting: s.channelId === 'cmd',
     }));
     expect(view.map((s) => s.label)).toEqual(['CH1', 'CH2', 'CH3', '+']);
-    expect(view[0]).toMatchObject({ freq: '41.250', name: 'Arty', live: true, showVolume: true, hovered: true });
+    expect(view[0]).toMatchObject({ freq: '41.5', name: 'Arty', live: true, showVolume: true, hovered: true });
     expect(view[1]).toMatchObject({ transmitting: true, name: 'Command' });
     expect(view[2]).toMatchObject({ muted: true, live: false, name: 'Alpha FT' });
     expect(view[3].kind).toBe('add');
@@ -216,7 +217,7 @@ describe('a wheel session', () => {
   it('selects, mutes, retunes, changes volume, adds, then closes', () => {
     let m = model(slotsFromTuned([
       slot({ freqKHz: 59500, channelId: 'cmd' }),
-      slot({ freqKHz: 41250, channelId: 'arty' }),
+      slot({ freqKHz: 41500, channelId: 'arty' }),
     ]));
     m = applyWheelInput(m, { type: 'hover', index: 0 }, channels).model;
     const tx = applyWheelInput(m, { type: 'left', index: 0 }, channels);
@@ -227,7 +228,7 @@ describe('a wheel session', () => {
     expect(vol.model.slots[0].volume).toBe(0.9);
     expect(vol.model.volumeReveal).toBe(0);
     const dial = applyWheelInput(vol.model, { type: 'scroll', index: 1, steps: 1, shift: false }, channels);
-    expect(dial.model.slots[1]).toMatchObject({ freqKHz: 59525, channelId: null });
+    expect(dial.model.slots[1]).toMatchObject({ freqKHz: 60000, channelId: null });
     const adding = applyWheelInput(dial.model, { type: 'left', index: dial.model.slots.length }, channels);
     expect(adding.model.adding).toBe(true);
     const added = applyWheelInput(adding.model, { type: 'add-commit', query: '45.000' }, channels);

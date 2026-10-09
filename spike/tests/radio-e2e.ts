@@ -136,7 +136,11 @@ async function main() {
   await api(`/api/communities/${CID}/channels`, 'toby', { method: 'POST', body: JSON.stringify({ freq: '59.5', name: 'Command' }) });
   // Admin creates an ad-hoc fireteam channel.
   const ft = `FT ${Date.now() % 10000}`;
-  const freq = (30 + Math.floor(Math.random() * 50)).toString() + '.' + ['000', '025', '050', '075'][Math.floor(Math.random() * 4)];
+  let freq = '59.5';
+  while (freq === '59.5') {
+    const whole = 30 + Math.floor(Math.random() * 58); // 30.0–87.5, half-megahertz steps
+    freq = `${whole}.${Math.random() < 0.5 ? '0' : '5'}`;
+  }
   const created = await api(`/api/communities/${CID}/channels`, 'toby', { method: 'POST', body: JSON.stringify({ freq, name: ft }) });
   console.log(`created ${created.channel.freq} MHz "${ft}"`);
 

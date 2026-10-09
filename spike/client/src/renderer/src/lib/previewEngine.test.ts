@@ -20,7 +20,7 @@ describe('preview radio', () => {
     await engine.tune(channels[2]);
     await engine.demo('one');
     expect(engine.tuned[0].speakers).toEqual(['Rhys']);
-    expect(engine.tuned[0].channel.freq).toBe('59.500');
+    expect(engine.tuned[0].channel.freq).toBe('59.5');
     await engine.demo('you');
     expect(engine.transmittingOn).toBe('cmd');
     await engine.ptt(false);

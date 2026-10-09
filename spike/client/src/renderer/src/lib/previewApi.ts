@@ -1,14 +1,14 @@
-import { formatFreqKHz, parseFreqInput } from '../../../shared/freq';
+import { formatFreqKHz, parseFreqInput, validateFrequency } from '../../../shared/freq';
 import { Api, type ChannelInfo, type CommunityInfo } from './api';
 
 export const PREVIEW_COMMUNITY_ID = 'wdnz';
 
 export const PREVIEW_CHANNELS: ChannelInfo[] = [
-  { id: 'arty', freqKHz: 41250, freq: '41.250', name: 'Arty', restricted: false },
-  { id: 'logi', freqKHz: 45000, freq: '45.000', name: 'Logi', restricted: false },
-  { id: 'cmd', freqKHz: 59500, freq: '59.500', name: 'Command', restricted: false },
-  { id: 'alpha', freqKHz: 62100, freq: '62.100', name: 'Alpha FT', restricted: false },
-  { id: 'bravo', freqKHz: 62125, freq: '62.125', name: 'Bravo FT', restricted: false },
+  { id: 'arty', freqKHz: 41500, freq: '41.5', name: 'Arty', restricted: false },
+  { id: 'logi', freqKHz: 45000, freq: '45.0', name: 'Logi', restricted: false },
+  { id: 'cmd', freqKHz: 59500, freq: '59.5', name: 'Command', restricted: false },
+  { id: 'alpha', freqKHz: 62000, freq: '62.0', name: 'Alpha FT', restricted: false },
+  { id: 'bravo', freqKHz: 62500, freq: '62.5', name: 'Bravo FT', restricted: false },
 ];
 
 const community = (): CommunityInfo => ({
@@ -47,7 +47,9 @@ export class PreviewApi extends Api {
 
   createChannel(_cid: string, freq: string, name: string) {
     const kHz = parseFreqInput(freq);
-    if (kHz == null) return Promise.reject(new Error('Enter a frequency like 59.500'));
+    if (kHz == null) return Promise.reject(new Error('Enter a frequency like 59.5'));
+    const freqErr = validateFrequency(kHz);
+    if (freqErr) return Promise.reject(new Error(freqErr));
     const label = name.trim();
     if (!label) return Promise.reject(new Error('Name the channel'));
     if (this.channelsList.some((c) => c.freqKHz === kHz)) return Promise.reject(new Error('That frequency is already in use'));
