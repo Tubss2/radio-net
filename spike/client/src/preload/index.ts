@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Bind, HotkeyEvent, Keybinds, OverlayState } from '../shared/types';
+import type { Bind, HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
 
 const api = {
   getToken: (): Promise<string | null> => ipcRenderer.invoke('token:get'),
@@ -17,6 +17,16 @@ const api = {
     const h = (_: unknown, s: OverlayState) => cb(s);
     ipcRenderer.on('overlay:state', h);
     return () => { ipcRenderer.removeListener('overlay:state', h); };
+  },
+  /** Overlay only: true lets clicks fall through to the game. */
+  setIgnoreMouse: (ignore: boolean) => ipcRenderer.send('overlay:ignore-mouse', ignore),
+  /** Overlay only: a hover, click, scroll or add from the wheel page. */
+  sendWheelInput: (input: WheelInput) => ipcRenderer.send('wheel:input', input),
+  /** Main window: wheel input forwarded from the overlay page. */
+  onWheelInput: (cb: (input: WheelInput) => void): (() => void) => {
+    const h = (_: unknown, input: WheelInput) => cb(input);
+    ipcRenderer.on('wheel:input', h);
+    return () => { ipcRenderer.removeListener('wheel:input', h); };
   },
 };
 export type RadioNetBridge = typeof api;

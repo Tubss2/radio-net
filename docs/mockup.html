@@ -140,7 +140,7 @@ body { user-select: auto; background: #07080a; padding: 32px; overflow: auto; }
 </style></head>
 <body><div class="page">
 <h1>Radio Net: UI direction (static mockup)</h1>
-<p>Calm dark graphite with two signal colours: <b style="color:var(--live)">green = live / your TX channel</b>, <b style="color:var(--tx)">red = you are on air</b>. Frequencies are always in a monospace face so they read like a radio dial. Every action is one click or one key: tune by typing <kbd>59.5</kbd> or <kbd>command</kbd>, click "Transmit here" or press the switch key. No radio effects, no fake knobs.</p>
+<p>Calm dark graphite with two signal colours: <b style="color:var(--live)">green = live / your TX channel</b>, <b style="color:var(--tx)">red = you are on air</b>. Frequencies are always in a monospace face so they read like a radio dial. Every action is one click or one key: tune by typing <kbd>59.5</kbd> or <kbd>command</kbd>, click "Transmit here", or press <kbd>G</kbd> for the channel wheel (<a href="radial-wheel.png">radial-wheel.png</a>). No radio effects, no fake knobs.</p>
 
 <div class="frame">
   <div class="titlebar-label">Radio Net</div>
@@ -168,7 +168,7 @@ body { user-select: auto; background: #07080a; padding: 32px; overflow: auto; }
       <div class="txbar keyed">
         <div><div class="lbl"><span class="onair">On air</span></div><div class="big">62.100</div></div>
         <div class="nm">Alpha FT</div>
-        <div class="keys">Talk <kbd>Mouse 4</kbd> Switch <kbd>G</kbd> Overlay <kbd>F10</kbd></div>
+        <div class="keys">Talk <kbd>Mouse 4</kbd> Wheel <kbd>G</kbd> Overlay <kbd>F10</kbd></div>
       </div>
       <div class="grid">
         <div class="card">
@@ -209,7 +209,7 @@ body { user-select: auto; background: #07080a; padding: 32px; overflow: auto; }
   <div class="panel">
     <h3 style="margin:0">Keys</h3>
     <div class="bindrow"><div>Push to talk<div class="d">Talk on your TX channel</div></div><kbd>Mouse 4</kbd></div>
-    <div class="bindrow"><div>Switch channel<div class="d">Cycle TX through tuned channels</div></div><kbd>G</kbd></div>
+    <div class="bindrow"><div>Channel wheel<div class="d">Hold or press: transmit, mute, tune, add</div></div><kbd>G</kbd></div>
     <div class="bindrow"><div>Talk on Command<div class="d">Direct key for one channel</div></div><kbd>F2</kbd></div>
     <div class="bindrow"><div>Show/hide overlay</div><kbd>F10</kbd></div>
     <div class="note">Click a key, then press the button or mouse button you want. Keys are only listened to, never blocked, so the game still gets them.</div>
