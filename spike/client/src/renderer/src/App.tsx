@@ -279,7 +279,7 @@ function Home({ profile, onProfile, onOpen, onCreated }: {
       <div className="titlebar" />
       <div className="box servers">
         <h1>{mode === 'join' ? 'Join a server' : 'Start a community'}</h1>
-        <p>{mode === 'join' ? `Use the invite code from your community. Servers you have joined stay ${isWeb ? 'in this browser' : 'on this PC'}.` : `You get an invite code for the group, and an admin key that stays ${isWeb ? 'in this browser' : 'on this PC'}.`}</p>
+        <p>{mode === 'join' ? `Use the invite code from your community. Servers you have joined stay ${isWeb ? 'in this browser' : 'on this PC'}.` : `You get an invite code for the group, and an admin key. ${isWeb ? 'This browser keeps that key only if you ask it to.' : 'The admin key stays on this PC.'}`}</p>
         <label className="field">Callsign<input placeholder="Toby" value={callsign} onChange={(e) => setCallsign(e.target.value)} /></label>
         {history.length > 0 && mode === 'join' && (
           <div className="history">
@@ -320,7 +320,9 @@ function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () =
     <div className="modal-bg">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3 style={{ margin: 0 }}>Community admin key</h3>
-        <p className="sub" style={{ margin: 0 }}>This is shown once. It is saved {isWeb ? 'in this browser' : 'on this PC'}. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.</p>
+        <p className="sub" style={{ margin: 0 }}>{isWeb
+          ? 'This is shown once. This browser forgets it when you close the tab, unless you tick “Keep the admin key in this browser” on the radio. A script on this site can read a key you choose to keep. Copy it if another admin needs it. There is no account to recover it; the server setup code can mint a new one.'
+          : 'This is shown once. It is saved on this PC. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.'}</p>
         <div className="keybox">{adminKey}</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn ghost" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
@@ -667,7 +669,16 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
   if (isWeb) {
     return (
       <div className="web-main">
-        <p className="notice">Use a phone, the Windows helper, or the desktop app for in-game push-to-talk. This page transmits only while the tab is in front.</p>
+        <p className="notice">Use a phone, the Windows helper, or the desktop app for in-game push-to-talk. This page transmits only while the tab is in front. The microphone opens when you tune a channel and stays muted until you hold the button.</p>
+        {isAdmin && (
+          <p className="sub">
+            <label>
+              <input type="checkbox" checked={server.rememberAdmin === true} onChange={(e) => onServer({ ...server, rememberAdmin: e.target.checked })} />
+              {' '}Keep the admin key in this browser. A script on this site can read it.
+            </label>
+            {server.rememberAdmin ? <> <button className="link" type="button" onClick={() => onServer({ ...server, rememberAdmin: false, adminKey: undefined })}>Forget admin key</button></> : null}
+          </p>
+        )}
         <div className="web-bar">
           <strong>{server.name}</strong>
           <span className="sub">{callsign}</span>
