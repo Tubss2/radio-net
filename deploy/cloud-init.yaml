@@ -17,7 +17,8 @@ packages:
 runcmd:
   - [mkdir, -p, -m, "700", /root/.ssh]
   - [sh, -c, "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILQQkYxdfA+A7h995xxSFX8UetAyukXCL6CWE8pJNzjt radio-net-deploy' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys"]
-  - [sh, -c, "mkdir -p /etc/ssh/sshd_config.d && printf '%s\\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitRootLogin prohibit-password' > /etc/ssh/sshd_config.d/99-radionet.conf && (systemctl reload ssh || systemctl reload sshd || true)"]
+  # 00- sorts before Vultr's 50-cloud-init.conf. sshd keeps the first value it reads.
+  - [sh, -c, "mkdir -p /etc/ssh/sshd_config.d && rm -f /etc/ssh/sshd_config.d/99-radionet.conf && printf '%s\\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitRootLogin prohibit-password' > /etc/ssh/sshd_config.d/00-radionet.conf && (systemctl reload ssh || systemctl reload sshd || true)"]
   - [ufw, default, deny, incoming]
   - [ufw, allow, 22/tcp]
   - [ufw, allow, 80/tcp]

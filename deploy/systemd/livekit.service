@@ -24,7 +24,9 @@ LockPersonality=true
 RestrictNamespaces=true
 SystemCallArchitectures=native
 CapabilityBoundingSet=
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK: LiveKit reads the routing table via netlink at startup.
+# Without it the process crash-loops: route ip+net: netlinkrib: address family not supported by protocol.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
