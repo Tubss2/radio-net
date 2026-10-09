@@ -22,11 +22,15 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   installer:
     runs-on: windows-latest
+    # contents: write is required to push the version tag and publish the GitHub Release.
+    # The token is not used for anything else.
+    permissions:
+      contents: write
     env:
       VITE_API_URL: ${{ github.event.inputs.api_url || 'https://radio-149-28-170-200.sslip.io' }}
       VITE_LIVEKIT_URL: ${{ github.event.inputs.livekit_url || 'wss://lk-149-28-170-200.sslip.io' }}
@@ -36,8 +40,8 @@ jobs:
       # Resource editing stays on, so the app exe file properties carry the package.json version.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -102,6 +106,14 @@ jobs:
           Assert-Version 'RadioNet.exe' $app.VersionInfo
           "version=$version" >> $env:GITHUB_OUTPUT
           "file=$setupName" >> $env:GITHUB_OUTPUT
+      - name: Write SHA256SUMS for the installer
+        if: steps.installer.outcome == 'success'
+        working-directory: spike/client
+        shell: pwsh
+        run: |
+          $file = "${{ steps.installer.outputs.file }}"
+          $hash = (Get-FileHash "release\$file" -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Encoding ascii "release\SHA256SUMS.txt" "$hash  $file"
       - name: Tag this commit when a manual run publishes
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
         shell: pwsh
@@ -119,13 +131,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: npx electron-builder --prepackaged release/win-unpacked --win nsis --publish always
+      - name: Attach SHA256SUMS to the GitHub Release
+        if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+        working-directory: spike/client
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: gh release upload "v${{ steps.installer.outputs.version }}" release/SHA256SUMS.txt --clobber
       - name: Upload the installer, blockmap, and latest.yml
         if: always() && steps.installer.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: RadioNet-Setup-${{ steps.installer.outputs.version }}
           path: |
             spike/client/release/${{ steps.installer.outputs.file }}
             spike/client/release/${{ steps.installer.outputs.file }}.blockmap
             spike/client/release/latest.yml
+            spike/client/release/SHA256SUMS.txt
           if-no-files-found: error

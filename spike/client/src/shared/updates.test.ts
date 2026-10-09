@@ -44,6 +44,8 @@ describe('GitHub Releases updates', () => {
     expect(yml).toContain('npm run dist:win');
     expect(yml).toContain('--publish always');
     expect(yml).toContain('latest.yml');
+    expect(yml).toContain('SHA256SUMS.txt');
+    expect(yml).toContain('actions/checkout@11d5960a326750d5838078e36cf38b85af677262');
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'spike/client/package.json'), 'utf8')) as {
       scripts: { 'dist:win': string };
     };
@@ -54,7 +56,8 @@ describe('GitHub Releases updates', () => {
     const yml = readFileSync(join(repoRoot, '.github/workflows/ui-preview.yml'), 'utf8');
     expect(yml).toContain('pages: write');
     expect(yml).toContain('id-token: write');
-    expect(yml).toContain('actions/deploy-pages@v4');
+    expect(yml).toContain('actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e');
+    expect(yml).toContain('actions/checkout@11d5960a326750d5838078e36cf38b85af677262');
     expect(yml).toContain('spike/client/preview-dist');
   });
 });

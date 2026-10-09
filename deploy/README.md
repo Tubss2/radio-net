@@ -17,7 +17,7 @@ No domain needed yet: the hostnames are `radio-<ip-with-dashes>.sslip.io` (API) 
 - `deploy.py` (paramiko) / `deploy.sh` (ssh+rsync): upload `spike/server` + this kit and run `setup.sh`. **The agent box can't use them**: its egress only allows web traffic (80/443), so SSH to port 22 times out.
 - `pack.sh` + `deploy.ps1`: the path actually used. `pack.sh` (box) builds `radionet-src.tgz`; `deploy.ps1` runs on Tobias's Windows PC (built-in OpenSSH), waits for cloud-init, uploads and runs `setup.sh`.
 - `secrets/` (gitignored, chmod 700/600): copy of the server's `/etc/radionet/secrets.env` per server. Never commit.
-- `systemd/*.service`: hardened units (`ProtectSystem=strict`, non-root `radionet` user).
+- `systemd/*.service`: hardened units (`ProtectSystem=strict`, non-root `radionet` user, no new privileges, private devices, no extra capabilities except Caddy's `CAP_NET_BIND_SERVICE`).
 
 ## Browser UI preview (optional, mocked)
 - Served by Caddy at `https://<API_HOST>/preview/` from `/opt/radionet/preview` (`handle_path /preview/*` + `file_server`; everything else still goes to the API). `/preview` redirects to `/preview/`.
@@ -59,6 +59,12 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 ## Server code change made for deployment
 
 `spike/server/src/index.ts` / `app.ts`: `SEED_DEV=0` turns off the dev community (its invite code is public in the repo), `TRUST_PROXY=1` makes the join rate-limit see real client IPs behind Caddy, `HOST` sets the bind address. Defaults unchanged, so local dev and tests behave as before.
+
+## Host hardening (applied on the next `setup.sh`, not on the live box until then)
+
+`setup.sh` installs fail2ban for sshd (5 failures, 1 hour ban), turns on unattended security upgrades, and writes `/etc/ssh/sshd_config.d/99-radionet.conf` so password login is off and root can only use a key. Confirm the deploy key works in a second session before you close the one that re-ran setup. `cloud-init.yaml` does the same on a brand-new VM. Caddy's access log drops request headers, so `Authorization` and `X-Admin-Key` are not stored. New secret files include `RN_STORE_MAC_KEY`; an existing file gets that line appended. The API uses it only after the API hardening is deployed.
+
+The Sydney VPS described below has not been updated with this pass. Re-running `setup.sh` there is an owner step. It restarts LiveKit, the API, and Caddy.
 
 ## Known limits
 
