@@ -7,6 +7,7 @@ import {
   SESSION_TTL_SECONDS, adminKeyMatches, cleanLabel, hashAdminKey, newAdminKey, newInviteCode, normaliseInvite,
   secretEquals, signSession, verifySession, type Session,
 } from './accounts.js';
+import { isAllowedApiOrigin } from './cors.js';
 import { DEFAULT_BAND, formatFrequency } from './freq.js';
 import { type Channel, ChannelError, type ChannelStore, type Community, roomNameFor } from './store.js';
 import { type RadioUser, mintChannelGrants } from './tokens.js';
@@ -61,13 +62,9 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
       done(error, undefined);
     }
   });
-  // Bearer tokens, not cookies. The desktop app sends no Origin (or "null") from file://.
-  // Browser origins other than localhost are refused so a web page cannot call the API with a stolen token.
+  // Bearer tokens, not cookies. Reflect only the allowlist: Pages, loopback, and a missing or null origin (Electron file://).
   void app.register(cors, {
-    origin: (origin, cb) => {
-      if (!origin || origin === 'null') { cb(null, true); return; }
-      cb(null, /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin));
-    },
+    origin: (origin, cb) => { cb(null, isAllowedApiOrigin(origin)); },
     methods: ['GET', 'POST', 'DELETE'],
     credentials: false,
   });

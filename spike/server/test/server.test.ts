@@ -306,6 +306,12 @@ describe('hardening', () => {
     expect(res.headers['access-control-allow-origin']).not.toBe('https://evil.example');
     const local = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'http://127.0.0.1:5173' } });
     expect(local.headers['access-control-allow-origin']).toBe('http://127.0.0.1:5173');
+    const pages = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'https://tubss2.github.io' } });
+    expect(pages.headers['access-control-allow-origin']).toBe('https://tubss2.github.io');
+    const lookalike = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'https://tubss2.github.io.evil.example' } });
+    expect(lookalike.headers['access-control-allow-origin']).not.toBe('https://tubss2.github.io.evil.example');
+    const fileOrigin = await app.inject({ method: 'GET', url: '/health', headers: { origin: 'null' } });
+    expect(fileOrigin.headers['access-control-allow-origin']).toBe('null');
   });
 
   it('rejects an oversized body', async () => {
