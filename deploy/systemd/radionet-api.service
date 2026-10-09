@@ -1,0 +1,22 @@
+[Unit]
+Description=Radio Net API (accounts, channels, LiveKit tokens)
+After=network-online.target livekit.service
+Wants=network-online.target
+
+[Service]
+User=radionet
+Group=radionet
+WorkingDirectory=/opt/radionet/server
+EnvironmentFile=/etc/radionet/api.env
+EnvironmentFile=/etc/radionet/secrets.env
+Environment=PATH=/opt/radionet/node/bin:/usr/bin:/bin
+ExecStart=/opt/radionet/node/bin/node --import tsx src/index.ts
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

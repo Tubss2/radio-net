@@ -19,6 +19,8 @@ export interface AppConfig {
   communitySetupCode?: string;
   /** Join/create attempts allowed per IP per minute. */
   joinRateLimit?: number;
+  /** Trust X-Forwarded-For from a local reverse proxy (Caddy) so rate limits see real client IPs. */
+  trustProxy?: boolean;
 }
 
 const publicChannel = (c: Channel) => ({
@@ -33,7 +35,7 @@ class HttpError extends Error {
 }
 
 export function buildApp(store: ChannelStore, cfg: AppConfig, accounts = new MemoryAccountStore()): FastifyInstance {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, trustProxy: cfg.trustProxy ?? false });
   // Bearer-token API (no cookies), so allowing any origin is safe; the desktop app loads from file://.
   void app.register(cors, { origin: true, methods: ['GET', 'POST', 'PATCH', 'DELETE'] });
   const rooms = new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
