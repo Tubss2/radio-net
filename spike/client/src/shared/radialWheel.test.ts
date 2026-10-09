@@ -7,7 +7,10 @@ import {
   digitFromCode,
   digitFromKeycode,
   emptyWheel,
+  duplicateWheelNotch,
   hitTest,
+  hookScrollReachesPage,
+  hookShouldEmitScroll,
   labelPoint,
   matchChannel,
   onWheelKey,
@@ -151,11 +154,68 @@ describe('wheel actions', () => {
     expect(up.intents).toEqual([{ type: 'untune', channelId: 'cmd' }]);
     const onto = applyWheelInput(base(), { type: 'scroll', index: 0, steps: 1, shift: false }, channels);
     expect(onto.model.slots[0]).toMatchObject({ freqKHz: 42000, channelId: null });
-    const blocked = applyWheelInput(base(), { type: 'scroll', index: 0, steps: (59500 - 41500) / 500, shift: false }, channels);
-    expect(blocked.model.slots[0].channelId).toBe('arty');
-    expect(blocked.intents).toEqual([]);
+    // A jump that would have landed on Command used to be discarded, which pinned the dial.
+    // The notch skips that frequency and keeps going.
+    const skipped = applyWheelInput(base(), { type: 'scroll', index: 0, steps: (59500 - 41500) / 500, shift: false }, channels);
+    expect(skipped.model.slots[0]).toMatchObject({ freqKHz: 60000, channelId: null });
+    expect(skipped.model.slots[1].channelId).toBe('cmd');
+    expect(skipped.intents).toEqual([{ type: 'untune', channelId: 'arty' }]);
     const rail = applyWheelInput(model([slot({ freqKHz: 87500, channelId: null })]), { type: 'scroll', index: 0, steps: 1, shift: false }, channels);
     expect(rail.model.slots[0].freqKHz).toBe(87500);
+  });
+
+  it('scrolls the full 30.0–87.5 grid, skipping a frequency another segment is tuned to', () => {
+    const nets = [...channels, { id: 'bravo', freqKHz: 62500, name: 'Bravo FT' }];
+    const crowded = model([
+      slot({ freqKHz: 62000, channelId: 'alpha' }),
+      slot({ freqKHz: 62500, channelId: 'bravo' }),
+    ]);
+    // Adjacent nets: one notch used to do nothing, so the dial looked stuck on the channel.
+    const up = applyWheelInput(crowded, { type: 'scroll', index: 0, steps: 1, shift: false }, nets);
+    expect(up.model.slots[0]).toMatchObject({ freqKHz: 63000, channelId: null });
+    expect(up.model.slots[1]).toMatchObject({ freqKHz: 62500, channelId: 'bravo' });
+    expect(up.intents).toEqual([{ type: 'untune', channelId: 'alpha' }]);
+    const down = applyWheelInput(crowded, { type: 'scroll', index: 1, steps: -1, shift: false }, nets);
+    expect(down.model.slots[1]).toMatchObject({ freqKHz: 61500, channelId: null });
+    expect(down.intents).toEqual([{ type: 'untune', channelId: 'bravo' }]);
+
+    const tuned = model([
+      slot({ freqKHz: 41500, channelId: 'arty' }),
+      slot({ freqKHz: 30000, channelId: null }),
+      slot({ freqKHz: 59500, channelId: 'cmd' }),
+    ]);
+    const reserved = new Set([41500, 59500]);
+    let m = tuned;
+    let freq = 30000;
+    const seen = [freq];
+    while (freq < 87500) {
+      const next = applyWheelInput(m, { type: 'scroll', index: 1, steps: 1, shift: false }, nets);
+      const landed = next.model.slots[1].freqKHz;
+      expect(landed).toBeGreaterThan(freq);
+      expect(reserved.has(landed)).toBe(false);
+      expect(next.model.slots[0].freqKHz).toBe(41500);
+      expect(next.model.slots[2].freqKHz).toBe(59500);
+      freq = landed;
+      seen.push(freq);
+      m = next.model;
+      expect(seen.length).toBeLessThan(200);
+    }
+    expect(freq).toBe(87500);
+    expect(seen).toContain(41000);
+    expect(seen).toContain(42000);
+    expect(seen).toContain(59000);
+    expect(seen).toContain(60000);
+    expect(seen).not.toContain(41500);
+    expect(seen).not.toContain(59500);
+
+    const parked = model([
+      slot({ freqKHz: 87000, channelId: null }),
+      slot({ freqKHz: 87500, channelId: 'air' }),
+    ]);
+    const edge = applyWheelInput(parked, { type: 'scroll', index: 0, steps: 5, shift: false }, [{ id: 'air', freqKHz: 87500, name: 'Air' }]);
+    expect(edge.model.slots[0].freqKHz).toBe(87000);
+    expect(edge.model.slots[1].channelId).toBe('air');
+    expect(edge.intents).toEqual([]);
   });
 
   it('shift-scroll changes volume, clamps it, and reveals the bar', () => {
@@ -239,6 +299,28 @@ describe('a wheel session', () => {
     expect(closed.model.hover).toBeNull();
     expect(closed.model.slots).toHaveLength(3);
     expect(onWheelKey({ open: true, latched: true, adding: false }, { down: true, heldMs: 0 }).open).toBe(false);
+  });
+});
+
+describe('scroll before the wheel window is focused', () => {
+  it('reports hook notches the whole time the wheel is open, and only once', () => {
+    expect(hookShouldEmitScroll({ wheelOpen: true, wheelKeyHeld: false })).toBe(true);
+    expect(hookShouldEmitScroll({ wheelOpen: false, wheelKeyHeld: true })).toBe(true);
+    expect(hookShouldEmitScroll({ wheelOpen: false, wheelKeyHeld: false })).toBe(false);
+    // Foreground and accepting the mouse: the page gets WM_MOUSEWHEEL.
+    expect(hookScrollReachesPage({ focused: true, ignoringMouse: false })).toBe(true);
+    // Focused but click-through: forward does not include the wheel.
+    expect(hookScrollReachesPage({ focused: true, ignoringMouse: true })).toBe(false);
+    // The game kept focus.
+    expect(hookScrollReachesPage({ focused: false, ignoringMouse: false })).toBe(false);
+    const page = { at: 1000, steps: 1, shift: false, source: 'page' as const };
+    const hook = { at: 1020, steps: 1, shift: false, source: 'hook' as const };
+    expect(duplicateWheelNotch(page, hook)).toBe(true);
+    expect(duplicateWheelNotch(hook, page)).toBe(true);
+    expect(duplicateWheelNotch(page, { ...hook, at: 1100 })).toBe(false);
+    expect(duplicateWheelNotch(page, { ...page, at: 1010 })).toBe(false);
+    expect(duplicateWheelNotch(null, hook)).toBe(false);
+    expect(duplicateWheelNotch(page, { ...hook, shift: true })).toBe(false);
   });
 });
 

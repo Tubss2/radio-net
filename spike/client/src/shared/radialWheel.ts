@@ -1,11 +1,13 @@
 /**
  * Channel radial wheel behaviour. Pure: no DOM, no Electron.
  * The spike opens this on G (hold releases it, a short press latches until Esc or G again).
- * While it is open the wheel window takes mouse focus so clicks land on a segment.
- * Fallback, which does not need that focus: hold G and scroll or press 1–9. The global
- * hook delivers those, and they apply to the hovered segment, else the transmit segment.
+ * While it is open the wheel window takes focus so hover, clicks, and the mouse wheel land
+ * on a segment. Windows delivers the wheel to the foreground window, and click-through does
+ * not forward it, so the global hook also reports notches the whole time the wheel is open,
+ * not only while G is held. Those apply to the hovered segment, else the transmit segment.
+ * A notch the page already handled is ignored so the dial does not step twice.
  */
-import { formatFreqKHz, parseFreqInput, stepFrequency, type Band } from './freq';
+import { DEFAULT_BAND, formatFreqKHz, parseFreqInput, stepFrequency, type Band } from './freq';
 
 export const WHEEL_TAP_MS = 280;
 export const VOLUME_STEP = 0.05;
@@ -38,6 +40,40 @@ export function scrollSteps(delta: number): number {
   const notches = Math.abs(delta) >= 40 ? Math.round(delta / 100) : Math.sign(delta);
   const n = notches === 0 ? Math.sign(delta) : notches;
   return -n;
+}
+
+/**
+ * The hook should move the dial whenever the wheel is on screen, including after a short
+ * press latches it and G has been released. Holding G still counts, so a notch that arrives
+ * before the overlay has finished showing is not dropped.
+ */
+export function hookShouldEmitScroll(state: { wheelOpen: boolean; wheelKeyHeld: boolean }): boolean {
+  return state.wheelOpen || state.wheelKeyHeld;
+}
+
+/**
+ * True when the overlay page will see this notch, so the hook must not apply it as well.
+ * Windows sends WM_MOUSEWHEEL to the foreground window. setIgnoreMouseEvents(true) swallows
+ * it; the forward option only passes mousemove, not the wheel.
+ */
+export function hookScrollReachesPage(state: { focused: boolean; ignoringMouse: boolean }): boolean {
+  return state.focused && !state.ignoringMouse;
+}
+
+export interface WheelNotch {
+  at: number;
+  steps: number;
+  shift: boolean;
+  source: 'page' | 'hook';
+}
+
+/**
+ * The low-level hook and the page can both observe one physical notch, and either may
+ * be recorded first. The second copy is dropped. A later notch from the same source is kept.
+ */
+export function duplicateWheelNotch(prev: WheelNotch | null, next: WheelNotch, windowMs = 80): boolean {
+  if (!prev || prev.source === next.source) return false;
+  return prev.steps === next.steps && prev.shift === next.shift && Math.abs(next.at - prev.at) < windowMs;
 }
 
 export interface DialChannel {
@@ -182,6 +218,40 @@ function othersUse(slots: WheelSlot[], channelId: string, except: number) {
   return slots.some((s, i) => i !== except && s.channelId === channelId);
 }
 
+/** Frequencies a different segment is tuned to. An empty dial ("no net") does not reserve its frequency. */
+function frequenciesOnOtherSegments(slots: WheelSlot[], except: number): Set<number> {
+  const used = new Set<number>();
+  slots.forEach((s, i) => { if (i !== except && s.channelId) used.add(s.freqKHz); });
+  return used;
+}
+
+/**
+ * Move `steps` notches along the band. Each notch is one grid step (0.5 MHz).
+ * A frequency another segment already has is skipped, so the notch lands on the
+ * next free step in that direction instead of being discarded. Stops at the band edge.
+ */
+function stepSlotFrequency(freqKHz: number, steps: number, used: Set<number>, band?: Band): number {
+  const dir = Math.sign(steps);
+  if (!dir) return stepFrequency(freqKHz, 0, band);
+  let current = stepFrequency(freqKHz, 0, band);
+  let left = Math.abs(Math.trunc(steps));
+  const limit = band ?? DEFAULT_BAND;
+  const span = Math.floor((limit.maxKHz - limit.minKHz) / limit.stepKHz) + 1;
+  while (left > 0) {
+    let next = stepFrequency(current, dir, band);
+    if (next === current) break;
+    let hopped = 0;
+    while (used.has(next)) {
+      const further = stepFrequency(next, dir, band);
+      if (further === next || ++hopped > span) return current;
+      next = further;
+    }
+    current = next;
+    left -= 1;
+  }
+  return current;
+}
+
 /** Hovered channel segment, else the transmit segment, else the first. The add segment is never the fallback. */
 export function scrollTarget(model: WheelModel, txId: string | null): number | null {
   if (model.hover != null && model.hover >= 0 && model.hover < model.slots.length) return model.hover;
@@ -200,10 +270,9 @@ function scrollSlot(model: WheelModel, index: number, steps: number, shift: bool
     const intents: WheelIntent[] = slot.channelId ? [{ type: 'set-volume', channelId: slot.channelId, volume }] : [];
     return { model: { ...model, slots, volumeReveal: index }, intents };
   }
-  const freqKHz = stepFrequency(slot.freqKHz, steps, band);
+  const freqKHz = stepSlotFrequency(slot.freqKHz, steps, frequenciesOnOtherSegments(slots, index), band);
   if (freqKHz === slot.freqKHz) return { model, intents: [] };
   const match = channels.find((c) => c.freqKHz === freqKHz) ?? null;
-  if (match && othersUse(slots, match.id, index)) return { model, intents: [] };
   const intents: WheelIntent[] = [];
   if (slot.channelId && slot.channelId !== match?.id && !othersUse(model.slots, slot.channelId, index)) {
     intents.push({ type: 'untune', channelId: slot.channelId });
