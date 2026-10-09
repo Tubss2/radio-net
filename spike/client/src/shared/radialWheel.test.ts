@@ -101,7 +101,7 @@ describe('channel match', () => {
 });
 
 describe('opening the wheel', () => {
-  it('holds G to show it, a short press latches, release or a second press closes, and the add field keeps it up', () => {
+  it('holds the wheel key to show it, a short press latches, release or a second press closes, and the add field keeps it up', () => {
     let s = { open: false, latched: false, adding: false };
     s = { ...s, ...onWheelKey(s, { down: true, heldMs: 0 }) };
     expect(s).toMatchObject({ open: true, latched: false });

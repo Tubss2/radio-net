@@ -28,6 +28,7 @@ export function isCapturingBind() { return capturing; }
 
 function domKeycode(e: KeyboardEvent): number {
   if (e.code === 'KeyG') return 34;
+  if (e.code === 'F2') return 60;
   if (e.code === 'F10') return 68;
   if (e.code === 'Escape') return 1;
   let n = 0;

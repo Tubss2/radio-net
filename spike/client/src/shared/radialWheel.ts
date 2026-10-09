@@ -1,8 +1,8 @@
 /**
  * Channel radial wheel behaviour. Pure: no DOM, no Electron.
- * The spike opens this on G (hold releases it, a short press latches until Esc or G again).
+ * The spike opens this on F2 (hold releases it, a short press latches until Esc or F2 again).
  * While it is open the wheel window takes mouse focus so clicks land on a segment.
- * Fallback, which does not need that focus: hold G and scroll or press 1–9. The global
+ * Fallback, which does not need that focus: hold F2 and scroll or press 1–9. The global
  * hook delivers those, and they apply to the hovered segment, else the transmit segment.
  */
 import { formatFreqKHz, parseFreqInput, stepFrequency, type Band } from './freq';
@@ -120,7 +120,7 @@ export function onWheelKey(
   state: { open: boolean; latched: boolean; adding: boolean },
   ev: { down: boolean; heldMs: number },
 ): { open: boolean; latched: boolean } {
-  // The add field needs the keyboard, so G must not dismiss it.
+  // The add field needs the keyboard, so the wheel key must not dismiss it.
   if (state.adding) return { open: true, latched: true };
   if (ev.down) {
     if (state.open && state.latched) return { open: false, latched: false };

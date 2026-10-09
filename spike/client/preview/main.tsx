@@ -54,7 +54,7 @@ function Preview() {
         <button className={demo === 'you' ? 'on' : ''} onClick={() => run('you')}>You talk</button>
         <button className={demo === 'gone' ? 'on' : ''} onClick={() => run('gone')}>Command deleted</button>
         <button onClick={() => emitPreviewHotkey({ type: 'overlay' })}>Overlay F10</button>
-        <span className="preview-hint">G wheel · Space talk · scroll freq · Shift+scroll volume · right-click mute</span>
+        <span className="preview-hint">F2 wheel · Space talk · scroll freq · Shift+scroll volume · right-click mute</span>
       </div>
     </div>
   );

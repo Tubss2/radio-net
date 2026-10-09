@@ -8,7 +8,7 @@ export interface Keybinds {
   ptt: Bind | null; // talk on the active channel
   cycle: Bind | null; // move TX to the next tuned channel (kept so the old smoke path still works)
   overlay: Bind | null; // show/hide overlay
-  wheel: Bind | null; // open the channel radial (default G)
+  wheel: Bind | null; // open the channel radial (default F2)
   /** Direct push-to-talk on a specific tuned channel (channel id -> bind). */
   direct: Record<string, Bind>;
   /** Press to make that channel the transmit channel (channel id -> bind). */

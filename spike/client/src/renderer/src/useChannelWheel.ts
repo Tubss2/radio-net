@@ -155,14 +155,14 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
     if (timerRef.current != null) window.clearTimeout(timerRef.current);
   }, []);
 
-  // Browser preview has no global hook. G opens the wheel; hold G and scroll away from the ring to retune.
+  // Browser preview has no global hook. F2 opens the wheel; hold F2 and scroll away from the ring to retune.
   useEffect(() => {
     if (inElectron) return;
     const downAt = { t: null as number | null };
     const matches = (e: KeyboardEvent) => {
       const b = wheelBindRef.current;
       if (isCapturingBind()) return false;
-      if (!b) return e.code === 'KeyG';
+      if (!b) return e.code === 'F2';
       return domEventMatchesBind(e, b);
     };
     const kd = (e: KeyboardEvent) => {

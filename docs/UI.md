@@ -15,12 +15,12 @@
 **Layout (main window, ~1120×760, min 880×600)**
 ```
 ┌────┬──────────────────────┬───────────────────────────────────────────────┐
-│ WD │ War Dogs NZ          │ ● ON AIR  62.0   Alpha FT   Talk[M4] Wheel[G] │
+│ WD │ War Dogs NZ          │ ● ON AIR  62.0   Alpha FT   Talk[M4] Wheel[F2] │
 │ 5R │ Toby · owner · K7QM… │───────────────────────────────────────────────│
 │ +  │ [📻 Tune: 59.5 or …] │ ┌41.5 Arty──┐ ┌59.5 Command──┐ ┌62.0 Alpha──┐ │
 │    │ CHANNELS      [+New] │ │5 tuned     │ │◉ Rhys talking│ │you're on air│ │
 │    │ 41.5 Arty     tuned  │ │🔊───●──    │ │🔊─────●─     │ │🔊────●──    │ │
-│    │ 45.0 Logi            │ │[L]C R  [TX]│ │L C[R] [TX F2]│ │L[C]R ●TX    │ │
+│    │ 45.0 Logi            │ │[L]C R  [TX]│ │L C[R] [TX G]│ │L[C]R ●TX    │ │
 │    │ 59.5 Command   tuned │ └────────────┘ └──────────────┘ └─────────────┘ │
 │    │ …                    │ ┌ + Tune more ┐                                 │
 │    │ (T) Toby  mic✓ keys✓ │                                                 │
@@ -29,11 +29,11 @@
 
 **Overlay:** always on by default. A small unobtrusive box in a screen corner (top-left in the spike). Click-through, semi-transparent. When nobody is transmitting it is empty and invisible. While someone transmits, one line per talker: their display name, then the channel frequency and name (`Rhys  59.5 Command`). Several talkers stack. `F10` hides it. Position, size and opacity in settings.
 
-**Channel wheel** ([`radial-wheel.png`](radial-wheel.png)): hold or press `G`. A ring opens in the centre of the screen, one slice per tuned channel plus a **+** slice. CH1 is the lowest frequency, at 12 o’clock, then clockwise. Each slice shows the channel label (`CH1`), the frequency (`41.5 MHz`), and the name. A green dot means live and unmuted. The transmit slice is gold with a speaker icon. A muted slice is grey, with a mute icon and no green dot. Hover selects. Left-click sets the transmit channel. Right-click mutes or unmutes. Scroll steps that frequency by 0.5 MHz inside 30.0–87.5 MHz. Shift+scroll changes that channel’s volume and shows a bar plus a percentage on the slice. The **+** slice (radio icon) opens a small field in the hole: type a frequency or a name and that channel is tuned. Release, `Esc`, or `G` again closes it. Push-to-talk stays a separate key (`Mouse 4` in the spike).
+**Channel wheel** ([`radial-wheel.png`](radial-wheel.png)): hold or press `F2`. A ring opens in the centre of the screen, one slice per tuned channel plus a **+** slice. CH1 is the lowest frequency, at 12 o’clock, then clockwise. Each slice shows the channel label (`CH1`), the frequency (`41.5 MHz`), and the name. A green dot means live and unmuted. The transmit slice is gold with a speaker icon. A muted slice is grey, with a mute icon and no green dot. Hover selects. Left-click sets the transmit channel. Right-click mutes or unmutes. Scroll steps that frequency by 0.5 MHz inside 30.0–87.5 MHz. Shift+scroll changes that channel’s volume and shows a bar plus a percentage on the slice. The **+** slice (radio icon) opens a small field in the hole: type a frequency or a name and that channel is tuned. Release, `Esc`, or `F2` again closes it. Push-to-talk stays a separate key (`Mouse 4` in the spike).
 
-Opening the wheel takes mouse focus from the game for that moment, so a click can land on a slice. If that fights the game, the fallback does not need focus: hold `G` and scroll, or press `1`–`9`. Those follow the global input path and apply to the slice under the cursor, or to the transmit slice if nothing is hovered.
+Opening the wheel takes mouse focus from the game for that moment, so a click can land on a slice. If that fights the game, the fallback does not need focus: hold `F2` and scroll, or press `1`–`9`. Those follow the global input path and apply to the slice under the cursor, or to the transmit slice if nothing is hovered.
 
-**Keybinds:** a settings screen on the radio. Click a slot, then press any key or mouse button, including Mouse 4 and Mouse 5. Left, right and middle click stay unbound so the click that arms the slot does not bind itself. Escape cancels. Slots are push-to-talk, open channel wheel (default `G`), show or hide overlay (`F10`), cycle transmit (`Mouse 5`), plus a quick-select for each tuned channel (press sets the transmit channel). Two slots on the same input are shown as a conflict and still saved. Each slot can be cleared. Reset restores the defaults. The set is stored with the local profile.
+**Keybinds:** a settings screen on the radio. Click a slot, then press any key or mouse button, including Mouse 4 and Mouse 5. Left, right and middle click stay unbound so the click that arms the slot does not bind itself. Escape cancels. Slots are push-to-talk, open channel wheel (default `F2`), show or hide overlay (`F10`), cycle transmit (`Mouse 5`), plus a quick-select for each tuned channel (press sets the transmit channel). Two slots on the same input are shown as a conflict and still saved. Each slot can be cleared. Reset restores the defaults, including `F2` for the wheel. The set is stored with the local profile, and a profile that already saved a wheel key keeps that key.
 
 **First launch and servers:** the app asks for a callsign and stores it on this PC. Join is an invite code plus the server URL. Communities already joined are a list (name, URL, invite, last used) and rejoin in one click. Creating a community returns an admin key the app keeps and can copy. An admin can delete the community; the app asks for confirmation first, then drops it from the local server list. There is no account screen.
 

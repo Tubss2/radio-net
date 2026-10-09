@@ -50,7 +50,7 @@ npm i
 npm run preview
 ```
 
-That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `G` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the frequency, Shift+scroll for volume, and `+` to add a channel. Hold Space to talk. `F10` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
+That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `F2` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the frequency, Shift+scroll for volume, and `+` to add a channel. Hold Space to talk. `F10` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
 
 `npm run preview:build` writes a static site to `spike/client/preview-dist` with relative asset paths. The **UI preview** GitHub Action builds that on every push and uploads it as the `ui-preview` artifact.
 

@@ -77,7 +77,7 @@ ipcMain.handle('profile:set', (_e, p: Profile) => writeProfile(normaliseProfile(
 
 let wheelShown = false;
 
-/** Drop scroll, digit and Esc events while the wheel window is focused so the page and the hook don't both apply them. G still always comes through. */
+/** Drop scroll, digit and Esc events while the wheel window is focused so the page and the hook don't both apply them. The wheel key still always comes through. */
 const hotkeys = new Hotkeys((e: HotkeyEvent) => {
   if (overlay?.isFocused() && (e.type === 'wheel-scroll' || e.type === 'wheel-number' || e.type === 'wheel-cancel')) return;
   main?.webContents.send('hotkey', e);

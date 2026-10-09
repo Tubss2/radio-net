@@ -3,17 +3,18 @@ import type { Bind, Keybinds } from './types';
 /**
  * Numeric codes from uiohook-napi's UiohookKey (libuiohook).
  * Hardcoded so the renderer and the preload never import the native module.
- * G = 34, F10 = 68, Escape = 1. Mouse buttons are 1-based (4 = Mouse 4).
+ * F2 = 60, G = 34, F10 = 68, Escape = 1. Mouse buttons are 1-based (4 = Mouse 4).
  */
 export const UIO_ESCAPE = 1;
 export const UIO_G = 34;
+export const UIO_F2 = 60;
 export const UIO_F10 = 68;
 
 export const DEFAULT_BINDS: Keybinds = {
   ptt: { kind: 'mouse', button: 4, label: 'Mouse 4' },
   cycle: { kind: 'mouse', button: 5, label: 'Mouse 5' },
   overlay: { kind: 'key', keycode: UIO_F10, label: 'F10' },
-  wheel: { kind: 'key', keycode: UIO_G, label: 'G' },
+  wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
   direct: {},
   select: {},
 };
