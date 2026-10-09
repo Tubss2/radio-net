@@ -40,3 +40,31 @@ Xvfb :99 -screen 0 1280x800x24 +extension RECORD &
 ```
 
 On Windows, for a local M1 try: point `VITE_API_URL` at the API, run `npm run dev` in `spike/client/`, and use `RN_USER_DATA=<dir>` to run two profiles on one PC. Details and known shortcuts are in [`spike/README.md`](spike/README.md).
+
+## Try the UI in a browser
+
+No Electron build, no LiveKit, and no server. From `spike/client`:
+
+```bash
+npm i
+npm run preview
+```
+
+That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `G` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the frequency, Shift+scroll for volume, and `+` to add a channel. Hold Space to talk. `F10` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
+
+`npm run preview:build` writes a static site to `spike/client/preview-dist` with relative asset paths. The **UI preview** GitHub Action builds that on every push and uploads it as the `ui-preview` artifact.
+
+GitHub Pages is not usable for this private repository: the token cannot read or create a Pages site (`GET /repos/Tubss2/radio-net/pages` returns 403). The preview is the workflow artifact.
+
+## Windows installer
+
+The **Windows installer** workflow (run manually) builds an unsigned NSIS installer on `windows-latest`. These are baked into the client, and the workflow inputs override them:
+
+| Input | Env | Default |
+|---|---|---|
+| `api_url` | `VITE_API_URL` | `https://radio-149-28-170-200.sslip.io` |
+| `livekit_url` | `VITE_LIVEKIT_URL` | `wss://lk-149-28-170-200.sslip.io` |
+
+`RN_FAKE_MEDIA` is not set. The job fails if that variable is present, so a release build cannot ship the fake microphone.
+
+Download `RadioNet-Setup.exe` from the workflow artifacts (artifact name `RadioNet-Setup`). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.

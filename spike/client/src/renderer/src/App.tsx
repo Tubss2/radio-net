@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import type { Keybinds } from '../../shared/types';
 import { bridge, inElectron } from './bridge';
 import { Api, type ChannelInfo, type CommunityInfo } from './lib/api';
-import { RadioEngine, type TunedChannel } from './lib/radioEngine';
+import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
+import { isPreview } from './lib/previewMode';
+import { PreviewApi } from './lib/previewApi';
+import { PreviewEngine } from './lib/previewEngine';
 import { matchChannel } from '../../shared/radialWheel';
 import { parseFreqInput } from './lib/freq';
 import { RadialWheel } from './RadialWheel';
@@ -24,6 +28,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (isPreview) {
+      const a = new PreviewApi();
+      setApi(a);
+      void refresh(a);
+      return;
+    }
     bridge.getToken().then(async (t) => {
       const a = new Api(t);
       setApi(a);
@@ -89,7 +99,10 @@ function Onboarding({ api, signedIn, onDone }: { api: Api; signedIn: boolean; on
 }
 
 function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me: string }) {
-  const engine = useMemo(() => new RadioEngine(api, community.id), [api, community.id]);
+  const engine: RadioControl = useMemo(
+    () => (isPreview ? new PreviewEngine() : new RadioEngine(api, community.id)),
+    [api, community.id],
+  );
   useSyncExternalStore(engine.subscribe, () => engine.version);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [query, setQuery] = useState('');
@@ -101,15 +114,18 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
   const storeKey = `rn.radio.${community.id}`;
 
   const load = useCallback(() => api.channels(community.id).then(setChannels).catch((e) => setErr(e.message)), [api, community.id]);
+  const [restored, setRestored] = useState(false);
 
   // Load channel list, restore previously tuned channels, poll for admin changes.
+  // Persistence waits until this finishes, otherwise the first empty render wipes the saved tune list.
   useEffect(() => {
     let alive = true;
     load().then(async () => {
       const saved: { tuned: string[]; tx: string | null } = JSON.parse(localStorage.getItem(storeKey) ?? '{"tuned":[],"tx":null}');
       const list = await api.channels(community.id);
       for (const id of saved.tuned) { const ch = list.find((c) => c.id === id); if (ch && alive) await engine.tune(ch).catch(() => undefined); }
-      if (saved.tx) engine.setTx(saved.tx);
+      if (alive && saved.tx) engine.setTx(saved.tx);
+      if (alive) setRestored(true);
     });
     const t = setInterval(load, 10_000);
     return () => { alive = false; clearInterval(t); void engine.dispose(); };
@@ -118,8 +134,9 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
   // Registered after the dispose effect so a pending tune is cancelled before the engine shuts down.
   const wheel = useChannelWheel(engine, channels);
 
-  // Persist radio state.
+  // Persist radio state once the saved tune list has been applied.
   useEffect(() => {
+    if (!restored) return;
     localStorage.setItem(storeKey, JSON.stringify({ tuned: engine.tuned.map((t) => t.channel.id), tx: engine.txId }));
   });
 
@@ -227,14 +244,15 @@ function Radio({ api, community, me }: { api: Api; community: CommunityInfo; me:
         </div>
       </main>
       {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => { await api.createChannel(community.id, f, n); await load(); setNewCh(false); }} />}
-      {!inElectron && wheel.open && (
-        <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} onInput={wheel.onInput} />
+      {!inElectron && wheel.open && createPortal(
+        <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} onInput={wheel.onInput} />,
+        document.body,
       )}
     </>
   );
 }
 
-function Card({ t, engine }: { t: TunedChannel; engine: RadioEngine }) {
+function Card({ t, engine }: { t: TunedChannel; engine: RadioControl }) {
   const isTx = engine.txId === t.channel.id;
   const keyed = engine.transmittingOn === t.channel.id;
   return (

@@ -8,8 +8,46 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
+    "preview": "vite --config preview/vite.config.ts --mode preview",
+    "preview:build": "vite build --config preview/vite.config.ts --mode preview",
+    "dist:win": "electron-vite build && electron-builder --win nsis",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
+  },
+  "build": {
+    "appId": "nz.radionet.app",
+    "productName": "Radio Net",
+    "executableName": "RadioNet",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "node_modules/uiohook-napi/**/*",
+      "node_modules/node-gyp-build/**/*"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "RadioNet-Setup.${ext}",
+      "shortcutName": "Radio Net"
+    }
   },
   "dependencies": {
     "livekit-client": "^2.22.3",
@@ -23,6 +61,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.7.0",
+    "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.7",

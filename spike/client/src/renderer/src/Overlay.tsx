@@ -3,7 +3,7 @@ import type { OverlayState } from '../../shared/types';
 import { bridge } from './bridge';
 import { RadialWheel } from './RadialWheel';
 
-export function Overlay() {
+export function Overlay({ talkersOnly = false }: { talkersOnly?: boolean }) {
   const [s, setS] = useState<OverlayState | null>(null);
   useEffect(() => bridge.onOverlay(setS), []);
   const showTalkers = Boolean(s?.visible && s.speakers.length > 0);
@@ -24,7 +24,7 @@ export function Overlay() {
           </div>
         </div>
       )}
-      {wheel?.open && (
+      {wheel?.open && !talkersOnly && (
         <RadialWheel
           segments={wheel.segments}
           adding={wheel.adding}
