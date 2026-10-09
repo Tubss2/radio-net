@@ -20,9 +20,12 @@ function current(binds: Keybinds, id: string): Bind | null {
   return null;
 }
 
-export function Settings({ binds, quick, soundsOn, soundVolume, onSounds, onChange, onClose }: {
+export function Settings({ binds, quick, hotkeysOn, onHotkeys, onPrivacy, soundsOn, soundVolume, onSounds, onChange, onClose }: {
   binds: Keybinds;
   quick: BindRow[];
+  hotkeysOn: boolean;
+  onHotkeys: (enabled: boolean) => void;
+  onPrivacy: () => void;
   soundsOn: boolean;
   soundVolume: number;
   onSounds: (on: boolean, volume: number) => void;
@@ -37,6 +40,7 @@ export function Settings({ binds, quick, soundsOn, soundVolume, onSounds, onChan
 
   const arm = async (id: string) => {
     setErr('');
+    if (!hotkeysOn) { setErr('Turn keybinds on before recording a key.'); return; }
     setRecording(id);
     try {
       const bind = await bridge.recordBind();
@@ -56,7 +60,14 @@ export function Settings({ binds, quick, soundsOn, soundVolume, onSounds, onChan
           <span className="about">Radio Net {APP_VERSION}</span>
         </div>
         <p className="sub" style={{ margin: 0 }}>
-          Click a slot, then press a key or a mouse button. Mouse 4 and Mouse 5 work. Left, right and middle click are left alone. Escape cancels.
+          Click a slot, then press a key or a mouse button. Mouse 4 and Mouse 5 work. Left, right and middle click are left alone. Escape cancels. Only these binds are watched.
+        </p>
+        <label className="row">
+          <input type="checkbox" checked={hotkeysOn} onChange={(e) => onHotkeys(e.target.checked)} />
+          Listen for keybinds
+        </label>
+        <p className="sub" style={{ margin: 0 }}>
+          Pausing removes the global keyboard and mouse hook. Other keys are never saved or sent.
         </p>
         <div className="binds">
           {rows.map((row) => {
@@ -84,6 +95,7 @@ export function Settings({ binds, quick, soundsOn, soundVolume, onSounds, onChan
           </label>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="btn ghost" type="button" onClick={onPrivacy}>Privacy notes</button>
           <button className="btn ghost" onClick={() => onChange(cloneBinds(DEFAULT_BINDS))}>Reset to defaults</button>
           <button className="btn primary" onClick={onClose}>Done</button>
         </div>

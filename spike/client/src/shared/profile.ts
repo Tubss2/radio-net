@@ -44,18 +44,38 @@ export interface Profile {
   simpleOn: boolean;
   simpleOnTop: boolean;
   radios: Record<string, RadioPrefs>;
+  /** The first-run explanation has been accepted. The global hook stays off until this is true. */
+  privacyAccepted: boolean;
+  /** False removes the global hook. Defaults to on once the explanation has been accepted. */
+  hotkeysEnabled: boolean;
 }
 
 export function emptyProfile(): Profile {
   return {
     callsign: '', servers: [], keybinds: null, overlayOn: true, soundsOn: true, soundVolume: DEFAULT_SOUND_VOLUME,
     talkKey: 'Space', talkMode: 'hold', voiceSensitivity: 0.45, voiceReleaseMs: 300, simpleOn: false, simpleOnTop: false, radios: {},
+    privacyAccepted: false, hotkeysEnabled: true,
   };
 }
 
 function clamp01(n: unknown, fallback: number): number {
   const v = typeof n === 'number' && Number.isFinite(n) ? n : fallback;
   return Math.min(1, Math.max(0, v));
+}
+
+function cleanServer(s: ServerEntry): ServerEntry {
+  const entry: ServerEntry = {
+    id: s.id.slice(0, 64),
+    name: typeof s.name === 'string' ? s.name.slice(0, 64) : '',
+    url: s.url.slice(0, 300),
+    inviteCode: typeof s.inviteCode === 'string' ? s.inviteCode.slice(0, 64) : '',
+    lastUsed: typeof s.lastUsed === 'string' ? s.lastUsed.slice(0, 40) : '',
+  };
+  if (typeof s.adminKey === 'string' && s.adminKey.length > 0 && s.adminKey.length <= 200) entry.adminKey = s.adminKey;
+  if (s.rememberAdmin === true) entry.rememberAdmin = true;
+  if (typeof s.token === 'string' && s.token.length > 0 && s.token.length <= 4000) entry.token = s.token;
+  if (typeof s.tokenExp === 'number' && Number.isFinite(s.tokenExp)) entry.tokenExp = s.tokenExp;
+  return entry;
 }
 
 export function emptyRadio(): RadioPrefs {
@@ -67,8 +87,10 @@ export function normaliseProfile(raw: unknown): Profile {
   if (!raw || typeof raw !== 'object') return base;
   const p = raw as Partial<Profile>;
   return {
-    callsign: typeof p.callsign === 'string' ? p.callsign : '',
-    servers: Array.isArray(p.servers) ? p.servers.filter((s) => s && typeof s.id === 'string' && typeof s.url === 'string') : [],
+    callsign: typeof p.callsign === 'string' ? p.callsign.slice(0, 64) : '',
+    servers: Array.isArray(p.servers)
+      ? p.servers.filter((s) => s && typeof s.id === 'string' && typeof s.url === 'string').slice(0, 50).map(cleanServer)
+      : [],
     keybinds: p.keybinds ?? null,
     overlayOn: p.overlayOn !== false,
     soundsOn: p.soundsOn !== false,
@@ -80,5 +102,20 @@ export function normaliseProfile(raw: unknown): Profile {
     simpleOn: p.simpleOn === true,
     simpleOnTop: p.simpleOnTop === true,
     radios: p.radios && typeof p.radios === 'object' ? p.radios : {},
+    privacyAccepted: p.privacyAccepted === true,
+    hotkeysEnabled: p.hotkeysEnabled !== false,
+  };
+}
+
+/**
+ * Admin key and session token stay in the file only when the OS can encrypt it.
+ * Without DPAPI (or the Linux equivalent) they are kept in memory for this run and dropped on save.
+ */
+export function persistableProfile(p: Profile, opts: { encrypt: boolean }): Profile {
+  const clean = normaliseProfile(p);
+  if (opts.encrypt) return clean;
+  return {
+    ...clean,
+    servers: clean.servers.map(({ adminKey: _admin, token: _token, tokenExp: _exp, ...rest }) => rest),
   };
 }

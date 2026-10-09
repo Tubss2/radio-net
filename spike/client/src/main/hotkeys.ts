@@ -1,4 +1,5 @@
 import { UiohookKey, WheelDirection, uIOhook } from 'uiohook-napi';
+import { shouldObserveInput } from '../shared/inputWatch';
 import { DEFAULT_BINDS } from '../shared/keybinds';
 import { digitFromKeycode, hookShouldEmitScroll, scrollSteps } from '../shared/radialWheel';
 import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
@@ -16,15 +17,34 @@ export class Hotkeys {
   private wheelDownAt: number | null = null;
   /** Latched or held. Scroll keeps working after the wheel key (default F2) is released. */
   private wheelOpen = false;
+  private running = false;
+  private listenersOn = false;
 
   constructor(private emit: (e: HotkeyEvent) => void) {}
 
   start() {
-    uIOhook.on('keydown', (e) => this.handle({ kind: 'key', keycode: e.keycode, label: keyLabel(e.keycode) }, true));
-    uIOhook.on('keyup', (e) => this.handle({ kind: 'key', keycode: e.keycode, label: '' }, false));
-    uIOhook.on('mousedown', (e) => this.handle({ kind: 'mouse', button: Number(e.button), label: `Mouse ${e.button}` }, true));
-    uIOhook.on('mouseup', (e) => this.handle({ kind: 'mouse', button: Number(e.button), label: '' }, false));
-    uIOhook.on('wheel', (e) => {
+    if (this.running) return;
+    if (!this.listenersOn) {
+      this.listenersOn = true;
+      uIOhook.on('keydown', (e) => this.handle({ kind: 'key', keycode: e.keycode, label: keyLabel(e.keycode) }, true));
+      uIOhook.on('keyup', (e) => this.handle({ kind: 'key', keycode: e.keycode, label: '' }, false));
+      uIOhook.on('mousedown', (e) => this.handle({ kind: 'mouse', button: Number(e.button), label: `Mouse ${e.button}` }, true));
+      uIOhook.on('mouseup', (e) => this.handle({ kind: 'mouse', button: Number(e.button), label: '' }, false));
+      uIOhook.on('wheel', (e) => this.onWheel(e));
+    }
+    uIOhook.start();
+    this.running = true;
+    clientLog('hotkeys', 'start');
+  }
+  stop() {
+    if (!this.running) return;
+    uIOhook.stop();
+    this.running = false;
+    this.held.clear();
+    this.wheelDownAt = null;
+    clientLog('hotkeys', 'stop');
+  }
+  private onWheel(e: { direction: WheelDirection; rotation: number; shiftKey: boolean }) {
       // Observe-only. The game still sees the notch. index.ts drops a copy the overlay page
       // will already apply (foreground window, not click-through). Click-through does not
       // forward the wheel, and a latched wheel stays open after the wheel key is released, so this
@@ -33,13 +53,6 @@ export class Hotkeys {
       if (!hookShouldEmitScroll({ wheelOpen: this.wheelOpen, wheelKeyHeld: this.wheelDownAt != null })) return;
       const steps = scrollSteps(e.rotation);
       if (steps) this.emit({ type: 'wheel-scroll', steps, shift: e.shiftKey });
-    });
-    uIOhook.start();
-    clientLog('hotkeys', 'start');
-  }
-  stop() {
-    uIOhook.stop();
-    clientLog('hotkeys', 'stop');
   }
   setBinds(b: Keybinds) { this.binds = b; this.held.clear(); this.wheelDownAt = null; }
   setWheelOpen(open: boolean) { this.wheelOpen = open; }
@@ -52,6 +65,14 @@ export class Hotkeys {
   }
 
   private handle(input: Bind, down: boolean) {
+    const watch = shouldObserveInput(input, {
+      binds: this.binds,
+      recording: this.recording !== null,
+      enabled: true,
+      wheelOpen: this.wheelOpen,
+      wheelKeyHeld: this.wheelDownAt != null,
+    });
+    if (!watch) return;
     const id = bindId(input);
     if (down && this.recording) {
       if (input.kind === 'key' && input.keycode === UiohookKey.Escape) {
@@ -75,7 +96,9 @@ export class Hotkeys {
         this.emit({ type: 'wheel', down: false, heldMs });
       }
     }
-    if (down && input.kind === 'key' && input.keycode === UiohookKey.Escape) this.emit({ type: 'wheel-cancel' });
+    if (down && input.kind === 'key' && input.keycode === UiohookKey.Escape && (this.wheelOpen || this.wheelDownAt != null)) {
+      this.emit({ type: 'wheel-cancel' });
+    }
     if (down && this.wheelDownAt != null && !is(this.binds.wheel) && input.kind === 'key') {
       const n = digitFromKeycode(input.keycode);
       if (n) this.emit({ type: 'wheel-number', n });
