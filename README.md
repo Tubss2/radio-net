@@ -58,7 +58,7 @@ GitHub Pages is not usable for this private repository: the token cannot read or
 
 ## Windows installer
 
-The **Windows installer** workflow (run manually) builds an unsigned NSIS installer on `windows-latest`. These are baked into the client, and the workflow inputs override them:
+The **Windows installer** workflow builds an unsigned NSIS installer on `windows-latest` for every pull request. A manual run can override the baked URLs once the workflow file is on the default branch (GitHub does not offer **Run workflow** for a file that exists only on a feature branch). These are baked into the client:
 
 | Input | Env | Default |
 |---|---|---|
