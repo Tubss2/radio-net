@@ -12,6 +12,12 @@ import {
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 
 const API = process.env.API_URL ?? 'http://127.0.0.1:8787';
+// Remote runs (deployed server): SETUP_CODE for community creation, LiveKit URLs + keys for the listen-only check.
+const SETUP_CODE = process.env.SETUP_CODE;
+const LK_WS = process.env.LIVEKIT_WS ?? 'ws://127.0.0.1:7880';
+const LK_HTTP = process.env.LIVEKIT_HTTP ?? 'http://127.0.0.1:7880';
+const LK_KEY = process.env.LIVEKIT_API_KEY ?? 'devkey';
+const LK_SECRET = process.env.LIVEKIT_API_SECRET ?? 'secret';
 let CID = '';
 const tokens = new Map<string, string>(); // bot name -> device token
 const RATE = 48000;
@@ -119,7 +125,7 @@ const heard = (b: BotRadio) => Object.fromEntries(b.heard);
 
 async function main() {
   // Toby creates a community in-app (no Discord); the bots join with the invite code + a display name.
-  const c = await api('/api/communities', null, { method: 'POST', body: JSON.stringify({ name: 'E2E Unit', displayName: 'toby' }) });
+  const c = await api('/api/communities', null, { method: 'POST', body: JSON.stringify({ name: 'E2E Unit', displayName: 'toby', ...(SETUP_CODE ? { setupCode: SETUP_CODE } : {}) }) });
   tokens.set('toby', c.token);
   CID = c.community.id;
   for (const bot of ['alice', 'bob', 'carol', 'dave', 'eve']) {
@@ -151,7 +157,7 @@ async function main() {
   check('TX on FT: Carol (Command only) hears nothing', carol.heard.size === 0, JSON.stringify(heard(carol)));
   check('TX on FT: Dave hears it on FT, not on Command', (dave.heard.get(ft) ?? 0) > 20 && !dave.heard.get('Command'), JSON.stringify(heard(dave)));
   const lat = (bob.firstHeardAt.get(ft) ?? NaN) - t1;
-  check('key-up to first audio at listener (localhost, indicative only)', lat < 1000, `${lat} ms`);
+  check('key-up to first audio at listener (indicative)', lat < 1000, `${lat} ms`);
 
   // Phase 2: cycle TX to Command.
   const now = alice.cycleTx();
@@ -168,10 +174,10 @@ async function main() {
     const { channels } = await api(`/api/communities/${CID}/channels`, 'eve');
     const cmd = channels.find((c: any) => c.name === 'Command');
     // Listen-only isn't an MVP feature, so mint one directly with the server SDK to prove LiveKit enforces it.
-    const at = new AccessToken('devkey', 'secret', { identity: 'eve-listen-only' });
+    const at = new AccessToken(LK_KEY, LK_SECRET, { identity: 'eve-listen-only' });
     at.addGrant({ room: `g${CID}.ch${cmd.id}`, roomJoin: true, canSubscribe: true, canPublish: false });
     const room = new Room();
-    await room.connect('ws://127.0.0.1:7880', await at.toJwt());
+    await room.connect(LK_WS, await at.toJwt());
     const src = new AudioSource(RATE, 1);
     let rejected = false;
     try {
@@ -185,7 +191,7 @@ async function main() {
       rejected = true;
       console.log('   publish refused:', String((e as Error).message).slice(0, 120));
     }
-    const svc = new RoomServiceClient('http://127.0.0.1:7880', 'devkey', 'secret');
+    const svc = new RoomServiceClient(LK_HTTP, LK_KEY, LK_SECRET);
     const eve = (await svc.listParticipants(`g${CID}.ch${cmd.id}`)).find((p) => p.identity === 'eve-listen-only');
     const evePublished = eve?.tracks.length ?? -1;
     check('listen-only token cannot transmit (server-enforced)', rejected && evePublished === 0, `publish rejected=${rejected}, server sees ${evePublished} tracks from eve`);
