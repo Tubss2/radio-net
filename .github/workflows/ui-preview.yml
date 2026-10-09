@@ -34,13 +34,6 @@ jobs:
           name: ui-preview
           path: spike/client/preview-dist
           if-no-files-found: error
-      - name: Configure GitHub Pages
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/cursor/local-callsign-keybinds-3d59'
-        uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/cursor/local-callsign-keybinds-3d59'
-        with:
-          path: spike/client/preview-dist
 
   deploy:
     needs: build
@@ -50,6 +43,22 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Download the preview site
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-preview
+          path: preview-site
+      # enablement needs a token that can administer the repo. GITHUB_TOKEN is tried
+      # first; if the site does not exist yet this step fails until Pages is set to
+      # GitHub Actions in the repository settings.
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: preview-site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
