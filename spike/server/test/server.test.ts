@@ -1,4 +1,5 @@
-import { mkdtempSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TokenVerifier } from 'livekit-server-sdk';
@@ -10,7 +11,7 @@ import { FileChannelStore, MemoryChannelStore } from '../src/store.js';
 
 const cfg = { livekitUrl: 'ws://x', livekitHttpUrl: 'http://127.0.0.1:1', apiKey: 'devkey', apiSecret: 'secret-secret-secret-secret-secret' };
 
-async function setup(extra: Partial<typeof cfg & { communitySetupCode: string; joinRateLimit: number }> = {}) {
+async function setup(extra: Partial<Parameters<typeof buildApp>[1]> = {}) {
   const app = buildApp(new MemoryChannelStore(), { ...cfg, ...extra });
   const created = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'War Dogs NZ', setupCode: extra.communitySetupCode } });
   const body = created.json();
@@ -79,6 +80,30 @@ describe('communities without accounts', () => {
     const codes = [];
     for (let i = 0; i < 5; i++) codes.push((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAA' + i, callsign: 'x' } })).statusCode);
     expect(codes).toEqual([404, 404, 404, 429, 429]);
+  });
+
+  it('counts the join limit per forwarded client when the proxy is trusted', async () => {
+    const app = buildApp(new MemoryChannelStore(), { ...cfg, trustProxy: true, joinRateLimit: 1 });
+    const join = (ip: string) => app.inject({
+      method: 'POST', url: '/api/join', remoteAddress: '127.0.0.1',
+      headers: { 'x-forwarded-for': ip },
+      payload: { inviteCode: 'NOPE-NOPE', callsign: 'x' },
+    });
+    expect((await join('203.0.113.8')).statusCode).toBe(404);
+    expect((await join('203.0.113.8')).statusCode).toBe(429);
+    expect((await join('203.0.113.9')).statusCode).toBe(404);
+  });
+
+  it('logs method, path, status and latency without the session or admin key', async () => {
+    const lines: string[] = [];
+    const { app, admin, member, adminKey, cid, session } = await setup({ log: (line) => lines.push(line) });
+    await app.inject({ url: `/api/communities/${cid}/channels`, headers: { ...member, ...admin } });
+    const text = lines.join('\n');
+    expect(text).toMatch(new RegExp(`GET /api/communities/${cid}/channels 200 \\d+ms`));
+    expect(text).not.toContain(session.token);
+    expect(text).not.toContain(adminKey);
+    expect(text).not.toContain('Bearer');
+    expect(text).not.toContain('x-admin-key');
   });
 
   it('admin key rotates the invite; a session alone cannot', async () => {
@@ -245,6 +270,28 @@ describe('channel API', () => {
     const again = await second.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Saved' } });
     expect(again.json().community.id).not.toBe(community.id);
     await second.close();
+  });
+});
+
+describe('deploy config', () => {
+  it('renders Caddy without HTTP/3, with a rotated JSON access log, and trusts the proxy', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rn-setup-'));
+    execFileSync('bash', ['deploy/setup.sh'], {
+      cwd: join(import.meta.dirname, '../../..'),
+      env: { ...process.env, PUBLIC_IP: '203.0.113.10', RENDER_ONLY: dir },
+      encoding: 'utf8',
+    });
+    const caddy = readFileSync(join(dir, 'Caddyfile'), 'utf8');
+    expect(caddy).toMatch(/protocols h1 h2/);
+    expect(caddy).not.toMatch(/\bh3\b/);
+    expect(caddy).toContain('format json');
+    expect(caddy).toContain('/var/log/caddy/access.log');
+    expect(caddy).toContain('roll_size 10mb');
+    const env = readFileSync(join(dir, 'api.env'), 'utf8');
+    expect(env).toMatch(/^TRUST_PROXY=1$/m);
+    const unit = readFileSync(join(import.meta.dirname, '../../../deploy/systemd/radionet-caddy.service'), 'utf8');
+    expect(unit).toContain('/var/log/caddy');
+    expect(unit).toContain('LogsDirectory=caddy');
   });
 });
 

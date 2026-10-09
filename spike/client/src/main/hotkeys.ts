@@ -2,6 +2,7 @@ import { UiohookKey, WheelDirection, uIOhook } from 'uiohook-napi';
 import { DEFAULT_BINDS } from '../shared/keybinds';
 import { digitFromKeycode, hookShouldEmitScroll, scrollSteps } from '../shared/radialWheel';
 import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
+import { clientLog } from './clientLog';
 
 /**
  * Passive global keyboard/mouse hook (same technique as Discord/TeamSpeak PTT).
@@ -34,8 +35,12 @@ export class Hotkeys {
       if (steps) this.emit({ type: 'wheel-scroll', steps, shift: e.shiftKey });
     });
     uIOhook.start();
+    clientLog('hotkeys', 'start');
   }
-  stop() { uIOhook.stop(); }
+  stop() {
+    uIOhook.stop();
+    clientLog('hotkeys', 'stop');
+  }
   setBinds(b: Keybinds) { this.binds = b; this.held.clear(); this.wheelDownAt = null; }
   setWheelOpen(open: boolean) { this.wheelOpen = open; }
   /**

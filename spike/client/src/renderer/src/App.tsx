@@ -6,7 +6,8 @@ import type { Keybinds } from '../../shared/types';
 import { matchChannel } from '../../shared/radialWheel';
 import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
-import { API_URL, Api, type ChannelInfo } from './lib/api';
+import { RECONNECTING } from '../../shared/net';
+import { API_URL, Api, ApiError, isReconnectError, type ChannelInfo } from './lib/api';
 import { parseFreqInput, validateFrequency } from './lib/freq';
 import { isPreview } from './lib/previewMode';
 import { PreviewApi } from './lib/previewApi';
@@ -349,41 +350,73 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
   const [newCh, setNewCh] = useState(false);
   const [restored, setRestored] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
+  const [deleteSupported, setDeleteSupported] = useState(true);
   const isAdmin = Boolean(server.adminKey);
   const bootRef = useRef(boot);
   const profileRef = useRef(boot);
   profileRef.current = boot;
 
-  const load = useCallback(() => api.channels(server.id).then(setChannels).catch((e) => setErr(e.message)), [api, server.id]);
+  const load = useCallback(() => api.channels(server.id).then((list) => {
+    setChannels(list);
+    setErr((cur) => cur === RECONNECTING ? '' : cur);
+  }).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)), [api, server.id]);
+
+  useEffect(() => {
+    if (!isAdmin || isPreview) return;
+    let alive = true;
+    // A dummy id never matches a community. A route 404 means this server has no delete.
+    api.deleteCommunity('rn-route-probe').catch((e) => {
+      if (alive && e instanceof ApiError && e.routeMissing) setDeleteSupported(false);
+    });
+    return () => { alive = false; };
+  }, [api, isAdmin]);
 
   useEffect(() => {
     let alive = true;
     const saved = bootRef.current.radios[server.id] ?? emptyRadio();
     setOverlayOn(bootRef.current.overlayOn);
-    load().then(async () => {
-      const list = await api.channels(server.id);
-      for (const id of saved.tuned) {
-        const ch = list.find((c) => c.id === id);
-        if (!ch || !alive) continue;
-        await engine.tune(ch).catch(() => undefined);
-        if (saved.volume[id] != null) engine.setVolume(id, saved.volume[id]);
-        if (saved.muted[id]) engine.setMuted(id, true);
-        if (saved.pan[id] != null) engine.setPan(id, saved.pan[id]);
-      }
-      if (alive && saved.tx) engine.setTx(saved.tx);
-      if (alive) setRestored(true);
-    }).catch(async (e) => {
-      if (!alive) return;
-      const msg = (e as Error).message ?? '';
-      if (!isPreview && /session expired|not signed in/i.test(msg)) {
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const boot = async () => {
+      while (alive) {
         try {
-          const again = await new Api(server.url, null, server.adminKey ?? null).join(server.inviteCode, callsign);
-          onServer({ ...server, token: again.token, tokenExp: Date.parse(again.expiresAt), lastUsed: new Date().toISOString() });
+          const list = await api.channels(server.id);
+          if (!alive) return;
+          setChannels(list);
+          for (const id of saved.tuned) {
+            const ch = list.find((c) => c.id === id);
+            if (!ch || !alive) continue;
+            await engine.tune(ch).catch((e) => { if (isReconnectError(e)) throw e; });
+            if (saved.volume[id] != null) engine.setVolume(id, saved.volume[id]);
+            if (saved.muted[id]) engine.setMuted(id, true);
+            if (saved.pan[id] != null) engine.setPan(id, saved.pan[id]);
+          }
+          if (alive && saved.tx) engine.setTx(saved.tx);
+          if (alive) {
+            setRestored(true);
+            setErr((cur) => cur === RECONNECTING ? '' : cur);
+          }
           return;
-        } catch (err) { setErr((err as Error).message); return; }
+        } catch (e) {
+          if (!alive) return;
+          const msg = (e as Error).message ?? '';
+          if (!isPreview && /session expired|not signed in/i.test(msg)) {
+            try {
+              const again = await new Api(server.url, null, server.adminKey ?? null).join(server.inviteCode, callsign);
+              onServer({ ...server, token: again.token, tokenExp: Date.parse(again.expiresAt), lastUsed: new Date().toISOString() });
+              return;
+            } catch (err) {
+              if (isReconnectError(err)) { setErr(RECONNECTING); await wait(2000); continue; }
+              setErr((err as Error).message);
+              return;
+            }
+          }
+          if (isReconnectError(e)) { setErr(RECONNECTING); await wait(2000); continue; }
+          setErr(msg);
+          return;
+        }
       }
-      setErr(msg);
-    });
+    };
+    void boot();
     const t = setInterval(load, 10_000);
     return () => { alive = false; clearInterval(t); void engine.dispose(); };
   }, [api, server.id, engine, load]);
@@ -474,7 +507,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
     const hit = channels.find((c) => c.id === matchChannel(q, channels)?.id);
     if (!hit) { setErr(kHz ? `Nothing on ${q} MHz yet${isAdmin ? ' — create it?' : ''}` : `No channel matches “${q}”`); return; }
     setQuery('');
-    await tuneChannel(hit).catch((e) => setErr(e.message));
+    await tuneChannel(hit).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message));
   };
 
   const openSettings = () => {
@@ -498,7 +531,11 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
     try {
       await api.deleteCommunity(server.id);
       onRemoved();
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) {
+      if (e instanceof ApiError && e.routeMissing) { setDeleteSupported(false); return; }
+      if (e instanceof ApiError && e.status === 404) { onRemoved(); return; }
+      setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+    }
   };
 
   const tunedIds = new Set(tuned.map((t) => t.channel.id));
@@ -511,7 +548,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         <div className="sub">
           {callsign}
           {server.inviteCode ? <> · invite <kbd>{server.inviteCode}</kbd></> : null}
-          {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button> · <button className="link" onClick={() => void removeCommunity()}>delete community</button></> : null}
+          {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button>{deleteSupported ? <> · <button className="link" onClick={() => void removeCommunity()}>delete community</button></> : null}</> : null}
         </div>
         <div className="tunebox">
           <span>📻</span>
@@ -522,13 +559,13 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         <div className="section"><span>Channels</span>{isAdmin && <button className="btn sm" onClick={() => setNewCh(true)}>+ New</button>}</div>
         <div className="chlist">
           {filtered.map((c) => (
-            <div key={c.id} className={`ch ${tunedIds.has(c.id) ? 'tuned' : ''}`} onDoubleClick={() => { void tuneChannel(c).catch((e) => setErr(e.message)); }}>
+            <div key={c.id} className={`ch ${tunedIds.has(c.id) ? 'tuned' : ''}`} onDoubleClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>
               <span className="f">{c.freq}</span>
               <span className="n">{c.name}</span>
               <span className="act">
                 {tunedIds.has(c.id)
                   ? <span className="pill live">tuned</span>
-                  : <button className="btn sm" onClick={() => { void tuneChannel(c).catch((e) => setErr(e.message)); }}>Tune</button>}
+                  : <button className="btn sm" onClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>Tune</button>}
                 {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={async () => { if (confirm(`Delete ${c.freq} ${c.name} for everyone?`)) { await api.deleteChannel(server.id, c.id); await load(); } }}>🗑</button>}
               </span>
             </div>
@@ -589,7 +626,7 @@ function Card({ t, engine }: { t: TunedChannel; engine: RadioControl }) {
         <button className="x" title="Untune" onClick={() => engine.untune(t.channel.id)}>×</button>
       </div>
       <div className="who">
-        {t.status === 'gone' ? 'Channel was deleted' : t.status !== 'live' ? `${t.status}…`
+        {t.status === 'gone' ? 'Channel was deleted' : t.status === 'reconnecting' ? RECONNECTING : t.status !== 'live' ? `${t.status}…`
           : t.speakers.length ? <><span className="avatar talk">{initials(t.speakers[0])}</span><span className="talking">{t.speakers.join(', ')}</span></>
           : <span>{Math.max(t.listeners - 1, 0)} others tuned</span>}
       </div>

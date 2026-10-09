@@ -102,6 +102,7 @@ function previewBridge(): RadioNetBridge {
     onWheelInput: (cb) => onPreviewWheel(cb),
     onUpdateReady: (cb) => onPreviewUpdate(cb),
     installUpdate: () => { document.documentElement.dataset.updateInstall = '1'; },
+    log: () => undefined,
   };
 }
 
@@ -119,6 +120,7 @@ const browserFallback: RadioNetBridge = {
   onWheelInput: () => () => undefined,
   onUpdateReady: () => () => undefined,
   installUpdate: () => undefined,
+  log: () => undefined,
 };
 
 export const bridge: RadioNetBridge = window.radionet ?? (isPreview ? previewBridge() : browserFallback);

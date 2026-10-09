@@ -73,7 +73,7 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 - Real voice test from Tobias's PC (`spike/tests/radio-e2e.ts`, now configurable by env: `API_URL`, `SETUP_CODE`, `LIVEKIT_WS`, `LIVEKIT_HTTP`, `LIVEKIT_API_KEY/SECRET`): **14/14** (multi-room, listen-many/talk-one, TX cycling, server-enforced listen-only, admin-only channels, delete drops listeners). Media went over UDP 7882. Key-up to first audio bot->Sydney->bot: 66 ms.
 - Latency PC (NZ) -> server: ICMP 32-35 ms; HTTPS `/health` ~62 ms warm. TCP 7881 reachable.
 - Test communities were wiped afterwards by restarting `radionet-api` (in-memory store).
-- Note: Caddy also listens on UDP 443 (HTTP/3); the firewall leaves it closed, so clients use HTTP/2. Harmless.
+- Caddy is limited to HTTP/1 and HTTP/2. UDP 443 stays closed in UFW; leaving HTTP/3 on made clients retry QUIC and drop for about 30 seconds while the server stayed healthy. Access logs are JSON at `/var/log/caddy/access.log` (rotated). The API logs method, path, status and latency to the journal, and `TRUST_PROXY=1` so the join limit is per client. Re-run `setup.sh` and restart `radionet-caddy` and `radionet-api` to apply this on a box that was installed earlier.
 
 ### UI preview added (9 Oct 2026 ~6:30pm NZ)
 - https://radio-149-28-170-200.sslip.io/preview/ — built on the box from PR #1 branch `cursor/initial-radio-net-3d59` (all 22 source files checked against the branch's git blob SHAs; the Actions artifact couldn't be downloaded without GitHub auth). Bundle: index.html + index-qrK5K9D4.js + index-DB47ri7X.css.

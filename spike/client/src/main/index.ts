@@ -4,6 +4,7 @@ import { withBindDefaults } from '../shared/keybinds';
 import { duplicateWheelNotch, hookScrollReachesPage, type WheelNotch } from '../shared/radialWheel';
 import { emptyProfile, normaliseProfile, type Profile } from '../shared/profile';
 import type { HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
+import { clientLog } from './clientLog';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
 import { installDownloadedUpdate, startUpdater } from './updater';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -201,6 +202,10 @@ ipcMain.on('wheel:input', (_e, input: WheelInput) => {
 });
 
 ipcMain.on('update:install', () => installDownloadedUpdate());
+ipcMain.on('log:event', (_e, event: unknown, detail: unknown) => {
+  if (typeof event !== 'string') return;
+  clientLog(event.slice(0, 40), typeof detail === 'string' ? detail.slice(0, 300) : undefined);
+});
 
 app.whenReady().then(() => {
   // Only allow the microphone; deny every other permission request.
@@ -208,7 +213,10 @@ app.whenReady().then(() => {
   createMain();
   createOverlay();
   hotkeys.setBinds(withBindDefaults(readProfile().keybinds ?? DEFAULT_BINDS));
-  try { hotkeys.start(); } catch (err) { console.error('global hotkeys unavailable', err); }
+  try { hotkeys.start(); } catch (err) {
+    clientLog('hotkeys', 'start failed');
+    console.error('global hotkeys unavailable', err);
+  }
   startUpdater(() => main);
 });
 app.on('window-all-closed', () => { hotkeys.stop(); app.quit(); });

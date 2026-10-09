@@ -1,7 +1,9 @@
 import {
   type LocalTrackPublication, type RemoteTrack, Room, RoomEvent, Track, createLocalAudioTrack, DisconnectReason,
 } from 'livekit-client';
-import type { Api, ChannelInfo } from './api';
+import { RECONNECTING } from '../../../shared/net';
+import { isReconnectError, type Api, type ChannelInfo } from './api';
+import { clientLog } from './clientLog';
 import { resolveLivekitUrl } from './livekitUrl';
 
 /**
@@ -108,15 +110,36 @@ export class RadioEngine implements RadioControl {
       })
       .on(RoomEvent.ParticipantConnected, () => { slot.info.listeners = room.numParticipants; this.changed(); })
       .on(RoomEvent.ParticipantDisconnected, () => { slot.info.listeners = room.numParticipants; this.changed(); })
-      .on(RoomEvent.Reconnecting, () => { slot.info.status = 'reconnecting'; this.changed(); })
-      .on(RoomEvent.Reconnected, () => { slot.info.status = 'live'; this.changed(); })
+      .on(RoomEvent.Reconnecting, () => {
+        slot.info.status = 'reconnecting';
+        clientLog('livekit', `reconnecting ${channel.freq}`);
+        this.changed();
+      })
+      .on(RoomEvent.Reconnected, () => {
+        slot.info.status = 'live';
+        clientLog('livekit', `reconnected ${channel.freq}`);
+        this.changed();
+      })
       .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
         slot.info.status = 'gone'; // e.g. ROOM_DELETED when an admin deletes the channel
+        clientLog('livekit', `disconnected ${channel.freq} ${reason ?? ''}`.trim());
         if (reason === DisconnectReason.ROOM_DELETED && this.txId === channel.id) this.cycle();
         this.changed();
       });
 
-    await room.connect(resolveLivekitUrl(livekitUrl, import.meta.env.VITE_LIVEKIT_URL), grant.token, { autoSubscribe: true });
+    const url = resolveLivekitUrl(livekitUrl, import.meta.env.VITE_LIVEKIT_URL);
+    try {
+      await room.connect(url, grant.token, { autoSubscribe: true });
+    } catch (err) {
+      this.slots.delete(channel.id);
+      slot.gain.disconnect();
+      void room.disconnect();
+      clientLog('livekit', `connect ${channel.freq} failed`);
+      this.changed();
+      if (isReconnectError(err)) throw new Error(RECONNECTING);
+      throw err;
+    }
+    clientLog('livekit', `connected ${channel.freq}`);
     slot.info.status = 'live';
     slot.info.listeners = room.numParticipants;
     if (grant.canTransmit) {

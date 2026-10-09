@@ -1,3 +1,5 @@
+import { RECONNECTING, isNetworkFailure, isRouteMissing } from '../../../shared/net';
+
 /** Thin client for the Radio Net API (see spike/server). */
 export interface ChannelInfo { id: string; freq: string; freqKHz: number; name: string; restricted: boolean }
 export interface CommunityInfo { id: string; name: string; inviteCode: string; band?: { minKHz: number; maxKHz: number; stepKHz: number } }
@@ -8,21 +10,67 @@ export interface CreateResult { adminKey: string; community: CommunityInfo }
 const bakedApi = import.meta.env.VITE_API_URL;
 export const API_URL = bakedApi && bakedApi.length > 0 ? bakedApi : 'http://127.0.0.1:8787';
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly routeMissing = false) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export function isReconnectError(err: unknown): boolean {
+  return err instanceof ApiError ? err.message === RECONNECTING : isNetworkFailure(err) || (err instanceof Error && err.message === RECONNECTING);
+}
+
+/** Waits before each attempt, including a zero before the first. Tests shorten this. */
+const DEFAULT_RETRY_WAITS = [0, 400, 1200];
+
+function note(line: string) {
+  const log = (globalThis as { radionet?: { log?: (event: string, detail?: string) => void } }).radionet?.log;
+  log?.('api', line);
+}
+
 export class Api {
+  retryWaits = DEFAULT_RETRY_WAITS;
   constructor(public baseUrl: string, public token: string | null, public adminKey: string | null = null) {}
   private async req<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const res = await fetch(this.baseUrl + path, {
-      ...init,
-      headers: {
-        ...(init.body ? { 'content-type': 'application/json' } : {}),
-        ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
-        ...(this.adminKey ? { 'x-admin-key': this.adminKey } : {}),
-      },
-    });
-    if (res.status === 204) return undefined as T;
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error ?? `Request failed (${res.status})`);
-    return body as T;
+    const method = init.method ?? 'GET';
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < this.retryWaits.length; attempt++) {
+      const wait = this.retryWaits[attempt] ?? 0;
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      try {
+        const res = await fetch(this.baseUrl + path, {
+          ...init,
+          headers: {
+            ...(init.body ? { 'content-type': 'application/json' } : {}),
+            ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+            ...(this.adminKey ? { 'x-admin-key': this.adminKey } : {}),
+          },
+        });
+        if (res.status === 204) return undefined as T;
+        const body = await res.json().catch(() => ({} as { error?: string; message?: string }));
+        if (!res.ok) {
+          const routeMissing = isRouteMissing(res.status, body);
+          const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+          if (retryable && attempt < this.retryWaits.length - 1) {
+            lastStatus = res.status;
+            note(`${method} ${path} ${res.status}`);
+            continue;
+          }
+          note(`${method} ${path} ${res.status}`);
+          const message = routeMissing ? 'This server cannot delete a community' : (body.error ?? `Request failed (${res.status})`);
+          throw new ApiError(message, res.status, routeMissing);
+        }
+        return body as T;
+      } catch (err) {
+        if (err instanceof ApiError) throw err;
+        if (!isNetworkFailure(err)) throw err;
+        note(`${method} ${path} network`);
+        if (attempt === this.retryWaits.length - 1) throw new ApiError(RECONNECTING, lastStatus);
+      }
+    }
+    note(`${method} ${path} network`);
+    throw new ApiError(RECONNECTING, lastStatus);
   }
   join(inviteCode: string, callsign: string) {
     return this.req<JoinResult>('/api/join', { method: 'POST', body: JSON.stringify({ inviteCode, callsign }) });

@@ -22,6 +22,8 @@ export interface AppConfig {
   joinRateLimit?: number;
   /** Trust X-Forwarded-For from a local reverse proxy (Caddy) so rate limits see real client IPs. */
   trustProxy?: boolean;
+  /** One line per request: method, path, status, latency. Must not include tokens. */
+  log?: (line: string) => void;
 }
 
 const publicChannel = (c: Channel) => ({
@@ -58,6 +60,14 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
   // Bearer-token API (no cookies), so allowing any origin is safe; the desktop app loads from file://.
   void app.register(cors, { origin: true, methods: ['GET', 'POST', 'DELETE'] });
   const rooms = new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
+
+  const write = cfg.log ?? ((line: string) => console.log(line));
+  app.addHook('onResponse', (req, reply, done) => {
+    const path = (req.url ?? '/').split('?')[0];
+    const ms = Math.max(0, Math.round(reply.elapsedTime));
+    write(`${req.method} ${path} ${reply.statusCode} ${ms}ms`);
+    done();
+  });
 
   const hits = new Map<string, number[]>();
   const limit = cfg.joinRateLimit ?? 10;

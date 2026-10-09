@@ -35,6 +35,7 @@ const api = {
     return () => { ipcRenderer.removeListener('update:ready', h); };
   },
   installUpdate: () => ipcRenderer.send('update:install'),
+  log: (event: string, detail?: string) => ipcRenderer.send('log:event', event, detail),
 };
 export type RadioNetBridge = typeof api;
 contextBridge.exposeInMainWorld('radionet', api);
