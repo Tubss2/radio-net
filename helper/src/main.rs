@@ -1,6 +1,6 @@
 mod protocol;
 
-use protocol::{frame_text, origin_allowed, pairing_code, parse_pair, read_client_frame, Watch};
+use protocol::{frame_text, host_allowed, origin_allowed, pairing_code, parse_pair, read_client_frame, Watch};
 use sha1::{Digest, Sha1};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -72,9 +72,17 @@ fn handshake(listener: &TcpListener, expected: &str) -> Result<(Watch, TcpStream
     let split = header_end + 4;
     let request = String::from_utf8_lossy(&buf[..split]);
     let origin = header(&request, "Origin").unwrap_or_default();
-    if !origin_allowed(&origin) {
+    let host = header(&request, "Host").unwrap_or_default();
+    if !host_allowed(&host) || !origin_allowed(&origin) {
         let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-        return Err(format!("refused origin {origin}"));
+        return Err(format!("refused origin {origin} host {host}"));
+    }
+    if request.starts_with("OPTIONS ") {
+        let response = format!(
+            "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: {origin}\r\nAccess-Control-Allow-Private-Network: true\r\nAccess-Control-Allow-Methods: GET, OPTIONS\r\nVary: Origin\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+        let _ = stream.write_all(response.as_bytes());
+        return Err("preflight".into());
     }
     let key = header(&request, "Sec-WebSocket-Key").ok_or("missing websocket key")?;
     let accept = accept_key(&key);
@@ -208,6 +216,46 @@ mod tests {
     }
 
     #[test]
+    fn handshake_refuses_a_rebound_host() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            stream.write_all(b"GET / HTTP/1.1\r\nHost: evil.example\r\nOrigin: https://tubss2.github.io\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut buf = [0u8; 128];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            String::from_utf8_lossy(&buf[..n]).into_owned()
+        });
+        let err = handshake(&listener, "K7QM2P").unwrap_err();
+        assert!(err.contains("evil.example"));
+        let body = client.join().unwrap();
+        assert!(body.contains("403"));
+        assert!(!body.contains("Access-Control-Allow-Private-Network"));
+    }
+
+    #[test]
+    fn preflight_allows_private_network_only_for_pages() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            stream.write_all(b"OPTIONS / HTTP/1.1\r\nHost: 127.0.0.1:47321\r\nOrigin: https://tubss2.github.io\r\nAccess-Control-Request-Private-Network: true\r\n\r\n").unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut buf = [0u8; 512];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            String::from_utf8_lossy(&buf[..n]).into_owned()
+        });
+        let err = handshake(&listener, "K7QM2P").unwrap_err();
+        assert_eq!(err, "preflight");
+        let body = client.join().unwrap();
+        assert!(body.contains("204"));
+        assert!(body.contains("Access-Control-Allow-Origin: https://tubss2.github.io"));
+        assert!(body.contains("Access-Control-Allow-Private-Network: true"));
+        assert!(!body.contains('*'));
+    }
+
+    #[test]
     fn pump_writes_press_and_release() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -262,7 +310,7 @@ mod windows_ui {
         RIDEV_INPUTSINK, RIDEV_REMOVE, RID_INPUT, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE,
     };
     use windows::Win32::UI::Shell::{
-        Shell_NotifyIconW, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW, NIIF_INFO,
+        Shell_NotifyIconW, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, NIIF_INFO,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, LoadIconW, PostMessageW, PostQuitMessage,
@@ -275,6 +323,7 @@ mod windows_ui {
     static HWND_SLOT: AtomicIsize = AtomicIsize::new(0);
     static EVENTS: Mutex<Option<Sender<bool>>> = Mutex::new(None);
     static WATCH: Mutex<Option<Watch>> = Mutex::new(None);
+    static DISPLAY_CODE: Mutex<String> = Mutex::new(String::new());
 
     pub fn run(code: &str) {
         let listener = match TcpListener::bind(("127.0.0.1", PORT)) {
@@ -284,10 +333,15 @@ mod windows_ui {
                 return;
             }
         };
-        let expected = code.to_string();
+        let expected_loop = std::sync::Mutex::new(code.to_string());
+        *DISPLAY_CODE.lock().unwrap() = code.to_string();
         std::thread::spawn(move || loop {
-            match super::handshake(&listener, &expected) {
+            let current = expected_loop.lock().unwrap().clone();
+            match super::handshake(&listener, &current) {
                 Ok((watch, stream)) => {
+                    let next = super::pairing_code();
+                    *expected_loop.lock().unwrap() = next.clone();
+                    *DISPLAY_CODE.lock().unwrap() = next;
                     let (tx, rx) = std::sync::mpsc::channel();
                     *WATCH.lock().unwrap() = Some(watch);
                     *EVENTS.lock().unwrap() = Some(tx);
@@ -299,6 +353,7 @@ mod windows_ui {
                     *EVENTS.lock().unwrap() = None;
                     post_watch();
                 }
+                Err(err) if err == "preflight" => {}
                 Err(err) => eprintln!("{err}"),
             }
         });
@@ -343,6 +398,18 @@ mod windows_ui {
         }
     }
 
+    unsafe fn refresh_tray(hwnd: HWND) {
+        let code = DISPLAY_CODE.lock().unwrap().clone();
+        if code.is_empty() {
+            return;
+        }
+        let mut data = tray_data(hwnd, &format!("Radio Net {code}"));
+        data.uFlags = flags(NIF_TIP.0 | NIF_INFO.0);
+        data.dwInfoFlags = NIIF_INFO;
+        write_utf16(&format!("Pairing code {code}"), &mut data.szInfo);
+        let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
+    }
+
     unsafe fn add_tray(hwnd: HWND, code: &str) {
         let mut data = tray_data(hwnd, &format!("Radio Net {code}"));
         data.uFlags = flags(NIF_MESSAGE.0 | NIF_TIP.0 | NIF_INFO.0);
@@ -382,6 +449,7 @@ mod windows_ui {
                 Some(watch) => register(hwnd, &watch),
                 None => clear_raw(),
             }
+            refresh_tray(hwnd);
             return LRESULT(0);
         }
         if msg == WM_APP_TRAY {

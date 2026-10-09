@@ -8,12 +8,23 @@ describe('phone page link', () => {
     });
     expect(desktop.startsWith('https://tubss2.github.io/radio-net/#/p/')).toBe(true);
     expect(parsePhoneHash(desktop.slice(desktop.indexOf('#')))).toEqual({
-      code: 'abc12345xyz', api: 'https://radio.example',
+      code: 'abc12345xyz', api: null,
     });
+    const sydney = phonePageUrl({
+      code: 'abc12345xyz', apiBase: 'https://radio-149-28-170-200.sslip.io', electron: true, origin: 'file://', base: '/',
+    });
+    expect(parsePhoneHash(sydney.slice(sydney.indexOf('#')))?.api).toBe('https://radio-149-28-170-200.sslip.io');
     const local = phonePageUrl({
       code: 'abc12345xyz', apiBase: 'http://127.0.0.1:8787', electron: false, origin: 'http://127.0.0.1:5175', base: '/',
     });
     expect(local.startsWith('http://127.0.0.1:5175/#/p/')).toBe(true);
+    expect(parsePhoneHash(local.slice(local.indexOf('#')))?.api).toBe('http://127.0.0.1:8787');
+    expect(parsePhoneHash('#/p/abc12345xyz?api=https://evil.example')).toEqual({
+      code: 'abc12345xyz', api: null,
+    });
+    expect(parsePhoneHash('#/p/abc12345xyz?api=http://127.0.0.1:8787@evil.example')).toEqual({
+      code: 'abc12345xyz', api: null,
+    });
   });
 
   it('rejects a pairing hash whose API is not http(s)', () => {

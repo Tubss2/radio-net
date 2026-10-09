@@ -333,6 +333,7 @@ describe('phone push-to-talk pairing', () => {
     let now = 1_000_000;
     const pairs = new PhonePairs(() => now);
     const issued = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby' }, 1000);
+    expect(Buffer.from(issued.code, 'base64url')).toHaveLength(32);
     expect(pairs.take(issued.code)).toMatchObject({ sid: 'sid-1' });
     expect(pairs.take(issued.code)).toBeNull();
     const again = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby' }, 1000);
@@ -356,6 +357,7 @@ describe('phone push-to-talk pairing', () => {
     expect(redeemed.statusCode).toBe(200);
     expect(redeemed.json().token).not.toBe(session.token);
     expect(redeemed.json().identity).toBe(`phone:${claims.sid}`);
+    expect(redeemed.json().communityName).toBe('War Dogs NZ');
     expect((await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } })).statusCode).toBe(404);
     const verifier = new TokenVerifier(cfg.apiKey, cfg.apiSecret);
     const phoneClaims = await verifier.verify(redeemed.json().token);

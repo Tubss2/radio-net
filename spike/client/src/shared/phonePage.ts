@@ -1,4 +1,15 @@
 const PAGES_ROOT = 'https://tubss2.github.io/radio-net/';
+const SYDNEY_API = 'https://radio-149-28-170-200.sslip.io';
+
+/** The phone posts the pairing code here. Any other host is ignored so a rewritten link cannot collect it. */
+export function allowedPhoneApi(api: string): string | null {
+  let url: URL;
+  try { url = new URL(api); } catch { return null; }
+  if (url.username || url.password) return null;
+  if (url.origin === SYDNEY_API) return url.origin;
+  if (url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost')) return url.origin;
+  return null;
+}
 
 /** URL the phone opens. The code is one-time; the API origin tells the phone which server issued it. */
 export function phonePageUrl(opts: { code: string; apiBase: string; electron: boolean; origin: string; base: string }): string {
@@ -23,7 +34,7 @@ export function parsePhoneHash(hash: string): { code: string; api: string | null
   const query = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
   const api = new URLSearchParams(query).get('api');
   if (api && !/^https?:\/\//i.test(api)) return null;
-  return { code, api };
+  return { code, api: api ? allowedPhoneApi(api) : null };
 }
 
 export interface PhoneChannel {

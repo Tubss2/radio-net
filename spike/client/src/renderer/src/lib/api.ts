@@ -7,7 +7,7 @@ export interface Grant { channelId: string; room: string; freqKHz: number; name:
 export interface JoinResult { token: string; expiresAt: string; callsign: string; community: CommunityInfo }
 export interface CreateResult { adminKey: string; community: CommunityInfo }
 export interface PhoneHostResult { livekitUrl: string; room: string; token: string; phoneIdentity: string }
-export interface PhoneRedeemResult { livekitUrl: string; room: string; token: string; identity: string; callsign: string; communityId: string }
+export interface PhoneRedeemResult { livekitUrl: string; room: string; token: string; identity: string; callsign: string; communityId: string; communityName: string }
 
 const bakedApi = import.meta.env.VITE_API_URL;
 const apiFallback = import.meta.env.MODE === 'web' ? 'https://radio-149-28-170-200.sslip.io' : 'http://127.0.0.1:8787';

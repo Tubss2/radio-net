@@ -189,11 +189,32 @@ pub fn dom_code_to_vk(code: &str) -> Option<u16> {
     })
 }
 
+/// Typed by the user, so this is shorter than the phone's 32-byte secret, and long enough that a localhost page cannot walk it.
+pub const PAIRING_LEN: usize = 12;
+
 pub fn pairing_code() -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-    let mut bytes = [0u8; 6];
+    let mut bytes = [0u8; PAIRING_LEN];
     get_random(&mut bytes);
     bytes.into_iter().map(|b| ALPHABET[(b as usize) % ALPHABET.len()] as char).collect()
+}
+
+/// DNS rebinding keeps the attacker's Host name while the TCP peer is loopback. The name has to be loopback too.
+pub fn host_allowed(host: &str) -> bool {
+    let host = host.trim();
+    if host.is_empty() || host.starts_with('[') {
+        return false;
+    }
+    let (name, port) = match host.rsplit_once(':') {
+        Some((name, port)) => (name, Some(port)),
+        None => (host, None),
+    };
+    if let Some(port) = port {
+        if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+            return false;
+        }
+    }
+    name.eq_ignore_ascii_case("127.0.0.1") || name.eq_ignore_ascii_case("localhost")
 }
 
 fn get_random(buf: &mut [u8]) {
@@ -212,6 +233,19 @@ mod tests {
         assert!(!origin_allowed("https://tubss2.github.io.evil.com"));
         assert!(!origin_allowed("https://evil.example"));
         assert!(!origin_allowed("http://127.0.0.1.evil.com"));
+        assert!(!origin_allowed(""));
+    }
+
+    #[test]
+    fn host_must_be_loopback() {
+        assert!(host_allowed("127.0.0.1"));
+        assert!(host_allowed("127.0.0.1:47321"));
+        assert!(host_allowed("localhost:5175"));
+        assert!(!host_allowed("evil.example"));
+        assert!(!host_allowed("evil.example:47321"));
+        assert!(!host_allowed("127.0.0.1.evil.com"));
+        assert!(!host_allowed(""));
+        assert_eq!(pairing_code().len(), PAIRING_LEN);
     }
 
     #[test]
