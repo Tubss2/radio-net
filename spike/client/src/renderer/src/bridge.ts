@@ -2,7 +2,7 @@ import type { RadioNetBridge } from '../../preload';
 import { DEFAULT_BINDS } from '../../shared/keybinds';
 import { emptyProfile, normaliseProfile, type Profile } from '../../shared/profile';
 import type { Bind, Keybinds, OverlayState, WheelInput } from '../../shared/types';
-import { emitPreviewWheel, onPreviewHotkey, onPreviewOverlay, onPreviewWheel, publishOverlay } from './lib/previewBus';
+import { emitPreviewWheel, onPreviewHotkey, onPreviewOverlay, onPreviewUpdate, onPreviewWheel, publishOverlay } from './lib/previewBus';
 import { isPreview } from './lib/previewMode';
 
 /** window.radionet in Electron; a browser fallback (localStorage + in-page keys) for UI dev. */
@@ -100,6 +100,8 @@ function previewBridge(): RadioNetBridge {
     setIgnoreMouse: () => undefined,
     sendWheelInput: (input: WheelInput) => emitPreviewWheel(input),
     onWheelInput: (cb) => onPreviewWheel(cb),
+    onUpdateReady: (cb) => onPreviewUpdate(cb),
+    installUpdate: () => { document.documentElement.dataset.updateInstall = '1'; },
   };
 }
 
@@ -115,6 +117,8 @@ const browserFallback: RadioNetBridge = {
   setIgnoreMouse: () => undefined,
   sendWheelInput: () => undefined,
   onWheelInput: () => () => undefined,
+  onUpdateReady: () => () => undefined,
+  installUpdate: () => undefined,
 };
 
 export const bridge: RadioNetBridge = window.radionet ?? (isPreview ? previewBridge() : browserFallback);

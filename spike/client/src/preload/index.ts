@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Profile } from '../shared/profile';
-import type { Bind, HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
+import type { Bind, HotkeyEvent, Keybinds, OverlayState, UpdateReady, WheelInput } from '../shared/types';
 
 const api = {
   getProfile: (): Promise<Profile> => ipcRenderer.invoke('profile:get'),
@@ -29,6 +29,12 @@ const api = {
     ipcRenderer.on('wheel:input', h);
     return () => { ipcRenderer.removeListener('wheel:input', h); };
   },
+  onUpdateReady: (cb: (info: UpdateReady) => void): (() => void) => {
+    const h = (_: unknown, info: UpdateReady) => cb(info);
+    ipcRenderer.on('update:ready', h);
+    return () => { ipcRenderer.removeListener('update:ready', h); };
+  },
+  installUpdate: () => ipcRenderer.send('update:install'),
 };
 export type RadioNetBridge = typeof api;
 contextBridge.exposeInMainWorld('radionet', api);

@@ -1,8 +1,12 @@
 {
   "name": "radio-net-client",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "description": "Radio Net desktop client (M1 spike)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tubss2/radio-net.git"
+  },
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -10,7 +14,7 @@
     "start": "electron-vite preview",
     "preview": "vite --config preview/vite.config.ts --mode preview",
     "preview:build": "vite build --config preview/vite.config.ts --mode preview",
-    "dist:win": "electron-vite build && electron-builder --win nsis",
+    "dist:win": "electron-vite build && electron-builder --win nsis --publish never",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
@@ -31,7 +35,15 @@
       "**/*.node"
     ],
     "npmRebuild": false,
+    "publish": {
+      "provider": "github",
+      "owner": "Tubss2",
+      "repo": "radio-net",
+      "releaseType": "release",
+      "private": false
+    },
     "win": {
+      "verifyUpdateCodeSignature": false,
       "target": [
         {
           "target": "nsis",
@@ -49,6 +61,7 @@
     }
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "livekit-client": "^2.22.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

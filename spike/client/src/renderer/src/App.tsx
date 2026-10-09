@@ -18,6 +18,21 @@ import { useChannelWheel } from './useChannelWheel';
 
 const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
+/** Shown after electron-updater has downloaded a build. Later hides it until the next check. */
+function UpdateBar() {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => bridge.onUpdateReady((info) => setVersion(info.version)), []);
+  if (!version) return null;
+  return (
+    <div className="update-ready" role="status">
+      <span>Update ready</span>
+      <span className="ver">Radio Net {version}</span>
+      <button className="btn sm primary" type="button" onClick={() => bridge.installUpdate()}>Restart now</button>
+      <button className="btn sm ghost" type="button" onClick={() => setVersion(null)}>Later</button>
+    </div>
+  );
+}
+
 function clientFor(server: { url?: string; token?: string | null; adminKey?: string | null } | null): Api {
   if (isPreview) return new PreviewApi();
   return new Api(server?.url || API_URL, server?.token ?? null, server?.adminKey ?? null);
@@ -59,18 +74,21 @@ export function App() {
     if (profileRef.current) void save({ ...profileRef.current, keybinds: next });
   };
 
-  if (!profile) return null;
-  if (!profile.callsign) return <Callsign onSave={(callsign) => void save({ ...profile, callsign })} />;
+  if (!profile) return <UpdateBar />;
+  if (!profile.callsign) return <><Callsign onSave={(callsign) => void save({ ...profile, callsign })} /><UpdateBar /></>;
 
   const active = profile.servers.find((s) => s.id === activeId) ?? null;
   if (!active) {
     return (
-      <Home
-        profile={profile}
-        onProfile={(p) => void save(p)}
-        onOpen={(server) => setActiveId(server.id)}
-        onCreated={(server, adminKey) => { setFreshKey(adminKey); setActiveId(server.id); }}
-      />
+      <>
+        <Home
+          profile={profile}
+          onProfile={(p) => void save(p)}
+          onOpen={(server) => setActiveId(server.id)}
+          onCreated={(server, adminKey) => { setFreshKey(adminKey); setActiveId(server.id); }}
+        />
+        <UpdateBar />
+      </>
     );
   }
 
@@ -115,6 +133,7 @@ export function App() {
         onChange={changeBinds}
       />
       {freshKey && <AdminKeyReveal adminKey={freshKey} onClose={() => setFreshKey(null)} />}
+      <UpdateBar />
     </div>
   );
 }

@@ -119,7 +119,7 @@ flowchart LR
 
 ## 8. Stack (unchanged except auth)
 
-Self-hosted **LiveKit** (Sydney VPS; kit in [`../deploy/README.md`](../deploy/README.md)) · **Electron + React + TypeScript** with `livekit-client` · global input: the spike uses **uiohook-napi**; before the anti-cheat test, switch to Windows **Raw Input** (`RIDEV_INPUTSINK`), see §7 · overlay = transparent, click-through, non-focusable, always-on-top window · **Fastify** API + **JSON file** under `/var/lib/radionet` · Opus with DTX + RED, browser echo cancellation / noise suppression / auto-gain · NSIS installer + self-hosted auto-update. Reasons in v0.1 §3 still apply (see git history / `providers.md`).
+Self-hosted **LiveKit** (Sydney VPS; kit in [`../deploy/README.md`](../deploy/README.md)) · **Electron + React + TypeScript** with `livekit-client` · global input: the spike uses **uiohook-napi**; before the anti-cheat test, switch to Windows **Raw Input** (`RIDEV_INPUTSINK`), see §7 · overlay = transparent, click-through, non-focusable, always-on-top window · **Fastify** API + **JSON file** under `/var/lib/radionet` · Opus with DTX + RED, browser echo cancellation / noise suppression / auto-gain · NSIS installer + public GitHub Releases auto-update (unsigned until code signing). Reasons in v0.1 §3 still apply (see git history / `providers.md`).
 
 ## 9. Milestones (revised)
 

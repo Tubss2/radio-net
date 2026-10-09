@@ -1,10 +1,11 @@
-import type { HotkeyEvent, OverlayState, WheelInput } from '../../../shared/types';
+import type { HotkeyEvent, OverlayState, UpdateReady, WheelInput } from '../../../shared/types';
 
 type Fn<T> = (value: T) => void;
 
 const hotkeys = new Set<Fn<HotkeyEvent>>();
 const overlays = new Set<Fn<OverlayState>>();
 const wheels = new Set<Fn<WheelInput>>();
+const updates = new Set<Fn<UpdateReady>>();
 let lastOverlay: OverlayState | null = null;
 
 export function emitPreviewHotkey(event: HotkeyEvent) {
@@ -31,4 +32,12 @@ export function emitPreviewWheel(input: WheelInput) {
 export function onPreviewWheel(fn: Fn<WheelInput>) {
   wheels.add(fn);
   return () => { wheels.delete(fn); };
+}
+
+export function emitPreviewUpdate(info: UpdateReady) {
+  updates.forEach((fn) => fn(info));
+}
+export function onPreviewUpdate(fn: Fn<UpdateReady>) {
+  updates.add(fn);
+  return () => { updates.delete(fn); };
 }

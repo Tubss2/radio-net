@@ -33,6 +33,9 @@ export interface WheelChannelChoice {
   name: string;
 }
 
+/** A downloaded Windows update waiting for the user to restart. */
+export interface UpdateReady { version: string }
+
 export interface WheelView {
   open: boolean;
   segments: WheelSegmentView[];

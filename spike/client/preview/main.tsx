@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '../src/renderer/src/App';
 import { Overlay } from '../src/renderer/src/Overlay';
-import { emitPreviewHotkey } from '../src/renderer/src/lib/previewBus';
+import { emitPreviewHotkey, emitPreviewUpdate } from '../src/renderer/src/lib/previewBus';
 import { getPreviewEngine, type PreviewDemo } from '../src/renderer/src/lib/previewEngine';
 import '../src/renderer/src/styles.css';
 import './preview.css';
@@ -54,6 +54,7 @@ function Preview() {
         <button className={demo === 'you' ? 'on' : ''} onClick={() => run('you')}>You talk</button>
         <button className={demo === 'gone' ? 'on' : ''} onClick={() => run('gone')}>Command deleted</button>
         <button onClick={() => emitPreviewHotkey({ type: 'overlay' })}>Overlay F10</button>
+        <button onClick={() => emitPreviewUpdate({ version: '9.9.9' })}>Update ready</button>
         <span className="preview-hint">F2 wheel · Space talk · scroll freq · Shift+scroll volume · right-click mute</span>
       </div>
     </div>

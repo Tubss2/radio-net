@@ -3,6 +3,15 @@ name: UI preview
 on:
   push:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,3 +34,22 @@ jobs:
           name: ui-preview
           path: spike/client/preview-dist
           if-no-files-found: error
+      - name: Configure GitHub Pages
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/cursor/local-callsign-keybinds-3d59'
+        uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/cursor/local-callsign-keybinds-3d59'
+        with:
+          path: spike/client/preview-dist
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/cursor/local-callsign-keybinds-3d59'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -144,3 +144,5 @@ html.overlay-root, html.overlay-root body, html.overlay-root #root { background:
 .sounds { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line); }
 .sounds .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sounds input[type="range"] { width: 140px; }
+.update-ready { position: fixed; z-index: 40; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+.update-ready .ver { color: var(--muted); font-family: var(--mono); font-size: 12px; }

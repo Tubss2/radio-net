@@ -5,6 +5,7 @@ import { duplicateWheelNotch, hookScrollReachesPage, type WheelNotch } from '../
 import { emptyProfile, normaliseProfile, type Profile } from '../shared/profile';
 import type { HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
+import { installDownloadedUpdate, startUpdater } from './updater';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 // Test-only: fake microphone (a beep) so the app can be exercised headlessly. Never set in release builds.
@@ -199,6 +200,8 @@ ipcMain.on('wheel:input', (_e, input: WheelInput) => {
   main?.webContents.send('wheel:input', input);
 });
 
+ipcMain.on('update:install', () => installDownloadedUpdate());
+
 app.whenReady().then(() => {
   // Only allow the microphone; deny every other permission request.
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'media'));
@@ -206,5 +209,6 @@ app.whenReady().then(() => {
   createOverlay();
   hotkeys.setBinds(withBindDefaults(readProfile().keybinds ?? DEFAULT_BINDS));
   try { hotkeys.start(); } catch (err) { console.error('global hotkeys unavailable', err); }
+  startUpdater(() => main);
 });
 app.on('window-all-closed', () => { hotkeys.stop(); app.quit(); });
