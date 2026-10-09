@@ -6,11 +6,11 @@ Planning only. No build is part of 0.4.x. The wireframe is [`simple-mode.png`](s
 
 Radio Net can grow two things that share one playing screen. A **web app** at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/) talks to the Sydney API and LiveKit from a normal browser. A **Simple mode** is a small window for a second monitor: the channels you are on, who is talking, a volume and a mute, which channel you will transmit on, and a big push-to-talk.
 
-**Effort.** Web v1 is about **8 dev days**. Simple mode on desktop and in that web app is about **5**. Doing both is about **11**, because the web playing screen is the simple list rather than a second copy of the full desktop window. A supported phone app is not in that number.
+**Effort.** Web v1 is about **9 dev days**. Simple mode on desktop and in that web app is about **5**. Doing both is about **12**, because the web playing screen is the simple list rather than a second copy of the full desktop window. A supported phone app is not in that number.
 
-**Trade-offs.** The browser cannot hear a global hotkey and cannot draw the game overlay. You talk with Space or a hold button only while that tab is in front. A fullscreen game on the same monitor will not see the button. Always-on-top is a desktop window; a browser tab cannot sit above the game. The admin key and invite code in browser storage are easier to copy than the desktop profile, which the OS can encrypt. Phones can maybe listen in the foreground. They are a poor place to talk on several rooms while a game is running.
+**Trade-offs.** The browser cannot hear a global hotkey and cannot draw the game overlay. You talk with a rebindable key, a hold button, or voice activation only while that tab is in front. A fullscreen game on the same monitor will not see them. Chromium can still toggle mute from a headset button while the tab is in the background. Always-on-top is a desktop window; a browser tab cannot sit above the game. The playing screen says to use the desktop app for in-game push-to-talk. The admin key and invite code in browser storage are easier to copy than the desktop profile, which the OS can encrypt. Phones can maybe listen in the foreground. They are a poor place to talk on several rooms while a game is running.
 
-**v1 of the web app:** join with an invite, store the callsign in the browser, listen to several channels, talk on one, and let an admin create and delete channels. Simple mode is how that looks while you play. The radial wheel, the overlay, mouse-button push-to-talk, and the auto-updater stay on the desktop app.
+**v1 of the web app:** join with an invite, store the callsign in the browser, listen to several channels, talk on one, and let an admin create and delete channels. Simple mode is how that looks while you play. The radial wheel, the overlay, global push-to-talk, and the auto-updater stay on the desktop app.
 
 ## A. Web app on GitHub Pages
 
@@ -48,13 +48,32 @@ Pages is HTTPS, so `getUserMedia` is allowed. The first talk, or an explicit “
 
 Same profile as the desktop: callsign, server list (name, URL, invite, last used), tuned channels, transmit channel, mute, volume, and the optional admin key. `localStorage` on `https://tubss2.github.io` is the store. It is per browser profile, survives restarts, and is not synced to the server. Closing the browser does not log you out unless we put the session token in `sessionStorage`. v1 does that: the 12-hour session dies with the tab, and the invite plus callsign are enough to join again. Volumes and the channel picks stay in `localStorage`.
 
-### Push-to-talk
+### Push-to-talk in the browser
 
-Only while the tab is focused. Space (the preview already does this when it is not inside Electron) and a hold button. Key-up, pointer-up, pointer leave, window blur, and `visibilitychange` to hidden all release the key. A tab you alt-tab away from must not stay on air. There is no Mouse 4, no F2 wheel, and no F10 overlay. Those need the global hook and a second window.
+A page only receives the keyboard while its tab is focused. Browsers do not offer the global hook the desktop app uses for Mouse 4. Discord documents the same limit: push-to-talk in the browser app works only while the window is focused, and system-wide push-to-talk means their desktop app ([Voice Input Modes 101](https://support.discord.com/hc/en-us/articles/211376518)). The web playing screen says, in plain words, to use the Radio Net desktop app for in-game push-to-talk.
+
+**Web v1**
+
+- A rebindable in-page key, Space until the user changes it, plus the big on-screen hold button. The key is saved with the browser profile. It is not the desktop global bind.
+- Key-up, pointer-up, pointer leave, window blur, and `visibilitychange` to hidden all release the key. Alt-tabbing back to the game cannot leave the mic open.
+- Voice activation as the other input mode: a sensitivity slider and a release delay, so the end of a word is not chopped. It stops when the tab is hidden, same as the key.
+- Headset and media-key mute through the Media Session API (`setMicrophoneActive`, and the `togglemicrophone` action). Chromium delivers that action while the tab is in the background. It toggles mute. It is not hold-to-talk. Other browsers may ignore it; the on-screen button is still there.
+- Keep the microphone track published and mute or unmute it. `radioEngine` already does this. Opening a new publish on every key-down clips the start of the transmission.
+
+**Later**
+
+- A phone as a push-to-talk remote, sending LiveKit data messages to the browser session that holds the mic.
+- A gamepad button, only while the tab is focused.
+- A Document Picture-in-Picture mini panel of Simple mode, where the browser allows that small window.
+- An experimental WebHID or MIDI pedal. Chrome only. Confirm the browser still delivers those events while the tab is in the background before calling it a way to talk from inside a game.
+
+**Skip**
+
+A Chrome extension, and a native helper beside the browser. Either one is a second program to install, which is what the desktop app already is.
 
 ### Background tabs
 
-Chrome and Edge usually keep WebRTC audio playing in a background tab, which is what you want on a second monitor if the browser window is visible but not focused. They also slow timers, so the 10-second channel refresh can lag. Firefox and Safari are more likely to suspend the audio context. If that happens, the page says the tab is asleep and a click resumes it. Transmitting always stops when the tab is hidden. Do not try to transmit from a background tab.
+Chrome and Edge usually keep WebRTC audio playing in a background tab, which is what you want on a second monitor if the browser window is visible but not focused. They also slow timers, so the 10-second channel refresh can lag. Firefox and Safari are more likely to suspend the audio context. If that happens, the page says the tab is asleep and a click resumes it. The keyboard and voice activation stop transmitting when the tab is hidden. The Chromium headset mute toggle can still mute or unmute in the background. A background tab is not in-game push-to-talk.
 
 ### Phones
 
@@ -73,9 +92,9 @@ The desktop profile is a file in user data, mode `0600`, encrypted with the OS w
 
 ### Web v1, in and out
 
-In: callsign, join by invite, server list in the browser, tune several channels and hear them, one transmit channel, Space and a hold button while the tab is focused, admin create and delete channel when the key is present, reconnect wording that already exists, Simple mode as the playing view.
+In: callsign, join by invite, server list in the browser, tune several channels and hear them, one transmit channel, a rebindable in-page key, a hold button, voice activation, the Chromium headset mute toggle, the desktop-app notice for in-game push-to-talk, admin create and delete channel when the key is present, reconnect wording that already exists, Simple mode as the playing view.
 
-Out: global hotkeys, overlay, radial wheel, per-ear pan (the full desktop cards keep it), auto-update, a supported phone client, accounts.
+Out: global hotkeys, a Chrome extension, a native helper, overlay, radial wheel, per-ear pan (the full desktop cards keep it), auto-update, a supported phone client, accounts.
 
 ### Effort (web)
 
@@ -84,10 +103,10 @@ Out: global hotkeys, overlay, radial wheel, per-ear pan (the full desktop cards 
 | Real browser build (API + LiveKit, not the mock preview) and hiding Electron-only controls | 3 |
 | Pages workflow, baked Sydney URLs, CSP, mock moved off the site root | 1 |
 | CORS allowlist that still lets the `file://` app through | 0.5 |
-| Mic gesture, audio unlock, push-to-talk release on blur and hide | 1.5 |
+| Mic gesture, audio unlock, rebindable key, hold button, voice activation, headset mute, release on blur and hide | 2.5 |
 | Storage split (local settings vs session token) and the admin-key warning | 1 |
 | Background-tab pass on Chrome and Edge, plus a one-day phone note | 1 |
-| **Web v1** | **8** |
+| **Web v1** | **9** |
 
 ## B. Simple mode
 
@@ -114,7 +133,7 @@ The global Mouse 4 push-to-talk still works in the desktop app while the game is
 
 ### Web
 
-The same list and the same button. There is no always-on-top and no global hotkey. You park the browser on the second monitor. If the tab is visible but not focused, audio can keep playing (see background tabs above) and the button will not key until you click the window. Space works after that click.
+The same list and the same button. There is no always-on-top and no global hotkey. You park the browser on the second monitor. If the tab is visible but not focused, audio can keep playing (see background tabs above) and the key will not key until you click the window. The in-page key works after that click. The Chromium headset button can still toggle mute while the window is not focused.
 
 ### Effort (simple mode)
 
@@ -125,7 +144,7 @@ The same list and the same button. There is no always-on-top and no global hotke
 | Wire it into the web playing view | 1 |
 | **Simple mode** | **5** |
 
-Together with web v1, about **11 dev days**. Building the full three-column desktop UI again for the browser, and then also building this list, would be the 8 plus extra screen work on top.
+Together with web v1, about **12 dev days**. Building the full three-column desktop UI again for the browser, and then also building this list, would be the 9 plus extra screen work on top.
 
 ### Trade-offs
 
