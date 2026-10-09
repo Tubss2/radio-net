@@ -30,3 +30,6 @@ livekit_*.tar.gz
 # Python
 __pycache__/
 *.pyc
+
+# Rust helper build
+helper/target/

@@ -59,4 +59,13 @@ describe('GitHub Releases updates', () => {
     expect(yml).toContain('spike/client/web-dist');
     expect(yml).toContain('name: web-site');
   });
+
+  it('builds the Windows helper as an artifact and does not publish a release', () => {
+    const yml = readFileSync(join(repoRoot, '.github/workflows/ptt-helper.yml'), 'utf8');
+    expect(yml).toContain('RadioNetHelper.exe');
+    expect(yml).toContain('name: RadioNetHelper');
+    expect(yml).toContain('contents: read');
+    expect(yml).not.toContain('softprops/action-gh-release');
+    expect(yml).not.toContain('gh release');
+  });
 });

@@ -15,6 +15,8 @@ import { PreviewApi } from './lib/previewApi';
 import { PreviewEngine } from './lib/previewEngine';
 import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
 import { isWeb } from './platform';
+import { PhoneLink } from './PhoneLink';
+import { HelperLink } from './HelperLink';
 import { RadialWheel } from './RadialWheel';
 import { Settings } from './Settings';
 import { SimpleRadio } from './SimpleRadio';
@@ -369,6 +371,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
   const [arming, setArming] = useState(false);
   const [simpleOn, setSimpleOn] = useState(boot.simpleOn);
   const [onTop, setOnTop] = useState(boot.simpleOnTop);
+  const externalDown = useRef(false);
   const talk = useTalk({
     enabled: isWeb,
     engine,
@@ -376,6 +379,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
     mode: boot.talkMode,
     sensitivity: boot.voiceSensitivity,
     releaseMs: boot.voiceReleaseMs,
+    externalDown,
   });
   const bootRef = useRef(boot);
   const profileRef = useRef(boot);
@@ -663,12 +667,14 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
   if (isWeb) {
     return (
       <div className="web-main">
-        <p className="notice">Use the desktop app or a phone for in-game push-to-talk. This page transmits only while the tab is in front.</p>
+        <p className="notice">Use a phone, the Windows helper, or the desktop app for in-game push-to-talk. This page transmits only while the tab is in front.</p>
         <div className="web-bar">
           <strong>{server.name}</strong>
           <span className="sub">{callsign}</span>
           <button className="btn sm" onClick={() => setChannelsOpen((v) => !v)}>{channelsOpen ? 'Radio' : 'Channels'}</button>
           <button className="btn sm" onClick={() => setTalkOpen((v) => !v)}>Talk</button>
+          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
+          {!isPreview && <HelperLink engine={engine} externalDown={externalDown} talkKey={boot.talkKey} talkLabel={talkKeyLabel(boot.talkKey)} />}
           {isAdmin && <button className="btn sm" onClick={() => setNewCh(true)}>+ New</button>}
         </div>
         {err && <div className="err">{err}</div>}
@@ -715,6 +721,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         <div className="web-bar">
           <strong>{server.name}</strong>
           <button className="btn sm" onClick={() => { setSimpleOn(false); patchProfile({ simpleOn: false }); }}>Full radio</button>
+          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
           <label className="sub"><input type="checkbox" checked={onTop} onChange={(e) => { setOnTop(e.target.checked); patchProfile({ simpleOnTop: e.target.checked }); }} /> Always on top</label>
         </div>
         <SimpleRadio engine={engine} onDown={() => { void engine.ptt(true); }} onUp={() => { void engine.ptt(false); }} label={binds.ptt?.label ?? 'Hold'} />
@@ -757,6 +764,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
           <div className="avatar">{initials(callsign)}</div>
           <div style={{ flex: 1 }}><div>{callsign}</div><div className="sub" style={{ margin: 0 }}>{inElectron ? 'Global hotkeys on' : 'Browser preview: hold Space'}</div></div>
           {inElectron && <button className="btn sm" onClick={() => { setSimpleOn(true); patchProfile({ simpleOn: true }); }}>Simple</button>}
+          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
           <button className="btn sm" onClick={openSettings}>Keybinds</button>
         </div>
       </aside>

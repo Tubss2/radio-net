@@ -6,6 +6,8 @@ export interface CommunityInfo { id: string; name: string; inviteCode: string; b
 export interface Grant { channelId: string; room: string; freqKHz: number; name: string; canTransmit: boolean; token: string }
 export interface JoinResult { token: string; expiresAt: string; callsign: string; community: CommunityInfo }
 export interface CreateResult { adminKey: string; community: CommunityInfo }
+export interface PhoneHostResult { livekitUrl: string; room: string; token: string; phoneIdentity: string }
+export interface PhoneRedeemResult { livekitUrl: string; room: string; token: string; identity: string; callsign: string; communityId: string }
 
 const bakedApi = import.meta.env.VITE_API_URL;
 const apiFallback = import.meta.env.MODE === 'web' ? 'https://radio-149-28-170-200.sslip.io' : 'http://127.0.0.1:8787';
@@ -93,5 +95,14 @@ export class Api {
   deleteCommunity(cid: string) { return this.req<void>(`/api/communities/${cid}`, { method: 'DELETE' }); }
   tokens(cid: string, channelIds: string[]) {
     return this.req<{ livekitUrl: string; grants: Grant[] }>(`/api/communities/${cid}/radio/tokens`, { method: 'POST', body: JSON.stringify({ channelIds }) });
+  }
+  phoneHost(cid: string) {
+    return this.req<PhoneHostResult>(`/api/communities/${cid}/radio/phone-host`, { method: 'POST' });
+  }
+  phonePair(cid: string) {
+    return this.req<{ code: string; expiresAt: string }>(`/api/communities/${cid}/radio/phone-pair`, { method: 'POST' });
+  }
+  phoneRedeem(code: string) {
+    return this.req<PhoneRedeemResult>('/api/phone/redeem', { method: 'POST', body: JSON.stringify({ code }) });
   }
 }

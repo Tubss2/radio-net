@@ -10,6 +10,7 @@ import {
 import { allowBrowserOrigin } from './cors.js';
 import { DEFAULT_BAND, formatFrequency } from './freq.js';
 import { type Channel, ChannelError, type ChannelStore, type Community, roomNameFor } from './store.js';
+import { mintPhoneToken, phoneIdentity, phoneRoomName, PhonePairs } from './phone.js';
 import { type RadioUser, mintChannelGrants } from './tokens.js';
 
 export interface AppConfig {
@@ -75,6 +76,7 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     done();
   });
 
+  const phonePairs = new PhonePairs();
   const hits = new Map<string, number[]>();
   const limit = cfg.joinRateLimit ?? 10;
   const rateLimit = (req: FastifyRequest) => {
@@ -241,6 +243,42 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     const chans = body.channelIds.map((id) => store.get(req.params.cid, id)).filter((c): c is Channel => Boolean(c));
     const grants = await mintChannelGrants({ apiKey: cfg.apiKey, apiSecret: cfg.apiSecret, user, channels: chans });
     return { livekitUrl: cfg.livekitUrl, grants };
+  });
+
+  /** The computer joins a data-only room so a paired phone can key the mic already published on the voice rooms. */
+  app.post<{ Params: { cid: string } }>('/api/communities/:cid/radio/phone-host', async (req) => {
+    const { user } = member(req, req.params.cid);
+    const room = phoneRoomName(req.params.cid, user.id);
+    const token = await mintPhoneToken({
+      apiKey: cfg.apiKey, apiSecret: cfg.apiSecret, room, identity: user.id, name: user.displayName,
+    });
+    return { livekitUrl: cfg.livekitUrl, room, token, phoneIdentity: phoneIdentity(user.id) };
+  });
+
+  /** One-time code for the QR. It expires in two minutes and works once. */
+  app.post<{ Params: { cid: string } }>('/api/communities/:cid/radio/phone-pair', async (req) => {
+    const { user } = member(req, req.params.cid);
+    rateLimit(req);
+    return phonePairs.issue({ cid: req.params.cid, sid: user.id, name: user.displayName });
+  });
+
+  /** The phone trades the code for a data-only token. It does not receive the computer's session. */
+  app.post('/api/phone/redeem', async (req) => {
+    rateLimit(req);
+    const body = z.object({ code: z.string().min(8).max(80) }).parse(req.body);
+    const subject = phonePairs.take(body.code);
+    if (!subject || !store.getCommunity(subject.cid)) throw new HttpError(404, 'That pairing code is not valid');
+    const room = phoneRoomName(subject.cid, subject.sid);
+    const token = await mintPhoneToken({
+      apiKey: cfg.apiKey, apiSecret: cfg.apiSecret, room,
+      identity: phoneIdentity(subject.sid), name: `${subject.name} phone`,
+    });
+    return {
+      livekitUrl: cfg.livekitUrl, room, token,
+      identity: phoneIdentity(subject.sid),
+      callsign: subject.name,
+      communityId: subject.cid,
+    };
   });
 
   return app;
