@@ -1,6 +1,10 @@
 name: Windows installer
 
 on:
+  # Manual runs can override the baked URLs once this file is on the default branch.
+  # Pull requests build the installer too: GitHub will not dispatch a workflow that
+  # exists only on a feature branch, and a pull request has no inputs, so it uses the defaults.
+  pull_request:
   workflow_dispatch:
     inputs:
       api_url:
@@ -16,8 +20,8 @@ jobs:
   installer:
     runs-on: windows-latest
     env:
-      VITE_API_URL: ${{ inputs.api_url != '' && inputs.api_url || 'https://radio-149-28-170-200.sslip.io' }}
-      VITE_LIVEKIT_URL: ${{ inputs.livekit_url != '' && inputs.livekit_url || 'wss://lk-149-28-170-200.sslip.io' }}
+      VITE_API_URL: ${{ github.event.inputs.api_url || 'https://radio-149-28-170-200.sslip.io' }}
+      VITE_LIVEKIT_URL: ${{ github.event.inputs.livekit_url || 'wss://lk-149-28-170-200.sslip.io' }}
       # Unsigned on purpose. Do not let electron-builder look for a certificate.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
