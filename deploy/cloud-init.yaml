@@ -13,9 +13,11 @@ packages:
   - rsync
   - xz-utils
   - unattended-upgrades
+  - fail2ban
 runcmd:
   - [mkdir, -p, -m, "700", /root/.ssh]
   - [sh, -c, "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILQQkYxdfA+A7h995xxSFX8UetAyukXCL6CWE8pJNzjt radio-net-deploy' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys"]
+  - [sh, -c, "mkdir -p /etc/ssh/sshd_config.d && printf '%s\\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'PermitRootLogin prohibit-password' > /etc/ssh/sshd_config.d/99-radionet.conf && (systemctl reload ssh || systemctl reload sshd || true)"]
   - [ufw, default, deny, incoming]
   - [ufw, allow, 22/tcp]
   - [ufw, allow, 80/tcp]

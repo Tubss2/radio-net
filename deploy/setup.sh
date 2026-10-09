@@ -48,7 +48,13 @@ if [[ ! -s "$SECRETS_FILE" ]]; then
 LIVEKIT_API_KEY=API$(rand 32 12)
 LIVEKIT_API_SECRET=$(rand 96 48)
 COMMUNITY_SETUP_CODE=$(rand 32 4)-$(rand 32 4)-$(rand 32 4)
+RN_STORE_MAC_KEY=$(rand 96 48)
 SECRETS
+  umask 022
+fi
+if ! grep -q '^RN_STORE_MAC_KEY=' "$SECRETS_FILE"; then
+  umask 077
+  echo "RN_STORE_MAC_KEY=$(rand 96 48)" >> "$SECRETS_FILE"
   umask 022
 fi
 # shellcheck disable=SC1090
@@ -90,7 +96,13 @@ ${ACME_EMAIL:+	email ${ACME_EMAIL}}
 			roll_keep 5
 			roll_keep_for 168h
 		}
-		format json
+		# Drop request headers so Authorization and X-Admin-Key never land in the access log.
+		format filter {
+			wrap json
+			fields {
+				request>headers delete
+			}
+		}
 	}
 }
 
@@ -143,7 +155,7 @@ fi
 log "Packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates ufw rsync xz-utils unattended-upgrades >/dev/null
+apt-get install -y -qq curl ca-certificates ufw rsync xz-utils unattended-upgrades fail2ban >/dev/null
 
 log "User and directories"
 id radionet >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin radionet
@@ -193,6 +205,32 @@ install -m 644 "$SRC_DIR/deploy/systemd/"*.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now livekit.service radionet-api.service radionet-caddy.service
 systemctl restart livekit.service radionet-api.service radionet-caddy.service
+
+log "SSH, unattended upgrades, fail2ban"
+install -d -m 755 /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/99-radionet.conf <<'EOF'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+EOF
+if systemctl is-active --quiet ssh; then systemctl reload ssh
+elif systemctl is-active --quiet sshd; then systemctl reload sshd
+fi
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+systemctl enable --now unattended-upgrades
+cat > /etc/fail2ban/jail.d/radionet.local <<'EOF'
+[sshd]
+enabled = true
+port = ssh
+maxretry = 5
+findtime = 10m
+bantime = 1h
+EOF
+systemctl enable --now fail2ban
+systemctl restart fail2ban
 
 log "Firewall"
 ufw default deny incoming >/dev/null
