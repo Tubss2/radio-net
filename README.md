@@ -88,7 +88,7 @@ The **Windows installer** workflow builds an unsigned NSIS installer on `windows
 
 `RN_FAKE_MEDIA` is not set. The job fails if that variable is present, so a release build cannot ship the fake microphone.
 
-The current client version is **0.4.3**. The release is `RadioNet-Setup-0.4.3.exe` on the public GitHub Release `v0.4.3` (Actions artifact name `RadioNet-Setup-0.4.3`, which also holds `latest.yml` and the blockmap). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
+The current client version is **0.4.4**. The release is `RadioNet-Setup-0.4.4.exe` on the public GitHub Release `v0.4.4` (Actions artifact name `RadioNet-Setup-0.4.4`, which also holds `latest.yml` and the blockmap). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
 
 The installed app checks that public release on startup and every four hours, downloads in the background, and shows **Update ready** with **Restart now** and **Later**. Signature checks are off until the installer is code-signed. Anyone who can publish a GitHub Release on this repo can ship a build the client will install. The installer workflow also writes `SHA256SUMS.txt` (SHA-256 of the exe) into the Actions artifact and, when it publishes, attaches that file to the GitHub Release. That checksum matches the file. It does not prove who built it.
 
@@ -100,7 +100,7 @@ The client version is semver in [`spike/client/package.json`](spike/client/packa
 npm version 0.5.0 --no-git-tag-version
 ```
 
-Use the next version in place of `0.5.0`. That updates `package.json` and `package-lock.json`. Commit the result, then tag the same commit and push the tag:
+Use the next version in place of `0.5.0`. That updates `package.json` and `package-lock.json`. Rewrite [`spike/client/release-notes.md`](spike/client/release-notes.md) in plain English for that version. The publisher attaches that file to the GitHub Release and to `latest.yml`. Commit the result, then tag the same commit and push the tag:
 
 ```bash
 git tag v0.5.0
@@ -109,11 +109,11 @@ git push origin v0.5.0
 
 The tag must be `v` plus the `package.json` version. That workflow run publishes `RadioNet-Setup-<version>.exe`, `RadioNet-Setup-<version>.exe.blockmap`, and `latest.yml` to a public GitHub Release with `GITHUB_TOKEN`. A manual **Windows installer** run does the same when **publish** is left on (it also creates the tag). Every other push only uploads the Actions artifact.
 
-| Piece | Name for 0.4.3 |
+| Piece | Name for 0.4.4 |
 |---|---|
-| NSIS file | `RadioNet-Setup-0.4.3.exe` |
-| Blockmap | `RadioNet-Setup-0.4.3.exe.blockmap` |
-| Update feed | `latest.yml` on the `v0.4.3` GitHub Release |
-| Actions artifact | `RadioNet-Setup-0.4.3` |
-| Installer and app exe properties | File version and Product version `0.4.3` |
-| In-app keybinds settings | `Radio Net 0.4.3` |
+| NSIS file | `RadioNet-Setup-0.4.4.exe` |
+| Blockmap | `RadioNet-Setup-0.4.4.exe.blockmap` |
+| Update feed | `latest.yml` on the `v0.4.4` GitHub Release |
+| Actions artifact | `RadioNet-Setup-0.4.4` |
+| Installer and app exe properties | File version and Product version `0.4.4` |
+| In-app keybinds settings | `Radio Net 0.4.4` |

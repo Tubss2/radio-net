@@ -1,6 +1,6 @@
 {
   "name": "radio-net-client",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "description": "Radio Net desktop client (M1 spike)",
   "repository": {
@@ -37,6 +37,9 @@
       "**/*.node"
     ],
     "npmRebuild": false,
+    "releaseInfo": {
+      "releaseNotesFile": "release-notes.md"
+    },
     "publish": {
       "provider": "github",
       "owner": "Tubss2",
