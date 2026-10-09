@@ -1,0 +1,19 @@
+{
+  "name": "radio-net-helper",
+  "private": true,
+  "type": "module",
+  "description": "Localhost push-to-talk helper gate. Binds 127.0.0.1 and accepts one Pages origin.",
+  "scripts": {
+    "test": "vitest run && gcc -DRAW_INPUT_TEST -Wall -Wextra -Werror -o /tmp/radionet-rawinput-test native/rawinput.c && /tmp/radionet-rawinput-test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
