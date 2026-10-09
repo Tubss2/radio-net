@@ -44,8 +44,8 @@ export function scrollSteps(delta: number): number {
 
 /**
  * The hook should move the dial whenever the wheel is on screen, including after a short
- * press latches it and G has been released. Holding G still counts, so a notch that arrives
- * before the overlay has finished showing is not dropped.
+ * press latches it and F2 has been released. Holding the wheel key still counts, so a notch
+ * that arrives before the overlay has finished showing is not dropped.
  */
 export function hookShouldEmitScroll(state: { wheelOpen: boolean; wheelKeyHeld: boolean }): boolean {
   return state.wheelOpen || state.wheelKeyHeld;
