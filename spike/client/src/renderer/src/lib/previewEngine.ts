@@ -36,6 +36,9 @@ export class PreviewEngine implements RadioControl {
     return [...this.slots.values()].sort((a, b) => a.channel.freqKHz - b.channel.freqKHz);
   }
 
+  unlock() { return Promise.resolve(); }
+  monitorMic() { return () => undefined; }
+
   async tune(channel: ChannelInfo) {
     if (this.slots.has(channel.id)) return;
     this.slots.set(channel.id, {

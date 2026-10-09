@@ -8,7 +8,8 @@ export interface JoinResult { token: string; expiresAt: string; callsign: string
 export interface CreateResult { adminKey: string; community: CommunityInfo }
 
 const bakedApi = import.meta.env.VITE_API_URL;
-export const API_URL = bakedApi && bakedApi.length > 0 ? bakedApi : 'http://127.0.0.1:8787';
+const apiFallback = import.meta.env.MODE === 'web' ? 'https://radio-149-28-170-200.sslip.io' : 'http://127.0.0.1:8787';
+export const API_URL = bakedApi && bakedApi.length > 0 ? bakedApi : apiFallback;
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly routeMissing = false) {

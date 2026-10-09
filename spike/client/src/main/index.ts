@@ -201,6 +201,25 @@ ipcMain.on('wheel:input', (_e, input: WheelInput) => {
   main?.webContents.send('wheel:input', input);
 });
 
+/** Simple mode is this same window, resized. A second window would open a second microphone. */
+ipcMain.on('window:simple', (_e, payload: unknown) => {
+  if (!main || !payload || typeof payload !== 'object') return;
+  const body = payload as { compact?: unknown; alwaysOnTop?: unknown };
+  const compact = body.compact === true;
+  const onTop = body.alwaysOnTop === true;
+  if (compact) {
+    main.setMinimumSize(360, 480);
+    const [w] = main.getSize();
+    if (w > 520) main.setSize(420, 640);
+    main.setAlwaysOnTop(onTop, 'floating');
+    return;
+  }
+  main.setAlwaysOnTop(false);
+  main.setMinimumSize(880, 600);
+  const [w, h] = main.getSize();
+  if (w < 880 || h < 600) main.setSize(1120, 760);
+});
+
 ipcMain.on('update:install', () => installDownloadedUpdate());
 ipcMain.on('log:event', (_e, event: unknown, detail: unknown) => {
   if (typeof event !== 'string') return;

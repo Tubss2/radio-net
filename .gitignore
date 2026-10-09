@@ -6,6 +6,7 @@ dist/
 out/
 build/
 spike/client/preview-dist/
+spike/client/web-dist/
 spike/client/release/
 *.tsbuildinfo
 

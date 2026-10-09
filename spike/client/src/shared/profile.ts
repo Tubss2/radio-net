@@ -32,11 +32,28 @@ export interface Profile {
   soundsOn: boolean;
   /** Master level for those cues, 0 to 1. */
   soundVolume: number;
+  /** In-page push-to-talk key (`KeyboardEvent.code`). The desktop app uses the global bind. */
+  talkKey: string;
+  talkMode: 'hold' | 'voice';
+  /** 0 is least sensitive, 1 opens on a quiet voice. */
+  voiceSensitivity: number;
+  voiceReleaseMs: number;
+  /** Desktop: the main window is the compact list. */
+  simpleOn: boolean;
+  simpleOnTop: boolean;
   radios: Record<string, RadioPrefs>;
 }
 
 export function emptyProfile(): Profile {
-  return { callsign: '', servers: [], keybinds: null, overlayOn: true, soundsOn: true, soundVolume: DEFAULT_SOUND_VOLUME, radios: {} };
+  return {
+    callsign: '', servers: [], keybinds: null, overlayOn: true, soundsOn: true, soundVolume: DEFAULT_SOUND_VOLUME,
+    talkKey: 'Space', talkMode: 'hold', voiceSensitivity: 0.45, voiceReleaseMs: 300, simpleOn: false, simpleOnTop: false, radios: {},
+  };
+}
+
+function clamp01(n: unknown, fallback: number): number {
+  const v = typeof n === 'number' && Number.isFinite(n) ? n : fallback;
+  return Math.min(1, Math.max(0, v));
 }
 
 export function emptyRadio(): RadioPrefs {
@@ -54,6 +71,12 @@ export function normaliseProfile(raw: unknown): Profile {
     overlayOn: p.overlayOn !== false,
     soundsOn: p.soundsOn !== false,
     soundVolume: clampSoundVolume(p.soundVolume),
+    talkKey: typeof p.talkKey === 'string' && p.talkKey ? p.talkKey : 'Space',
+    talkMode: p.talkMode === 'voice' ? 'voice' : 'hold',
+    voiceSensitivity: clamp01(p.voiceSensitivity, 0.45),
+    voiceReleaseMs: typeof p.voiceReleaseMs === 'number' && p.voiceReleaseMs >= 50 && p.voiceReleaseMs <= 2000 ? p.voiceReleaseMs : 300,
+    simpleOn: p.simpleOn === true,
+    simpleOnTop: p.simpleOnTop === true,
     radios: p.radios && typeof p.radios === 'object' ? p.radios : {},
   };
 }

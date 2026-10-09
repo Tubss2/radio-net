@@ -14,9 +14,12 @@ import { isPreview } from './lib/previewMode';
 import { PreviewApi } from './lib/previewApi';
 import { PreviewEngine } from './lib/previewEngine';
 import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
+import { isWeb } from './platform';
 import { RadialWheel } from './RadialWheel';
 import { Settings } from './Settings';
+import { SimpleRadio } from './SimpleRadio';
 import { useChannelWheel } from './useChannelWheel';
+import { useTalk } from './useTalk';
 
 const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
@@ -95,7 +98,7 @@ export function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app${isWeb ? ' web' : ''}${!isWeb && profile.simpleOn ? ' simple' : ''}`}>
       <div className="titlebar" />
       <nav className="rail">
         {[...profile.servers].sort((a, b) => b.lastUsed.localeCompare(a.lastUsed)).map((c) => (
@@ -176,7 +179,7 @@ function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
       <div className="titlebar" />
       <div className="box">
         <h1>Your callsign</h1>
-        <p>Stored on this PC. There is no account and nothing to sign in to.</p>
+        <p>Stored {isWeb ? 'in this browser' : 'on this PC'}. There is no account and nothing to sign in to.</p>
         <label className="field">Callsign<input placeholder="Toby" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
         {err && <div className="err">{err}</div>}
         <button className="btn primary" onClick={go}>Continue</button>
@@ -274,7 +277,7 @@ function Home({ profile, onProfile, onOpen, onCreated }: {
       <div className="titlebar" />
       <div className="box servers">
         <h1>{mode === 'join' ? 'Join a server' : 'Start a community'}</h1>
-        <p>{mode === 'join' ? 'Use the invite code from your community. Servers you have joined stay on this PC.' : 'You get an invite code for the group, and an admin key that stays on this PC.'}</p>
+        <p>{mode === 'join' ? `Use the invite code from your community. Servers you have joined stay ${isWeb ? 'in this browser' : 'on this PC'}.` : `You get an invite code for the group, and an admin key that stays ${isWeb ? 'in this browser' : 'on this PC'}.`}</p>
         <label className="field">Callsign<input placeholder="Toby" value={callsign} onChange={(e) => setCallsign(e.target.value)} /></label>
         {history.length > 0 && mode === 'join' && (
           <div className="history">
@@ -315,7 +318,7 @@ function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () =
     <div className="modal-bg">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3 style={{ margin: 0 }}>Community admin key</h3>
-        <p className="sub" style={{ margin: 0 }}>This is shown once. It is saved on this PC. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.</p>
+        <p className="sub" style={{ margin: 0 }}>This is shown once. It is saved {isWeb ? 'in this browser' : 'on this PC'}. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.</p>
         <div className="keybox">{adminKey}</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn ghost" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button>
@@ -324,6 +327,13 @@ function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () =
       </div>
     </div>
   );
+}
+
+function talkKeyLabel(code: string): string {
+  if (code === 'Space') return 'Space';
+  if (code.startsWith('Key') && code.length === 4) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  return code;
 }
 
 function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }: {
@@ -354,6 +364,19 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
   const [copiedKey, setCopiedKey] = useState(false);
   const [deleteSupported, setDeleteSupported] = useState(true);
   const isAdmin = Boolean(server.adminKey);
+  const [channelsOpen, setChannelsOpen] = useState(false);
+  const [talkOpen, setTalkOpen] = useState(false);
+  const [arming, setArming] = useState(false);
+  const [simpleOn, setSimpleOn] = useState(boot.simpleOn);
+  const [onTop, setOnTop] = useState(boot.simpleOnTop);
+  const talk = useTalk({
+    enabled: isWeb,
+    engine,
+    talkKey: boot.talkKey,
+    mode: boot.talkMode,
+    sensitivity: boot.voiceSensitivity,
+    releaseMs: boot.voiceReleaseMs,
+  });
   const bootRef = useRef(boot);
   const profileRef = useRef(boot);
   profileRef.current = boot;
@@ -592,8 +615,112 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
     }
   };
 
+  useEffect(() => {
+    if (!inElectron) return;
+    bridge.setSimpleWindow({ compact: simpleOn, alwaysOnTop: simpleOn && onTop });
+  }, [simpleOn, onTop]);
+
+  const patchProfile = (patch: Partial<Profile>) => onProfile({ ...profileRef.current, ...patch });
+  const armKey = () => {
+    setArming(true);
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.removeEventListener('keydown', onKey, true);
+      setArming(false);
+      if (e.key === 'Escape') return;
+      patchProfile({ talkKey: e.code });
+    };
+    window.addEventListener('keydown', onKey, true);
+  };
+
   const tunedIds = new Set(tuned.map((t) => t.channel.id));
   const filtered = channels.filter((c) => !query || c.freq.startsWith(query) || c.name.toLowerCase().includes(query.toLowerCase()));
+  const talkLabel = talk.hardwareMuted ? 'Mic muted' : boot.talkMode === 'voice' ? 'Voice' : talkKeyLabel(boot.talkKey);
+  const wheelPortal = !inElectron && wheel.open ? createPortal(
+    <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} available={wheel.available} canCreate={wheel.canCreate} onInput={wheel.onInput} />,
+    document.body,
+  ) : null;
+
+  const channelList = (
+    <div className="chlist">
+      {filtered.map((c) => (
+        <div key={c.id} className={`ch ${tunedIds.has(c.id) ? 'tuned' : ''}`} onDoubleClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>
+          <span className="f">{c.freq}</span>
+          <span className="n">{c.name}</span>
+          <span className="act">
+            {tunedIds.has(c.id)
+              ? <span className="pill live">tuned</span>
+              : <button className="btn sm" onClick={() => { void tuneChannel(c).catch((e) => setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message)); }}>Tune</button>}
+            {isAdmin && <button className="btn sm ghost" title="Delete channel" onClick={() => { void deleteChannel(c); }}>🗑</button>}
+          </span>
+        </div>
+      ))}
+      {!filtered.length && <div className="sub" style={{ padding: 8 }}>No channels yet.</div>}
+    </div>
+  );
+
+  if (isWeb) {
+    return (
+      <div className="web-main">
+        <p className="notice">Use the desktop app or a phone for in-game push-to-talk. This page transmits only while the tab is in front.</p>
+        <div className="web-bar">
+          <strong>{server.name}</strong>
+          <span className="sub">{callsign}</span>
+          <button className="btn sm" onClick={() => setChannelsOpen((v) => !v)}>{channelsOpen ? 'Radio' : 'Channels'}</button>
+          <button className="btn sm" onClick={() => setTalkOpen((v) => !v)}>Talk</button>
+          {isAdmin && <button className="btn sm" onClick={() => setNewCh(true)}>+ New</button>}
+        </div>
+        {err && <div className="err">{err}</div>}
+        {talkOpen && (
+          <div className="talk-settings">
+            <label><input type="radio" name="talk" checked={boot.talkMode === 'hold'} onChange={() => patchProfile({ talkMode: 'hold' })} /> Hold to talk</label>
+            <button className="btn sm" onClick={armKey}>{arming ? 'Press a key…' : talkKeyLabel(boot.talkKey)}</button>
+            <label><input type="radio" name="talk" checked={boot.talkMode === 'voice'} onChange={() => { void engine.unlock(); patchProfile({ talkMode: 'voice' }); }} /> Voice</label>
+            <label>Sensitivity
+              <input type="range" min={0} max={100} value={Math.round(boot.voiceSensitivity * 100)} onChange={(e) => patchProfile({ voiceSensitivity: Number(e.target.value) / 100 })} />
+            </label>
+            <label>Release
+              <input type="range" min={50} max={1000} step={50} value={boot.voiceReleaseMs} onChange={(e) => patchProfile({ voiceReleaseMs: Number(e.target.value) })} />
+              <span className="sub">{boot.voiceReleaseMs} ms</span>
+            </label>
+          </div>
+        )}
+        {channelsOpen ? (
+          <>
+            <div className="tunebox">
+              <input placeholder="Tune: 59.5 or Command" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && tuneQuery()} />
+            </div>
+            {channelList}
+          </>
+        ) : (
+          <SimpleRadio engine={engine} onDown={talk.pointerDown} onUp={talk.pointerUp} label={talkLabel} />
+        )}
+        {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => {
+          const kHz = parseFreqInput(f);
+          const bad = kHz == null ? 'Enter a frequency like 59.5 or 50' : validateFrequency(kHz);
+          if (bad) throw new Error(bad);
+          await api.createChannel(server.id, f, n);
+          await load();
+          setNewCh(false);
+        }} />}
+        {wheelPortal}
+      </div>
+    );
+  }
+
+  if (inElectron && simpleOn) {
+    return (
+      <div className="simple-screen">
+        <div className="web-bar">
+          <strong>{server.name}</strong>
+          <button className="btn sm" onClick={() => { setSimpleOn(false); patchProfile({ simpleOn: false }); }}>Full radio</button>
+          <label className="sub"><input type="checkbox" checked={onTop} onChange={(e) => { setOnTop(e.target.checked); patchProfile({ simpleOnTop: e.target.checked }); }} /> Always on top</label>
+        </div>
+        <SimpleRadio engine={engine} onDown={() => { void engine.ptt(true); }} onUp={() => { void engine.ptt(false); }} label={binds.ptt?.label ?? 'Hold'} />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -629,6 +756,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         <div className="foot">
           <div className="avatar">{initials(callsign)}</div>
           <div style={{ flex: 1 }}><div>{callsign}</div><div className="sub" style={{ margin: 0 }}>{inElectron ? 'Global hotkeys on' : 'Browser preview: hold Space'}</div></div>
+          {inElectron && <button className="btn sm" onClick={() => { setSimpleOn(true); patchProfile({ simpleOn: true }); }}>Simple</button>}
           <button className="btn sm" onClick={openSettings}>Keybinds</button>
         </div>
       </aside>
@@ -659,10 +787,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }
         await load();
         setNewCh(false);
       }} />}
-      {!inElectron && wheel.open && createPortal(
-        <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} available={wheel.available} canCreate={wheel.canCreate} onInput={wheel.onInput} />,
-        document.body,
-      )}
+      {wheelPortal}
     </>
   );
 }
