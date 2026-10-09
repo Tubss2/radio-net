@@ -172,3 +172,15 @@ In order:
 3. Electron sandbox on, navigation and extra windows denied, IPC checked, camera denied, secrets left out of the profile when DPAPI is missing.
 4. Invite rotation ends existing sessions. Store file integrity. Security headers, bounded rate limits, constant-time setup-code compare, production boot refuses the dev secret.
 5. Actions pinned by commit SHA, `GITHUB_TOKEN` limited to the job that publishes, Dependabot, CodeQL, and secret scanning. fail2ban, key-only SSH, unattended upgrades, on the VPS when the owner next runs setup.
+
+## Follow-up work (not in the v0.4.3 installer)
+
+The ratings above are the published installer. Later pull requests change the source. They do not change what a person downloads today.
+
+| Pull request | What it does | Still open after it |
+|---|---|---|
+| [#11](https://github.com/Tubss2/radio-net/pull/11) | Sandbox on, navigation and extra windows denied, IPC checked, camera denied. Hook starts after a first-run screen, drops unbound keys before storing them, and can be paused. Secrets are omitted from the profile when DPAPI is missing. Updates are not downloaded until the user clicks, and the feed is pinned to `Tubss2/radio-net`. | Authenticode is still skipped. Raw Input is not built. The microphone still opens when you tune. |
+| [#12](https://github.com/Tubss2/radio-net/pull/12) | Invite rotation ends open sessions. Setup-code compare is constant time. Rate-limit memory is capped. Production boot refuses the dev seed and the dev LiveKit secret. `store.json` is mode `0600` and can take an HMAC. Security headers. CORS no longer reflects arbitrary websites. | Voice is still not end-to-end encrypted. The live VPS does not have this code until it is deployed. |
+| [#13](https://github.com/Tubss2/radio-net/pull/13) | Actions pinned by commit. Release job is the one with `contents: write`. `SHA256SUMS.txt` on the next published release. Dependabot, CodeQL, gitleaks. `setup.sh` adds fail2ban, key-only SSH, unattended upgrades, header-free Caddy logs, and `RN_STORE_MAC_KEY`. | A checksum does not name a publisher. The Sydney box has not been re-run. |
+
+`npm audit` on the client production tree is clean. The high and critical counts are in dev tooling (the installer toolchain). Dependabot is the ongoing watch for those. The server tree is clean.
