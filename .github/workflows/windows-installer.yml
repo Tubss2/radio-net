@@ -23,6 +23,7 @@ jobs:
       VITE_API_URL: ${{ github.event.inputs.api_url || 'https://radio-149-28-170-200.sslip.io' }}
       VITE_LIVEKIT_URL: ${{ github.event.inputs.livekit_url || 'wss://lk-149-28-170-200.sslip.io' }}
       # Unsigned on purpose. Do not let electron-builder look for a certificate.
+      # Resource editing stays on, so the app exe file properties carry the package.json version.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@v4
@@ -44,19 +45,41 @@ jobs:
         working-directory: spike/client
         run: npm run dist:win
       - name: Confirm the server URLs were baked in and the fake mic was not
+        id: installer
         working-directory: spike/client
         shell: pwsh
         run: |
           if ($env:RN_FAKE_MEDIA) { throw 'RN_FAKE_MEDIA became set during the build.' }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Client version '$version' is not semver." }
           $renderer = Get-ChildItem -Recurse out\renderer -Filter *.js
           $api = $renderer | Select-String -SimpleMatch $env:VITE_API_URL -List
           $lk = $renderer | Select-String -SimpleMatch $env:VITE_LIVEKIT_URL -List
+          $shown = $renderer | Select-String -SimpleMatch $version -List
           if (-not $api) { throw "VITE_API_URL was not baked into the renderer: $($env:VITE_API_URL)" }
           if (-not $lk) { throw "VITE_LIVEKIT_URL was not baked into the renderer: $($env:VITE_LIVEKIT_URL)" }
-          if (-not (Test-Path release\RadioNet-Setup.exe)) { throw 'RadioNet-Setup.exe was not produced.' }
+          if (-not $shown) { throw "App version $version was not baked into the renderer." }
+          $setupName = "RadioNet-Setup-$version.exe"
+          $setup = Get-Item "release\$setupName" -ErrorAction SilentlyContinue
+          if (-not $setup) { throw "$setupName was not produced." }
+          $app = Get-Item 'release\win-unpacked\RadioNet.exe'
+          function Assert-Version($label, $info) {
+            $file = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
+            $product = "$($info.ProductMajorPart).$($info.ProductMinorPart).$($info.ProductBuildPart)"
+            if ($info.FileVersion -notlike "$version*" -or $file -ne $version) {
+              throw "$label FileVersion is '$($info.FileVersion)' ($file), expected $version"
+            }
+            if ($info.ProductVersion -notlike "$version*" -or $product -ne $version) {
+              throw "$label ProductVersion is '$($info.ProductVersion)' ($product), expected $version"
+            }
+          }
+          Assert-Version $setupName $setup.VersionInfo
+          Assert-Version 'RadioNet.exe' $app.VersionInfo
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "file=$setupName" >> $env:GITHUB_OUTPUT
       - name: Upload the installer
         uses: actions/upload-artifact@v4
         with:
-          name: RadioNet-Setup
-          path: spike/client/release/RadioNet-Setup.exe
+          name: RadioNet-Setup-${{ steps.installer.outputs.version }}
+          path: spike/client/release/${{ steps.installer.outputs.file }}
           if-no-files-found: error

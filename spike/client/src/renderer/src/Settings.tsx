@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { cloneBinds, conflicts, DEFAULT_BINDS, setSlot } from '../../shared/keybinds';
 import type { Bind, Keybinds } from '../../shared/types';
+import { APP_VERSION } from '../../shared/version';
 import { bridge } from './bridge';
 
 export interface BindRow { id: string; label: string }
@@ -46,7 +47,10 @@ export function Settings({ binds, quick, onChange, onClose }: {
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal settings" onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: 0 }}>Keybinds</h3>
+        <div className="settings-head">
+          <h3 style={{ margin: 0 }}>Keybinds</h3>
+          <span className="about">Radio Net {APP_VERSION}</span>
+        </div>
         <p className="sub" style={{ margin: 0 }}>
           Click a slot, then press a key or a mouse button. Mouse 4 and Mouse 5 work. Left, right and middle click are left alone. Escape cancels.
         </p>

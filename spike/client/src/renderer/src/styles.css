@@ -103,6 +103,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px;
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 10; }
 .modal { width: 380px; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
 .modal.settings { width: 480px; }
+.settings-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.about { color: var(--faint); font: 12px var(--mono); }
 .onboard .box.servers { width: 480px; }
 .history { display: flex; flex-direction: column; max-height: 180px; overflow: auto; }
 .server { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }

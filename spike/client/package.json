@@ -1,6 +1,6 @@
 {
   "name": "radio-net-client",
-  "version": "0.0.1",
+  "version": "0.3.0",
   "private": true,
   "description": "Radio Net desktop client (M1 spike)",
   "main": "out/main/index.js",
@@ -39,13 +39,12 @@
             "x64"
           ]
         }
-      ],
-      "signAndEditExecutable": false
+      ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "RadioNet-Setup.${ext}",
+      "artifactName": "RadioNet-Setup-${version}.${ext}",
       "shortcutName": "Radio Net"
     }
   },

@@ -67,4 +67,21 @@ The **Windows installer** workflow builds an unsigned NSIS installer on `windows
 
 `RN_FAKE_MEDIA` is not set. The job fails if that variable is present, so a release build cannot ship the fake microphone.
 
-Download `RadioNet-Setup.exe` from the workflow artifacts (artifact name `RadioNet-Setup`). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
+The current client version is **0.3.0**. Download `RadioNet-Setup-0.3.0.exe` from the workflow artifacts (artifact name `RadioNet-Setup-0.3.0`). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
+
+### Bumping the version
+
+The client version is semver in [`spike/client/package.json`](spike/client/package.json). Bump it on each user-facing release. From `spike/client`:
+
+```bash
+npm version 0.4.0 --no-git-tag-version
+```
+
+Use the next version in place of `0.4.0`. That updates `package.json` and `package-lock.json`. Commit the result and push; the installer workflow reads the version and names everything from it:
+
+| Piece | Name for 0.3.0 |
+|---|---|
+| NSIS file | `RadioNet-Setup-0.3.0.exe` |
+| Actions artifact | `RadioNet-Setup-0.3.0` |
+| Installer and app exe properties | File version and Product version `0.3.0` |
+| In-app keybinds settings | `Radio Net 0.3.0` |
