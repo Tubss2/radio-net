@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  HELPER_FALLBACK, HELPER_URL, forgetHelperDevice, helperForgetMessage, helperPairMessage,
-  helperResumeMessage, helperWatchMessage, parseHelperEvent, readHelperDevice, writeHelperDevice,
-  type HelperWatch, type StoredHelper,
+  HELPER_DOWNLOAD_URL, HELPER_FALLBACK, HELPER_SOURCE_URL, HELPER_URL, forgetHelperDevice,
+  helperForgetMessage, helperPairMessage, helperResumeMessage, helperWatchMessage, parseHelperEvent,
+  readHelperDevice, writeHelperDevice, type HelperWatch, type StoredHelper,
 } from '../../shared/helperLink';
 import type { RadioControl } from './lib/radioEngine';
 
@@ -32,14 +32,19 @@ function forgetStored(): void {
 }
 
 /** Link this browser to the Windows tray helper. Electron already has its own global key. */
-export function HelperLink({ engine, externalDown, talkKey, talkLabel }: {
+export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButton = true, opened = false, onOpenedChange, onLinked }: {
   engine: RadioControl;
   externalDown: { current: boolean };
   talkKey: string;
   talkLabel: string;
+  showButton?: boolean;
+  opened?: boolean;
+  onOpenedChange?: (open: boolean) => void;
+  onLinked?: (linked: boolean) => void;
 }) {
   const saved = storedDevice();
   const [open, setOpen] = useState(false);
+  const shown = open || opened;
   const [code, setCode] = useState('');
   const [which, setWhich] = useState<Which>(whichFrom(saved?.watch));
   const [linked, setLinked] = useState(false);
@@ -130,6 +135,8 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel }: {
     };
   };
 
+  useEffect(() => { onLinked?.(linked); }, [linked, onLinked]);
+
   useEffect(() => {
     const device = storedDevice();
     if (device) connect(helperResumeMessage(device.token), { resume: true, watch: device.watch });
@@ -194,12 +201,12 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel }: {
     if (device && !open) dropRemote(device.token);
   };
 
-  const close = () => { setOpen(false); };
+  const close = () => { setOpen(false); onOpenedChange?.(false); };
 
   return (
     <>
-      <button className="btn sm" onClick={() => setOpen(true)}>{linked ? 'Helper linked' : 'Link helper'}</button>
-      {open && (
+      {showButton && <button className="btn sm" onClick={() => setOpen(true)}>{linked ? 'Helper linked' : 'Link helper'}</button>}
+      {shown && (
         <div className="modal-bg" onClick={close}>
           <div className="modal phone-modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Windows helper</h3>
@@ -207,6 +214,10 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel }: {
               {remembered
                 ? 'This browser reconnects without the pairing code. Unlink on this page or in the tray menu to revoke it.'
                 : 'Start RadioNetHelper.exe. Type the code from its tray balloon. It watches only the key you pick here, on this computer.'}
+            </p>
+            <p className="talk-links">
+              <a href={HELPER_DOWNLOAD_URL}>Download RadioNetHelper.exe</a>
+              <a href={HELPER_SOURCE_URL} target="_blank" rel="noreferrer">Open source on GitHub</a>
             </p>
             {!remembered && (
               <label className="helper-code-label">Pairing code
