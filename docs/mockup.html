@@ -140,7 +140,7 @@ body { user-select: auto; background: #07080a; padding: 32px; overflow: auto; }
 </style></head>
 <body><div class="page">
 <h1>Radio Net: UI direction (static mockup)</h1>
-<p>Calm dark graphite with two signal colours: <b style="color:var(--live)">green = live / your TX channel</b>, <b style="color:var(--tx)">red = you are on air</b>. Frequencies are always in a monospace face so they read like a radio dial. Every action is one click or one key: tune by typing <kbd>59.5</kbd> or <kbd>command</kbd>, click "Transmit here" or press the switch key. No radio effects, no fake knobs.</p>
+<p>Calm dark graphite with two signal colours: <b style="color:var(--live)">green = live / your TX channel</b>, <b style="color:var(--tx)">red = you are on air</b>. Frequencies are always in a monospace face so they read like a radio dial. Every action is one click or one key: tune by typing <kbd>59.5</kbd> or <kbd>command</kbd>, click "Transmit here", or press <kbd>G</kbd> for the channel wheel (<a href="radial-wheel.png">radial-wheel.png</a>). No radio effects, no fake knobs.</p>
 
 <div class="frame">
   <div class="titlebar-label">Radio Net</div>
@@ -155,36 +155,36 @@ body { user-select: auto; background: #07080a; padding: 32px; overflow: auto; }
       <div class="tunebox"><span>📻</span><input placeholder="Tune: 59.5 or Command"><span class="hint">Enter</span></div>
       <div class="section"><span>Channels · 6</span><button class="btn sm">+ New</button></div>
       <div class="chlist">
-        <div class="ch tuned"><span class="f">41.250</span><span class="n">Arty</span><span class="pill live" style="opacity:1">tuned</span></div>
-        <div class="ch"><span class="f">45.000</span><span class="n">Logi</span><span class="pill">3</span></div>
-        <div class="ch tuned sel"><span class="f">59.500</span><span class="n">Command</span><span class="pill live">tuned</span></div>
-        <div class="ch tuned"><span class="f">62.100</span><span class="n">Alpha FT</span><span class="pill live">tuned</span></div>
-        <div class="ch"><span class="f">62.125</span><span class="n">Bravo FT</span><span class="pill">4</span></div>
-        <div class="ch"><span class="f">70.000</span><span class="n">Air</span><span class="pill">0</span></div>
+        <div class="ch tuned"><span class="f">41.5</span><span class="n">Arty</span><span class="pill live" style="opacity:1">tuned</span></div>
+        <div class="ch"><span class="f">45.0</span><span class="n">Logi</span><span class="pill">3</span></div>
+        <div class="ch tuned sel"><span class="f">59.5</span><span class="n">Command</span><span class="pill live">tuned</span></div>
+        <div class="ch tuned"><span class="f">62.0</span><span class="n">Alpha FT</span><span class="pill live">tuned</span></div>
+        <div class="ch"><span class="f">62.5</span><span class="n">Bravo FT</span><span class="pill">4</span></div>
+        <div class="ch"><span class="f">70.0</span><span class="n">Air</span><span class="pill">0</span></div>
       </div>
       <div class="foot"><div class="avatar">T</div><div><div>Toby</div><div class="sub" style="margin:0">Mic ✓ · Hotkeys ✓ · Overlay on</div></div><span style="margin-left:auto;color:var(--muted)">⚙</span></div>
     </aside>
     <main class="radio">
       <div class="txbar keyed">
-        <div><div class="lbl"><span class="onair">On air</span></div><div class="big">62.100</div></div>
+        <div><div class="lbl"><span class="onair">On air</span></div><div class="big">62.0</div></div>
         <div class="nm">Alpha FT</div>
-        <div class="keys">Talk <kbd>Mouse 4</kbd> Switch <kbd>G</kbd> Overlay <kbd>F10</kbd></div>
+        <div class="keys">Talk <kbd>Mouse 4</kbd> Wheel <kbd>G</kbd> Overlay <kbd>F10</kbd></div>
       </div>
       <div class="grid">
         <div class="card">
-          <div class="top"><div><div class="freq">41.250<small>MHz</small></div><div class="name">Arty</div></div><button class="x">×</button></div>
+          <div class="top"><div><div class="freq">41.5<small>MHz</small></div><div class="name">Arty</div></div><button class="x">×</button></div>
           <div class="who"><span>5 others tuned</span></div>
           <div class="row"><span class="k">🔊</span><input type="range" value="60"><button class="btn sm ghost">Mute</button></div>
           <div class="bottom"><div class="seg"><button class="on">L</button><button>C</button><button>R</button></div><button class="txbtn" style="margin-left:auto">Transmit here</button></div>
         </div>
         <div class="card">
-          <div class="top"><div><div class="freq">59.500<small>MHz</small></div><div class="name">Command</div></div><button class="x">×</button></div>
+          <div class="top"><div><div class="freq">59.5<small>MHz</small></div><div class="name">Command</div></div><button class="x">×</button></div>
           <div class="who"><span class="avatar talk">RH</span><span class="talking">Rhys (Plt Sgt)</span></div>
           <div class="row"><span class="k">🔊</span><input type="range" value="90"><button class="btn sm ghost">Mute</button></div>
           <div class="bottom"><div class="seg"><button>L</button><button>C</button><button class="on">R</button></div><button class="txbtn" style="margin-left:auto">Transmit here <kbd style="margin-left:6px">F2</kbd></button></div>
         </div>
         <div class="card tx keyed">
-          <div class="top"><div><div class="freq">62.100<small>MHz</small></div><div class="name">Alpha FT</div></div><button class="x">×</button></div>
+          <div class="top"><div><div class="freq">62.0<small>MHz</small></div><div class="name">Alpha FT</div></div><button class="x">×</button></div>
           <div class="who"><span>3 others tuned · you're talking</span></div>
           <div class="row"><span class="k">🔊</span><input type="range" value="75"><button class="btn sm ghost">Mute</button></div>
           <div class="bottom"><div class="seg"><button>L</button><button class="on">C</button><button>R</button></div><button class="txbtn on" style="margin-left:auto">● Transmitting here</button></div>
@@ -200,17 +200,16 @@ body { user-select: auto; background: #07080a; padding: 32px; overflow: auto; }
   <div>
     <div class="game"><div class="crosshair"></div>
       <div class="overlay"><div class="ov">
-        <div class="tx keyed"><span class="onair">TX</span><span class="f">62.100</span><span>Alpha FT</span></div>
-        <div class="sp"><span class="dot"></span>Rhys (Plt Sgt)<span class="on">59.500</span></div>
-        <div class="sp"><span class="dot"></span>Mack<span class="on">41.250</span></div>
+        <div class="sp"><span class="dot"></span>Toby<span class="on">62.0 Alpha FT</span></div>
+        <div class="sp"><span class="dot"></span>Rhys (Plt Sgt)<span class="on">59.5 Command</span></div>
       </div></div>
     </div>
-    <p class="cap">In-game overlay: a separate see-through, click-through window on top of the game (nothing injected). Shows your TX channel and who is talking on which frequency. Position, size and opacity in settings; <kbd>F10</kbd> hides it.</p>
+    <p class="cap">In-game overlay: a separate see-through, click-through window in a screen corner (nothing injected). On by default. Empty and invisible when nobody is transmitting. While someone transmits, one line: their display name and the channel (frequency + name). Several talkers stack. <kbd>F10</kbd> hides it. Position, size and opacity in settings.</p>
   </div>
   <div class="panel">
     <h3 style="margin:0">Keys</h3>
     <div class="bindrow"><div>Push to talk<div class="d">Talk on your TX channel</div></div><kbd>Mouse 4</kbd></div>
-    <div class="bindrow"><div>Switch channel<div class="d">Cycle TX through tuned channels</div></div><kbd>G</kbd></div>
+    <div class="bindrow"><div>Channel wheel<div class="d">Hold or press: transmit, mute, tune, add</div></div><kbd>G</kbd></div>
     <div class="bindrow"><div>Talk on Command<div class="d">Direct key for one channel</div></div><kbd>F2</kbd></div>
     <div class="bindrow"><div>Show/hide overlay</div><kbd>F10</kbd></div>
     <div class="note">Click a key, then press the button or mouse button you want. Keys are only listened to, never blocked, so the game still gets them.</div>

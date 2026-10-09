@@ -1,0 +1,26 @@
+#cloud-config
+# Paste into the provider's "User data / Cloud-init" box when creating the Ubuntu 24.04 VPS.
+# Baseline only (updates, firewall, auto security patches). The app itself is installed by deploy.sh,
+# because the repo is private and nothing secret should live in user data.
+# The ssh key below is the Radio Net deploy key (private half lives only on the agent box,
+# ~/.ssh/radio-net-deploy). You can also paste it into the provider's "SSH keys" option instead.
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - ca-certificates
+  - ufw
+  - rsync
+  - xz-utils
+  - unattended-upgrades
+runcmd:
+  - [mkdir, -p, -m, "700", /root/.ssh]
+  - [sh, -c, "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILQQkYxdfA+A7h995xxSFX8UetAyukXCL6CWE8pJNzjt radio-net-deploy' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys"]
+  - [ufw, default, deny, incoming]
+  - [ufw, allow, 22/tcp]
+  - [ufw, allow, 80/tcp]
+  - [ufw, allow, 443/tcp]
+  - [ufw, allow, 7881/tcp]
+  - [ufw, allow, 7882/udp]
+  - [ufw, --force, enable]
+  - [systemctl, enable, --now, unattended-upgrades]

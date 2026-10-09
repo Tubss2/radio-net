@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { BrowserWindow, app, ipcMain, safeStorage, screen, session } from 'electron';
-import type { HotkeyEvent, Keybinds, OverlayState } from '../shared/types';
+import type { HotkeyEvent, Keybinds, OverlayState, WheelInput } from '../shared/types';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
@@ -31,11 +31,18 @@ function createMain() {
   page('index', main);
 }
 
-/** Separate transparent, click-through, never-focused window on top of the game. Nothing is injected into the game. */
-function createOverlay() {
+/** Corner box the talker list lives in. The channel wheel temporarily replaces this with the full display. */
+function overlayCorner() {
   const { workArea } = screen.getPrimaryDisplay();
+  return { x: workArea.x + 24, y: workArea.y + 24, width: 360, height: 220 };
+}
+
+/** Transparent, click-through, always-on-top window. Nothing is injected into the game.
+ *  Talker rows stay in the corner and never take focus. The channel wheel expands this window and focuses it briefly. */
+function createOverlay() {
+  const corner = overlayCorner();
   overlay = new BrowserWindow({
-    x: workArea.x + 24, y: workArea.y + 24, width: 360, height: 220,
+    ...corner,
     transparent: true, frame: false, resizable: false, movable: false, focusable: false,
     skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false,
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: false },
@@ -58,15 +65,51 @@ ipcMain.handle('token:set', (_e, token: string) => {
   writeFileSync(tokenFile(), data, { mode: 0o600 });
 });
 
-const hotkeys = new Hotkeys((e: HotkeyEvent) => main?.webContents.send('hotkey', e));
+let wheelShown = false;
+
+/** Drop scroll, digit and Esc events while the wheel window is focused so the page and the hook don't both apply them. G still always comes through. */
+const hotkeys = new Hotkeys((e: HotkeyEvent) => {
+  if (overlay?.isFocused() && (e.type === 'wheel-scroll' || e.type === 'wheel-number' || e.type === 'wheel-cancel')) return;
+  main?.webContents.send('hotkey', e);
+});
 ipcMain.handle('hotkeys:set', (_e, b: Keybinds) => hotkeys.setBinds(b));
 ipcMain.handle('hotkeys:defaults', () => DEFAULT_BINDS);
 ipcMain.handle('hotkeys:record', () => hotkeys.record());
 
 ipcMain.on('overlay:state', (_e, s: OverlayState) => {
   if (!overlay) return;
-  if (s.visible) overlay.showInactive(); else overlay.hide();
+  const want = Boolean(s.wheel?.open);
+  if (want && !wheelShown) {
+    // The wheel takes focus for this moment so hover and clicks land on a segment.
+    wheelShown = true;
+    overlay.setBounds(screen.getPrimaryDisplay().bounds);
+    overlay.setFocusable(true);
+    overlay.setIgnoreMouseEvents(true, { forward: true });
+    overlay.show();
+    overlay.focus();
+  } else if (!want && wheelShown) {
+    wheelShown = false;
+    const corner = overlayCorner();
+    overlay.setFocusable(false);
+    overlay.setIgnoreMouseEvents(true);
+    overlay.setBounds(corner);
+    overlay.blur();
+    if (s.visible) overlay.showInactive(); else overlay.hide();
+  } else if (!want) {
+    if (s.visible) overlay.showInactive(); else overlay.hide();
+  }
   overlay.webContents.send('overlay:state', s);
+});
+
+/** While the pointer is over the ring (or the add field is open) the wheel window accepts clicks. Elsewhere they pass through to the game. */
+ipcMain.on('overlay:ignore-mouse', (_e, ignore: boolean) => {
+  if (!overlay || !wheelShown) return;
+  if (ignore) overlay.setIgnoreMouseEvents(true, { forward: true });
+  else overlay.setIgnoreMouseEvents(false);
+});
+
+ipcMain.on('wheel:input', (_e, input: WheelInput) => {
+  main?.webContents.send('wheel:input', input);
 });
 
 app.whenReady().then(() => {

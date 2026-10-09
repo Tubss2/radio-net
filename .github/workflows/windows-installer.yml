@@ -1,0 +1,62 @@
+name: Windows installer
+
+on:
+  # Push is what actually runs this before the file is on the default branch.
+  # GitHub will not dispatch workflow_dispatch, and did not start a pull_request run, for a
+  # workflow that exists only on this branch. A manual run can still override the URLs later.
+  push:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: API URL baked into the client (VITE_API_URL)
+        required: false
+        default: https://radio-149-28-170-200.sslip.io
+      livekit_url:
+        description: LiveKit URL baked into the client (VITE_LIVEKIT_URL)
+        required: false
+        default: wss://lk-149-28-170-200.sslip.io
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    env:
+      VITE_API_URL: ${{ github.event.inputs.api_url || 'https://radio-149-28-170-200.sslip.io' }}
+      VITE_LIVEKIT_URL: ${{ github.event.inputs.livekit_url || 'wss://lk-149-28-170-200.sslip.io' }}
+      # Unsigned on purpose. Do not let electron-builder look for a certificate.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: spike/client/package-lock.json
+      - name: Refuse a release build with the fake microphone
+        shell: pwsh
+        run: |
+          if ($env:RN_FAKE_MEDIA) {
+            throw "RN_FAKE_MEDIA is set to '$env:RN_FAKE_MEDIA'. Release builds must not enable the fake mic."
+          }
+      - name: Install client dependencies
+        working-directory: spike/client
+        run: npm ci
+      - name: Build the app and the NSIS installer
+        working-directory: spike/client
+        run: npm run dist:win
+      - name: Confirm the server URLs were baked in and the fake mic was not
+        working-directory: spike/client
+        shell: pwsh
+        run: |
+          if ($env:RN_FAKE_MEDIA) { throw 'RN_FAKE_MEDIA became set during the build.' }
+          $renderer = Get-ChildItem -Recurse out\renderer -Filter *.js
+          $api = $renderer | Select-String -SimpleMatch $env:VITE_API_URL -List
+          $lk = $renderer | Select-String -SimpleMatch $env:VITE_LIVEKIT_URL -List
+          if (-not $api) { throw "VITE_API_URL was not baked into the renderer: $($env:VITE_API_URL)" }
+          if (-not $lk) { throw "VITE_LIVEKIT_URL was not baked into the renderer: $($env:VITE_LIVEKIT_URL)" }
+          if (-not (Test-Path release\RadioNet-Setup.exe)) { throw 'RadioNet-Setup.exe was not produced.' }
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: RadioNet-Setup
+          path: spike/client/release/RadioNet-Setup.exe
+          if-no-files-found: error

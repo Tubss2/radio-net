@@ -1,7 +1,6 @@
 /**
- * Frequencies are stored as integer kHz to avoid float bugs (59.5 MHz -> 59500).
- * Band defaults follow military VHF FM radios (30.000-87.975 MHz, 25 kHz steps),
- * which feels familiar to milsim players. Both are config, not hard rules.
+ * Frequencies are stored as integer kHz to avoid float bugs (50.5 MHz -> 50500).
+ * Channels sit on 0.5 MHz steps from 30.0 to 87.5 MHz. The step and the ends are config.
  */
 export interface Band {
   minKHz: number;
@@ -9,9 +8,9 @@ export interface Band {
   stepKHz: number;
 }
 
-export const DEFAULT_BAND: Band = { minKHz: 30_000, maxKHz: 87_975, stepKHz: 25 };
+export const DEFAULT_BAND: Band = { minKHz: 30_000, maxKHz: 87_500, stepKHz: 500 };
 
-/** Parse user input like "59.5", "59.500", "59.5 MHz", "59500" (kHz) into kHz. */
+/** Parse user input like "50.5", "50.500", "50.5 MHz", "50500" (kHz) into kHz. */
 export function parseFrequency(input: string | number): number | null {
   const s = String(input).trim().toLowerCase().replace(/\s*(mhz|m)$/, '');
   if (!/^\d{1,3}(\.\d{1,3})?$/.test(s) && !/^\d{4,6}$/.test(s)) return null;
@@ -25,11 +24,14 @@ export function validateFrequency(kHz: number, band: Band = DEFAULT_BAND): strin
   if (kHz < band.minKHz || kHz > band.maxKHz)
     return `Frequency must be between ${formatFrequency(band.minKHz)} and ${formatFrequency(band.maxKHz)} MHz`;
   if ((kHz - band.minKHz) % band.stepKHz !== 0)
-    return `Frequency must be in ${band.stepKHz} kHz steps`;
+    return `Frequency must be in ${band.stepKHz / 1000} MHz steps`;
   return null;
 }
 
-/** 59500 -> "59.500" */
+/** 50500 -> "50.5", 50000 -> "50.0". One decimal place. */
 export function formatFrequency(kHz: number): string {
-  return `${Math.floor(kHz / 1000)}.${String(kHz % 1000).padStart(3, '0')}`;
+  const negative = kHz < 0;
+  const scaled = Math.round(Math.abs(kHz) / 100);
+  const text = `${Math.floor(scaled / 10)}.${scaled % 10}`;
+  return negative ? `-${text}` : text;
 }

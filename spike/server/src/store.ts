@@ -52,7 +52,7 @@ export interface ChannelStore {
   get(communityId: string, channelId: string): Channel | undefined;
   create(communityId: string, input: { freq: string | number; name: string }, userId: string): Channel;
   delete(communityId: string, channelId: string): Channel;
-  /** Resolve "59.5", "59.500 MHz", "command", "Comm" (unique prefix) to a channel. */
+  /** Resolve "59.5", "59.5 MHz", "command", "Comm" (unique prefix) to a channel. */
   resolve(communityId: string, query: string): Channel[];
 }
 
@@ -85,7 +85,7 @@ export class MemoryChannelStore implements ChannelStore {
     const community = this.communities.get(communityId);
     if (!community) throw new ChannelError('not_found', 'Unknown community');
     const freqKHz = parseFrequency(input.freq);
-    if (freqKHz === null) throw new ChannelError('invalid', 'Frequency looks wrong, e.g. 59.500');
+    if (freqKHz === null) throw new ChannelError('invalid', 'Frequency looks wrong, e.g. 59.5');
     const freqErr = validateFrequency(freqKHz, community.band);
     if (freqErr) throw new ChannelError('invalid', freqErr);
     const name = normaliseName(input.name ?? '');

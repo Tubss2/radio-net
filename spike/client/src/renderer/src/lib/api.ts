@@ -3,7 +3,8 @@ export interface ChannelInfo { id: string; freq: string; freqKHz: number; name: 
 export interface CommunityInfo { id: string; name: string; role: 'owner' | 'admin' | 'member'; inviteCode?: string }
 export interface Grant { channelId: string; room: string; freqKHz: number; name: string; canTransmit: boolean; token: string }
 
-export const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://127.0.0.1:8787';
+const bakedApi = import.meta.env.VITE_API_URL;
+export const API_URL = bakedApi && bakedApi.length > 0 ? bakedApi : 'http://127.0.0.1:8787';
 
 export class Api {
   constructor(public token: string | null) {}
