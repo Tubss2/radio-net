@@ -2,7 +2,7 @@
 
 Windows companion radio-comms app for the game WARDOGS. A group creates a community in the app and shares an invite code. Admins add channels as a frequency plus a name (for example `59.500 Command`). Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with passive global hotkeys (including mouse buttons) and a click-through overlay.
 
-This repository holds the v0.2 plan and the M1 spike. The spike is a working local proof of the core, not the finished app.
+This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. The spike is a working local proof of the core, not the finished app.
 
 ## Layout
 
@@ -14,7 +14,9 @@ This repository holds the v0.2 plan and the M1 spike. The spike is a working loc
 | [`docs/naming.md`](docs/naming.md) | Name and domain shortlist (nothing bought) |
 | [`docs/discord-setup.md`](docs/discord-setup.md) | Discord login setup, backlog only |
 | [`docs/radio-net-feasibility.md`](docs/radio-net-feasibility.md) | Feasibility study that led to this project |
+| [`docs/anticheat-and-contacts.md`](docs/anticheat-and-contacts.md) | Anti-cheat notes, who to contact, and lower-risk input designs |
 | [`spike/`](spike/README.md) | M1 spike: API server, Electron client, LiveKit dev runner, tests, screenshots |
+| [`deploy/`](deploy/README.md) | Vultr Sydney deploy kit: cloud-init, setup, systemd units |
 
 ## Run the spike
 
