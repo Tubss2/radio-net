@@ -60,11 +60,17 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 
 `spike/server/src/index.ts` / `app.ts`: `SEED_DEV=0` turns off the dev community (its invite code is public in the repo), `TRUST_PROXY=1` makes the join rate-limit see real client IPs behind Caddy, `HOST` sets the bind address. Defaults unchanged, so local dev and tests behave as before.
 
-## Host hardening (applied on the next `setup.sh`, not on the live box until then)
+## Host hardening
 
-`setup.sh` installs fail2ban for sshd (5 failures, 1 hour ban), turns on unattended security upgrades, and writes `/etc/ssh/sshd_config.d/99-radionet.conf` so password login is off and root can only use a key. Confirm the deploy key works in a second session before you close the one that re-ran setup. `cloud-init.yaml` does the same on a brand-new VM. Caddy's access log drops request headers, so `Authorization` and `X-Admin-Key` are not stored. New secret files include `RN_STORE_MAC_KEY`; an existing file gets that line appended. The API uses it only after the API hardening is deployed.
+`setup.sh` installs fail2ban for sshd (5 failures, 1 hour ban), turns on unattended security upgrades, and writes `/etc/ssh/sshd_config.d/00-radionet.conf` so password login is off and root can only use a key. The drop-in is named `00-` because sshd keeps the first value it reads, and Vultr's `50-cloud-init.conf` sets `PasswordAuthentication yes`. A later `99-radionet.conf` cannot override that. The next `setup.sh` removes a leftover `99-radionet.conf`. After reload, confirm the effective config (keywords are lowercase):
 
-The Sydney VPS described below has not been updated with this pass. Re-running `setup.sh` there is an owner step. It restarts LiveKit, the API, and Caddy.
+```
+sudo sshd -T | grep -E '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin) '
+```
+
+That should print `passwordauthentication no`, `kbdinteractiveauthentication no`, and `permitrootlogin prohibit-password`. Confirm the deploy key works in a second session before you close the one that re-ran setup. `cloud-init.yaml` writes the same `00-radionet.conf` on a brand-new VM. Caddy's access log drops request headers, so `Authorization` and `X-Admin-Key` are not stored. New secret files include `RN_STORE_MAC_KEY`; an existing file gets that line appended. The API uses it only after the API hardening is deployed.
+
+The Sydney box that ran main `9bcc940` was hot-fixed in place: a LiveKit drop-in adds `AF_NETLINK`, and the SSH file was renamed to `00-radionet.conf`. The next `setup.sh` applies those same two changes from this tree. It restarts LiveKit, the API, and Caddy.
 
 ## Known limits
 

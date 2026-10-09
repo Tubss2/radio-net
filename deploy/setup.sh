@@ -208,7 +208,10 @@ systemctl restart livekit.service radionet-api.service radionet-caddy.service
 
 log "SSH, unattended upgrades, fail2ban"
 install -d -m 755 /etc/ssh/sshd_config.d
-cat > /etc/ssh/sshd_config.d/99-radionet.conf <<'EOF'
+# 00- sorts before Vultr's 50-cloud-init.conf. sshd keeps the first value it reads,
+# so a later 99-radionet.conf cannot turn PasswordAuthentication off.
+rm -f /etc/ssh/sshd_config.d/99-radionet.conf
+cat > /etc/ssh/sshd_config.d/00-radionet.conf <<'EOF'
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
