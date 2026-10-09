@@ -39,6 +39,22 @@ class HttpError extends Error {
 
 export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
   const app = Fastify({ logger: false, trustProxy: cfg.trustProxy ?? false });
+  // Fastify rejects an empty `application/json` body with 400. DELETE often carries that header and no body.
+  app.removeContentTypeParser('application/json');
+  app.addContentTypeParser(/^application\/json(?:;.*)?$/, { parseAs: 'string' }, (_req, body, done) => {
+    const text = typeof body === 'string' ? body : (body as Buffer).toString('utf8');
+    if (text.trim() === '') {
+      done(null, undefined);
+      return;
+    }
+    try {
+      done(null, JSON.parse(text));
+    } catch (err) {
+      const error = err as Error & { statusCode?: number };
+      error.statusCode = 400;
+      done(error, undefined);
+    }
+  });
   // Bearer-token API (no cookies), so allowing any origin is safe; the desktop app loads from file://.
   void app.register(cors, { origin: true, methods: ['GET', 'POST', 'DELETE'] });
   const rooms = new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
@@ -190,6 +206,15 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     requireAdmin(req, req.params.cid);
     const ch = store.delete(req.params.cid, req.params.chid);
     await rooms.deleteRoom(roomNameFor(ch)).catch(() => undefined);
+    return reply.code(204).send();
+  });
+
+  /** Remove the community and every channel. Admin key only; there is no account that owns it. */
+  app.delete<{ Params: { cid: string } }>('/api/communities/:cid', async (req, reply) => {
+    requireAdmin(req, req.params.cid);
+    const channels = store.list(req.params.cid);
+    store.deleteCommunity(req.params.cid);
+    await Promise.all(channels.map((ch) => rooms.deleteRoom(roomNameFor(ch)).catch(() => undefined)));
     return reply.code(204).send();
   });
 

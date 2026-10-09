@@ -91,6 +91,14 @@ export function App() {
           if (!cur) return;
           void save({ ...cur, servers: cur.servers.map((s) => s.id === server.id ? server : s) });
         }}
+        onRemoved={() => {
+          const cur = profileRef.current;
+          if (!cur) return;
+          const radios = { ...cur.radios };
+          delete radios[active.id];
+          void save({ ...cur, servers: cur.servers.filter((s) => s.id !== active.id), radios });
+          setActiveId(null);
+        }}
       />
       <SettingsHost binds={binds} onChange={changeBinds} />
       {freshKey && <AdminKeyReveal adminKey={freshKey} onClose={() => setFreshKey(null)} />}
@@ -278,13 +286,14 @@ function AdminKeyReveal({ adminKey, onClose }: { adminKey: string; onClose: () =
   );
 }
 
-function Radio({ server, callsign, binds, boot, onProfile, onServer }: {
+function Radio({ server, callsign, binds, boot, onProfile, onServer, onRemoved }: {
   server: ServerEntry;
   callsign: string;
   binds: Keybinds;
   boot: Profile;
   onProfile: (p: Profile) => void;
   onServer: (s: ServerEntry) => void;
+  onRemoved: () => void;
 }) {
   const api = useMemo(
     () => clientFor(server),
@@ -404,6 +413,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer }: {
       wheel: wheel.view,
     });
   });
+  useEffect(() => () => { bridge.setOverlay({ visible: false, speakers: [] }); }, []);
 
   const tuneQuery = async () => {
     setErr('');
@@ -432,6 +442,14 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer }: {
     onServer({ ...server, inviteCode: r.inviteCode });
   };
 
+  const removeCommunity = async () => {
+    if (!confirm(`Delete ${server.name} for everyone? Its channels go with it.`)) return;
+    try {
+      await api.deleteCommunity(server.id);
+      onRemoved();
+    } catch (e) { setErr((e as Error).message); }
+  };
+
   const tunedIds = new Set(tuned.map((t) => t.channel.id));
   const filtered = channels.filter((c) => !query || c.freq.startsWith(query) || c.name.toLowerCase().includes(query.toLowerCase()));
 
@@ -442,7 +460,7 @@ function Radio({ server, callsign, binds, boot, onProfile, onServer }: {
         <div className="sub">
           {callsign}
           {server.inviteCode ? <> · invite <kbd>{server.inviteCode}</kbd></> : null}
-          {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button></> : null}
+          {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button> · <button className="link" onClick={() => void removeCommunity()}>delete community</button></> : null}
         </div>
         <div className="tunebox">
           <span>📻</span>

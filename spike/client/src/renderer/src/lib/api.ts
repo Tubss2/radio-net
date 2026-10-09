@@ -41,6 +41,7 @@ export class Api {
     return this.req<{ channel: ChannelInfo }>(`/api/communities/${cid}/channels`, { method: 'POST', body: JSON.stringify({ freq, name }) }).then((r) => r.channel);
   }
   deleteChannel(cid: string, chid: string) { return this.req<void>(`/api/communities/${cid}/channels/${chid}`, { method: 'DELETE' }); }
+  deleteCommunity(cid: string) { return this.req<void>(`/api/communities/${cid}`, { method: 'DELETE' }); }
   tokens(cid: string, channelIds: string[]) {
     return this.req<{ livekitUrl: string; grants: Grant[] }>(`/api/communities/${cid}/radio/tokens`, { method: 'POST', body: JSON.stringify({ channelIds }) });
   }

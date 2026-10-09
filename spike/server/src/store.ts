@@ -63,6 +63,7 @@ export interface ChannelStore {
   get(communityId: string, channelId: string): Channel | undefined;
   create(communityId: string, input: { freq: string | number; name: string }, userId: string): Channel;
   delete(communityId: string, channelId: string): Channel;
+  deleteCommunity(id: string): Community;
   /** Resolve "59.5", "59.5 MHz", "command", "Comm" (unique prefix) to a channel. */
   resolve(communityId: string, query: string): Channel[];
 }
@@ -134,6 +135,17 @@ export class MemoryChannelStore implements ChannelStore {
     this.channels.delete(channelId);
     this.persist();
     return ch;
+  }
+
+  deleteCommunity(id: string): Community {
+    const community = this.communities.get(id);
+    if (!community) throw new ChannelError('not_found', 'Community not found');
+    this.communities.delete(id);
+    for (const [channelId, ch] of this.channels) {
+      if (ch.communityId === id) this.channels.delete(channelId);
+    }
+    this.persist();
+    return community;
   }
 
   resolve(communityId: string, query: string): Channel[] {

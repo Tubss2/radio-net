@@ -75,6 +75,11 @@ export class PreviewApi extends Api {
     return Promise.resolve();
   }
 
+  deleteCommunity() {
+    this.channelsList = [];
+    return Promise.resolve();
+  }
+
   tokens() {
     return Promise.resolve({ livekitUrl: 'ws://preview.invalid', grants: [] });
   }

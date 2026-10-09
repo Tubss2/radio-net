@@ -67,7 +67,8 @@ erDiagram
 | GET | `/api/communities/:cid/channels` | session for that community | Channel list, sorted by frequency. `freq` is one decimal (`50.0`, `50.5`). |
 | GET | `/api/communities/:cid/channels/resolve?q=` | session | `50` / `59.5` / `41.5 MHz` / `command` / unique prefix `comm` → channel. |
 | POST | `/api/communities/:cid/channels` | admin key | `{freq, name}`. 409 if frequency or name already used. |
-| DELETE | `/api/communities/:cid/channels/:chid` | admin key | Delete + LiveKit `DeleteRoom` (everyone tuned is dropped). |
+| DELETE | `/api/communities/:cid/channels/:chid` | admin key | Delete + LiveKit `DeleteRoom` (everyone tuned is dropped). An empty JSON body is accepted. |
+| DELETE | `/api/communities/:cid` | admin key | Delete the community and its channels. |
 | POST | `/api/communities/:cid/radio/tokens` | session | `{channelIds[]}` → one LiveKit token per channel. Name is the callsign. |
 
 Backlog: a push channel (SSE/WebSocket) so channel list changes appear instantly. MVP polls every 10 s.

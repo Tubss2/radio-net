@@ -155,6 +155,81 @@ describe('channel API', () => {
     expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${joined.json().token}` } })).statusCode).toBe(404);
   });
 
+  it('reloads the data file and still deletes a channel with the admin key', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rn-')), 'store.json');
+    const first = buildApp(new FileChannelStore(file), cfg);
+    const created = await first.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Reload' } });
+    const { adminKey, community } = created.json();
+    const ch = await first.inject({
+      method: 'POST',
+      url: `/api/communities/${community.id}/channels`,
+      headers: { 'x-admin-key': adminKey },
+      payload: { freq: '59.5', name: 'Command' },
+    });
+    expect(ch.statusCode).toBe(201);
+    const channelId = ch.json().channel.id as string;
+    await first.close();
+
+    const second = buildApp(new FileChannelStore(file), cfg);
+    const headers = { 'x-admin-key': adminKey, 'content-type': 'application/json' };
+    const removed = await second.inject({
+      method: 'DELETE',
+      url: `/api/communities/${community.id}/channels/${channelId}`,
+      headers,
+      payload: '',
+    });
+    expect(removed.statusCode).toBe(204);
+    const malformed = await second.inject({
+      method: 'DELETE',
+      url: `/api/communities/${community.id}/channels/${channelId}`,
+      headers,
+      payload: '{',
+    });
+    expect(malformed.statusCode).toBe(400);
+    const joined = await second.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
+    const listed = await second.inject({
+      url: `/api/communities/${community.id}/channels`,
+      headers: { authorization: `Bearer ${joined.json().token}` },
+    });
+    expect(listed.json().channels).toEqual([]);
+    await second.close();
+
+    const third = buildApp(new FileChannelStore(file), cfg);
+    const again = await third.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
+    const still = await third.inject({
+      url: `/api/communities/${community.id}/channels`,
+      headers: { authorization: `Bearer ${again.json().token}` },
+    });
+    expect(still.json().channels).toEqual([]);
+    await third.close();
+  });
+
+  it('admin key deletes a community, and a reload does not bring it back', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rn-')), 'store.json');
+    const first = buildApp(new FileChannelStore(file), cfg);
+    const keep = await first.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Keep' } });
+    const drop = await first.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Drop' } });
+    const { adminKey, community } = drop.json();
+    await first.inject({
+      method: 'POST',
+      url: `/api/communities/${community.id}/channels`,
+      headers: { 'x-admin-key': adminKey },
+      payload: { freq: '45.0', name: 'Logi' },
+    });
+    const session = await first.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
+    expect((await first.inject({ method: 'DELETE', url: `/api/communities/${community.id}`, headers: { authorization: `Bearer ${session.json().token}` } })).statusCode).toBe(403);
+    expect((await first.inject({ method: 'DELETE', url: `/api/communities/${community.id}`, headers: { 'x-admin-key': adminKey } })).statusCode).toBe(204);
+    expect((await first.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } })).statusCode).toBe(404);
+    await first.close();
+
+    const second = buildApp(new FileChannelStore(file), cfg);
+    expect((await second.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } })).statusCode).toBe(404);
+    const kept = await second.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: keep.json().community.inviteCode, callsign: 'Toby' } });
+    expect(kept.statusCode).toBe(200);
+    expect(kept.json().community.name).toBe('Keep');
+    await second.close();
+  });
+
   it('a file store keeps communities and channels across a new process', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'rn-')), 'store.json');
     const first = buildApp(new FileChannelStore(file), cfg);
