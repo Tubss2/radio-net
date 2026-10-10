@@ -5,10 +5,11 @@ import type { WheelInput, WheelSegmentView } from './radialWheel';
 export type Bind = { kind: 'key'; keycode: number; label: string } | { kind: 'mouse'; button: number; label: string };
 
 export interface Keybinds {
-  ptt: Bind | null; // talk on the active channel
-  cycle: Bind | null; // move TX to the next tuned channel (kept so the old smoke path still works)
-  overlay: Bind | null; // show/hide overlay
-  wheel: Bind | null; // open the channel radial (default F2)
+  ptt: Bind | null; // talk on the active channel (desktop default F1, hold)
+  prev: Bind | null; // previous transmit channel (desktop default F3)
+  next: Bind | null; // next transmit channel (desktop default F4)
+  overlay: Bind | null; // show/hide overlay (desktop default F2)
+  wheel: Bind | null; // open the channel radial (desktop default F5)
   /** Direct push-to-talk on a specific tuned channel (channel id -> bind). */
   direct: Record<string, Bind>;
   /** Press to make that channel the transmit channel (channel id -> bind). */
@@ -17,7 +18,7 @@ export interface Keybinds {
 
 export type HotkeyEvent =
   | { type: 'ptt'; down: boolean }
-  | { type: 'cycle' }
+  | { type: 'cycle'; step?: 1 | -1 }
   | { type: 'overlay' }
   | { type: 'direct'; channelId: string; down: boolean }
   | { type: 'select'; channelId: string }
@@ -50,7 +51,7 @@ export interface WheelView {
 export type { WheelInput };
 
 export interface OverlayState {
-  /** Talker rows. False hides them (F10, or nobody transmitting). The wheel can still be open. */
+  /** Talker rows. False hides them (the overlay bind, or nobody transmitting). The wheel can still be open. */
   visible: boolean;
   /** One row per person transmitting right now: display name and that channel. Empty draws nothing. */
   speakers: { name: string; channel: string; freq: string }[];

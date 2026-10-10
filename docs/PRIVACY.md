@@ -10,7 +10,7 @@ Radio Net stores your callsign on this PC. It has no account, no analytics, and 
 
 **Keys and mouse buttons.** A global hook runs while the app runs. The code acts on:
 
-- the push-to-talk bind, the channel-wheel bind, the overlay bind, the cycle bind, and any per-channel binds you set
+- the push-to-talk bind, the previous and next transmit binds, the channel-wheel bind, the overlay bind, and any per-channel binds you set
 - the scroll wheel, while the channel wheel is open or the wheel key is held
 - digit keys, while the wheel key is held
 - Escape, including when the wheel is closed (v0.4.3 forwards every Escape press to the window; it is not logged)

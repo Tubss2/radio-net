@@ -1,10 +1,10 @@
 /**
  * Channel radial wheel behaviour. Pure: no DOM, no Electron.
- * The spike opens this on F2 (hold releases it, a short press latches until Esc or F2 again).
+ * The desktop app opens this on F5 (hold releases it, a short press latches until Esc or F5 again).
  * While it is open the wheel window takes focus so hover, clicks, and the mouse wheel land
  * on a segment. Windows delivers the wheel to the foreground window, and click-through does
  * not forward it, so the global hook also reports notches the whole time the wheel is open,
- * not only while F2 is held. Those apply to the hovered segment, else the transmit segment.
+ * not only while F5 is held. Those apply to the hovered segment, else the transmit segment.
  * A notch the page already handled is ignored so the dial does not step twice.
  */
 import { DEFAULT_BAND, formatFreqKHz, parseFreqInput, stepFrequency, type Band } from './freq';
@@ -44,7 +44,7 @@ export function scrollSteps(delta: number): number {
 
 /**
  * The hook should move the dial whenever the wheel is on screen, including after a short
- * press latches it and F2 has been released. Holding the wheel key still counts, so a notch
+ * press latches it and F5 has been released. Holding the wheel key still counts, so a notch
  * that arrives before the overlay has finished showing is not dropped.
  */
 export function hookShouldEmitScroll(state: { wheelOpen: boolean; wheelKeyHeld: boolean }): boolean {

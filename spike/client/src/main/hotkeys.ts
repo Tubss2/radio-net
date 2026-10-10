@@ -1,6 +1,6 @@
 import { UiohookKey, WheelDirection, uIOhook } from 'uiohook-napi';
 import { shouldObserveInput } from '../shared/inputWatch';
-import { DEFAULT_BINDS } from '../shared/keybinds';
+import { cloneBinds, DEFAULT_BINDS } from '../shared/keybinds';
 import { digitFromKeycode, hookShouldEmitScroll, scrollSteps } from '../shared/radialWheel';
 import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
 import { clientLog } from './clientLog';
@@ -11,11 +11,11 @@ import { clientLog } from './clientLog';
  * Caveat (Windows): if the game runs as administrator and we don't, Windows hides its input from us.
  */
 export class Hotkeys {
-  private binds: Keybinds = { ...DEFAULT_BINDS, direct: {}, select: {} };
+  private binds: Keybinds = cloneBinds();
   private held = new Set<string>(); // de-dupe OS key-repeat
   private recording: ((b: Bind | null) => void) | null = null;
   private wheelDownAt: number | null = null;
-  /** Latched or held. Scroll keeps working after the wheel key (default F2) is released. */
+  /** Latched or held. Scroll keeps working after the wheel key (default F5) is released. */
   private wheelOpen = false;
   private running = false;
   private listenersOn = false;
@@ -48,7 +48,7 @@ export class Hotkeys {
       // Observe-only. The game still sees the notch. index.ts drops a copy the overlay page
       // will already apply (foreground window, not click-through). Click-through does not
       // forward the wheel, and a latched wheel stays open after the wheel key is released, so this
-      // runs the whole time the wheel is on screen — not only while F2 (the default) is held.
+      // runs the whole time the wheel is on screen — not only while F5 (the default) is held.
       if (e.direction !== WheelDirection.VERTICAL) return;
       if (!hookShouldEmitScroll({ wheelOpen: this.wheelOpen, wheelKeyHeld: this.wheelDownAt != null })) return;
       const steps = scrollSteps(e.rotation);
@@ -84,7 +84,8 @@ export class Hotkeys {
     if (down) { if (this.held.has(id)) return; this.held.add(id); } else this.held.delete(id);
     const is = (b: Bind | null) => b !== null && bindId(b) === id;
     if (is(this.binds.ptt)) this.emit({ type: 'ptt', down });
-    if (down && is(this.binds.cycle)) this.emit({ type: 'cycle' });
+    if (down && is(this.binds.prev)) this.emit({ type: 'cycle', step: -1 });
+    if (down && is(this.binds.next)) this.emit({ type: 'cycle', step: 1 });
     if (down && is(this.binds.overlay)) this.emit({ type: 'overlay' });
     for (const [channelId, b] of Object.entries(this.binds.direct)) if (is(b)) this.emit({ type: 'direct', channelId, down });
     if (down) for (const [channelId, b] of Object.entries(this.binds.select ?? {})) if (is(b)) this.emit({ type: 'select', channelId });

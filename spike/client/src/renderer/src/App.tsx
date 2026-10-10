@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { withBindDefaults } from '../../shared/keybinds';
+import { cloneBinds, KEYBINDS_VERSION, migrateDesktopKeybinds, pageKeybinds } from '../../shared/keybinds';
 import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
 import type { Keybinds } from '../../shared/types';
 import { acceptChannelList, removedTunedIds } from '../../shared/channelList';
@@ -54,7 +54,7 @@ function clientFor(server: { url?: string; token?: string | null; adminKey?: str
 export function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [binds, setBinds] = useState<Keybinds>(() => withBindDefaults(null));
+  const [binds, setBinds] = useState<Keybinds>(() => (inElectron ? cloneBinds() : pageKeybinds(null, isPreview)));
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [hotkeysOn, setHotkeysOn] = useState(true);
   const [privacyOpen, setPrivacyOpen] = useState(false);
@@ -70,16 +70,22 @@ export function App() {
   useEffect(() => {
     bridge.getProfile().then(async (raw) => {
       const p = normaliseProfile(raw);
-      let nextBinds = withBindDefaults(p.keybinds);
-      if (isPreview && !p.keybinds) {
-        nextBinds = { ...nextBinds, ptt: { kind: 'key', keycode: 0, label: 'Space' }, cycle: null };
+      let nextProfile = p;
+      let nextBinds: Keybinds;
+      if (inElectron) {
+        const migrated = migrateDesktopKeybinds(p.keybinds, p.keybindsVersion);
+        nextBinds = migrated.keybinds ?? cloneBinds();
+        if (migrated.changed) nextProfile = { ...p, keybinds: migrated.keybinds, keybindsVersion: migrated.version };
+      } else {
+        nextBinds = pageKeybinds(p.keybinds, isPreview);
       }
-      profileRef.current = p;
-      setProfile(p);
-      setHotkeysOn(p.hotkeysEnabled);
-      setUiSounds(p.soundsOn, p.soundVolume);
+      profileRef.current = nextProfile;
+      setProfile(nextProfile);
+      setHotkeysOn(nextProfile.hotkeysEnabled);
+      setUiSounds(nextProfile.soundsOn, nextProfile.soundVolume);
       setBinds(nextBinds);
-      await bridge.setKeybinds(withBindDefaults(p.keybinds));
+      await bridge.setKeybinds(nextBinds);
+      if (nextProfile !== p) await bridge.setProfile(nextProfile);
       if (p.privacyAccepted) await bridge.setHotkeysEnabled(p.hotkeysEnabled);
       if (isPreview && p.servers[0]) setActiveId(p.servers[0].id);
     });
@@ -104,7 +110,7 @@ export function App() {
   const changeBinds = (next: Keybinds) => {
     setBinds(next);
     void bridge.setKeybinds(next);
-    if (profileRef.current) void save({ ...profileRef.current, keybinds: next });
+    if (profileRef.current) void save({ ...profileRef.current, keybinds: next, keybindsVersion: inElectron ? KEYBINDS_VERSION : profileRef.current.keybindsVersion });
   };
 
   if (!profile) return <UpdateBar />;
@@ -582,7 +588,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   useEffect(() => {
     const off = bridge.onHotkey((e) => {
       if (e.type === 'ptt') void engine.ptt(e.down);
-      if (e.type === 'cycle') engine.cycle();
+      if (e.type === 'cycle') engine.cycle(e.step === -1 ? -1 : 1);
       if (e.type === 'overlay') setOverlayOn((v) => !v);
       if (e.type === 'direct') void engine.ptt(e.down, e.channelId);
       if (e.type === 'select') engine.setTx(e.channelId);
@@ -908,7 +914,10 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           </div>
           <div className="nm">{tx?.channel.name ?? 'Tune a channel to talk'}</div>
           <div className="keys">
-            Talk <kbd>{binds.ptt?.label ?? '—'}</kbd> Wheel <kbd>{binds.wheel?.label ?? '—'}</kbd> Overlay <kbd>{binds.overlay?.label ?? '—'}</kbd>
+            Talk <kbd>{binds.ptt?.label ?? '—'}</kbd>
+            {binds.prev ? <> Prev <kbd>{binds.prev.label}</kbd></> : null}
+            {binds.next ? <> Next <kbd>{binds.next.label}</kbd></> : null}
+            {' '}Wheel <kbd>{binds.wheel?.label ?? '—'}</kbd> Overlay <kbd>{binds.overlay?.label ?? '—'}</kbd>
           </div>
         </div>
         <div className="grid">

@@ -29,6 +29,11 @@ export interface Profile {
   callsign: string;
   servers: ServerEntry[];
   keybinds: Keybinds | null;
+  /**
+   * Desktop keybind generation. Missing or 0 is a profile from before the F1–F5 defaults.
+   * 2 means those defaults have been considered, so a later choice of the old mouse buttons stays.
+   */
+  keybindsVersion?: number;
   overlayOn: boolean;
   /** Short UI cues, including the squelch when a channel is tuned. */
   soundsOn: boolean;
@@ -52,7 +57,7 @@ export interface Profile {
 
 export function emptyProfile(): Profile {
   return {
-    callsign: '', servers: [], keybinds: null, overlayOn: true, soundsOn: true, soundVolume: DEFAULT_SOUND_VOLUME,
+    callsign: '', servers: [], keybinds: null, keybindsVersion: 0, overlayOn: true, soundsOn: true, soundVolume: DEFAULT_SOUND_VOLUME,
     talkKey: 'Space', talkMode: 'hold', voiceSensitivity: 0.45, voiceReleaseMs: 300, simpleOn: false, simpleOnTop: false, radios: {},
     privacyAccepted: false, hotkeysEnabled: true,
   };
@@ -92,6 +97,9 @@ export function normaliseProfile(raw: unknown): Profile {
       ? p.servers.filter((s) => s && typeof s.id === 'string' && typeof s.url === 'string').slice(0, 50).map(cleanServer)
       : [],
     keybinds: p.keybinds ?? null,
+    keybindsVersion: typeof p.keybindsVersion === 'number' && Number.isInteger(p.keybindsVersion) && p.keybindsVersion > 0 && p.keybindsVersion < 100
+      ? p.keybindsVersion
+      : 0,
     overlayOn: p.overlayOn !== false,
     soundsOn: p.soundsOn !== false,
     soundVolume: clampSoundVolume(p.soundVolume),

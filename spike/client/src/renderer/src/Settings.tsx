@@ -1,21 +1,23 @@
 import { useState } from 'react';
-import { cloneBinds, conflicts, DEFAULT_BINDS, setSlot } from '../../shared/keybinds';
+import { cloneBinds, conflicts, DEFAULT_BINDS, pageKeybinds, setSlot } from '../../shared/keybinds';
 import type { Bind, Keybinds } from '../../shared/types';
 import { APP_VERSION } from '../../shared/version';
-import { bridge } from './bridge';
+import { bridge, inElectron } from './bridge';
+import { isPreview } from './lib/previewMode';
 import { playSquelch } from './lib/uiSounds';
 
 export interface BindRow { id: string; label: string }
 
 const CORE: BindRow[] = [
-  { id: 'ptt', label: 'Push-to-talk' },
-  { id: 'wheel', label: 'Open channel wheel' },
+  { id: 'ptt', label: 'Talk' },
   { id: 'overlay', label: 'Show or hide overlay' },
-  { id: 'cycle', label: 'Cycle transmit channel' },
+  { id: 'prev', label: 'Previous transmit channel' },
+  { id: 'next', label: 'Next transmit channel' },
+  { id: 'wheel', label: 'Channel wheel' },
 ];
 
 function current(binds: Keybinds, id: string): Bind | null {
-  if (id === 'ptt' || id === 'wheel' || id === 'overlay' || id === 'cycle') return binds[id];
+  if (id === 'ptt' || id === 'prev' || id === 'next' || id === 'wheel' || id === 'overlay') return binds[id];
   if (id.startsWith('select:')) return binds.select[id.slice('select:'.length)] ?? null;
   return null;
 }
@@ -60,7 +62,8 @@ export function Settings({ binds, quick, hotkeysOn, onHotkeys, onPrivacy, sounds
           <span className="about">Radio Net {APP_VERSION}</span>
         </div>
         <p className="sub" style={{ margin: 0 }}>
-          Click a slot, then press a key or a mouse button. Mouse 4 and Mouse 5 work. Left, right and middle click are left alone. Escape cancels. Only these binds are watched.
+          Click a slot, then press a key or a mouse button. Mouse 4 and Mouse 5 still work. Left, right and middle click are left alone. Escape cancels. Only these binds are watched.
+          {inElectron ? ' Defaults are F1 to talk (hold), F2 to show or hide the overlay, F3 and F4 for the previous and next transmit channel, and F5 for the channel wheel.' : ''}
         </p>
         <label className="row">
           <input type="checkbox" checked={hotkeysOn} onChange={(e) => onHotkeys(e.target.checked)} />
@@ -96,7 +99,7 @@ export function Settings({ binds, quick, hotkeysOn, onHotkeys, onPrivacy, sounds
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn ghost" type="button" onClick={onPrivacy}>Privacy notes</button>
-          <button className="btn ghost" onClick={() => onChange(cloneBinds(DEFAULT_BINDS))}>Reset to defaults</button>
+          <button className="btn ghost" onClick={() => onChange(inElectron ? cloneBinds(DEFAULT_BINDS) : pageKeybinds(null, isPreview))}>Reset to defaults</button>
           <button className="btn primary" onClick={onClose}>Done</button>
         </div>
       </div>

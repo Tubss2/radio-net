@@ -1,6 +1,6 @@
 import type { RadioNetBridge } from '../../preload';
 import { browserDiskNeedsScrub, profileForDisk, profileWithSessions, sessionsFromProfile } from '../../shared/browserProfile';
-import { DEFAULT_BINDS } from '../../shared/keybinds';
+import { pageKeybinds } from '../../shared/keybinds';
 import { emptyProfile, normaliseProfile, type Profile } from '../../shared/profile';
 import type { Bind, Keybinds, OverlayState, WheelInput } from '../../shared/types';
 import { emitPreviewWheel, onPreviewHotkey, onPreviewOverlay, onPreviewUpdate, onPreviewWheel, publishOverlay } from './lib/previewBus';
@@ -13,27 +13,21 @@ const PROFILE_KEY = 'rn.profile';
 const SESSION_KEY = 'rn.sessions';
 const webBuild = import.meta.env.MODE === 'web';
 
-const fallbackBinds: Keybinds = {
-  ...DEFAULT_BINDS,
-  ptt: { kind: 'key', keycode: 0, label: 'Space (window only)' },
-  cycle: null,
-  overlay: null,
-};
-
-const previewBinds: Keybinds = {
-  ...DEFAULT_BINDS,
-  ptt: { kind: 'key', keycode: 0, label: 'Space' },
-  cycle: null,
-};
+const fallbackBinds: Keybinds = pageKeybinds(null, false);
+const previewBinds: Keybinds = pageKeybinds(null, true);
 
 let capturing = false;
 export function isCapturingBind() { return capturing; }
 
 function domKeycode(e: KeyboardEvent): number {
   if (e.code === 'KeyG') return 34;
-  if (e.code === 'F2') return 60;
-  if (e.code === 'F10') return 68;
   if (e.code === 'Escape') return 1;
+  if (e.code === 'F1') return 59;
+  if (e.code === 'F2') return 60;
+  if (e.code === 'F3') return 61;
+  if (e.code === 'F4') return 62;
+  if (e.code === 'F5') return 63;
+  if (e.code === 'F10') return 68;
   let n = 0;
   for (const ch of e.code) n = (n * 33 + ch.charCodeAt(0)) % 40000;
   return 1000 + n;
