@@ -1,23 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  HELPER_DOWNLOAD_URL, HELPER_FALLBACK, HELPER_SOURCE_URL, HELPER_URL, forgetHelperDevice,
-  helperForgetMessage, helperPairMessage, helperResumeMessage, helperWatchMessage, parseHelperEvent,
-  readHelperDevice, writeHelperDevice, type HelperWatch, type StoredHelper,
+  HELPER_URL, forgetHelperDevice, helperCodeFromHash, helperForgetMessage, helperPairMessage,
+  helperResumeMessage, parseHelperEvent, readHelperDevice, writeHelperDevice, type StoredHelper,
 } from '../../shared/helperLink';
+import { helperSetupStatus, type HelperPhase } from '../../shared/pttChooser';
 import type { RadioControl } from './lib/radioEngine';
-
-type Which = 'key' | '4' | '5';
-
-function watchFor(which: Which, talkKey: string): HelperWatch {
-  if (which === '4') return { kind: 'mouse', button: 4 };
-  if (which === '5') return { kind: 'mouse', button: 5 };
-  return { kind: 'key', code: talkKey };
-}
-
-function whichFrom(watch: HelperWatch | undefined): Which {
-  if (watch?.kind === 'mouse') return watch.button === 5 ? '5' : '4';
-  return 'key';
-}
 
 function storedDevice(): StoredHelper | null {
   try { return readHelperDevice((key) => localStorage.getItem(key)); } catch { return null; }
@@ -31,36 +19,31 @@ function forgetStored(): void {
   try { forgetHelperDevice((key) => localStorage.removeItem(key)); } catch { /* private mode */ }
 }
 
-/** Link this browser to the Windows helper window. Electron already has its own global key. */
-export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButton = true, opened = false, onOpenedChange, onLinked }: {
+/** Link this browser to the Windows helper window. The socket stays up when the setup dialog closes. */
+export function HelperLink({ engine, externalDown, slot, onLinked }: {
   engine: RadioControl;
   externalDown: { current: boolean };
-  talkKey: string;
-  talkLabel: string;
-  showButton?: boolean;
-  opened?: boolean;
-  onOpenedChange?: (open: boolean) => void;
+  slot: HTMLElement | null;
   onLinked?: (linked: boolean) => void;
 }) {
   const saved = storedDevice();
-  const [open, setOpen] = useState(false);
-  const shown = open || opened;
-  const [code, setCode] = useState('');
-  const [which, setWhich] = useState<Which>(whichFrom(saved?.watch));
+  const [code, setCode] = useState(() => helperCodeFromHash(window.location.hash) ?? '');
   const [linked, setLinked] = useState(false);
   const [holding, setHolding] = useState(false);
   const [error, setError] = useState('');
+  const [phase, setPhase] = useState<HelperPhase>(saved ? 'looking' : 'idle');
   const [remembered, setRemembered] = useState(Boolean(saved));
   const socket = useRef<WebSocket | null>(null);
   const held = useRef(false);
   const alive = useRef(true);
   const accepted = useRef(false);
+  const sawLink = useRef(false);
+  const prefilled = useRef(helperCodeFromHash(window.location.hash) != null);
+  const autoSent = useRef(false);
   const engineRef = useRef(engine);
   engineRef.current = engine;
-  const whichRef = useRef(which);
-  whichRef.current = which;
-  const talkKeyRef = useRef(talkKey);
-  talkKeyRef.current = talkKey;
+  const codeRef = useRef(code);
+  codeRef.current = code;
 
   const release = () => {
     if (!held.current) return;
@@ -76,53 +59,55 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButto
     if (ws && ws.readyState < WebSocket.CLOSING) ws.close();
   };
 
-  const connect = (hello: string, opts: { resume: boolean; watch: HelperWatch }) => {
+  const connect = (hello: string) => {
     setError('');
+    setPhase('looking');
     accepted.current = false;
-    if (!opts.resume) setLinked(false);
     release();
     closeSocket();
     let ws: WebSocket;
-    try { ws = new WebSocket(HELPER_URL); } catch { if (!opts.resume) setError(HELPER_FALLBACK); return; }
+    try { ws = new WebSocket(HELPER_URL); } catch { setPhase('absent'); return; }
     socket.current = ws;
     const timer = window.setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) {
         ws.close();
-        if (!opts.resume && alive.current) setError(HELPER_FALLBACK);
+        if (alive.current) setPhase('absent');
       }
     }, 1500);
-    ws.onopen = () => { ws.send(hello); };
+    ws.onopen = () => {
+      window.clearTimeout(timer);
+      if (alive.current) setPhase('found');
+      ws.send(hello);
+    };
     ws.onmessage = (event) => {
       const message = parseHelperEvent(String(event.data));
       if (!message || !alive.current) return;
       if (message.t === 'ok') {
-        window.clearTimeout(timer);
         accepted.current = true;
+        sawLink.current = true;
         if (message.token) {
-          remember({ token: message.token, watch: opts.watch });
+          remember({ token: message.token });
           setRemembered(true);
         }
         setLinked(true);
+        setPhase('connected');
         setError('');
-        if (opts.resume && ws.readyState === WebSocket.OPEN) ws.send(helperWatchMessage(opts.watch));
         return;
       }
       if (message.t === 'denied') {
-        window.clearTimeout(timer);
-        const dropStored = opts.resume || accepted.current;
+        const dropStored = Boolean(storedDevice()) && (hello.includes('"resume"') || accepted.current);
         if (dropStored) { forgetStored(); setRemembered(false); }
         setLinked(false);
-        if (!opts.resume && !accepted.current) setError('That pairing code was not accepted.');
+        setPhase('found');
+        if (!hello.includes('"resume"') && !accepted.current) setError('That pairing code was not accepted.');
         ws.close();
         return;
       }
-      if (message.t === 'watch') {
-        const device = storedDevice();
-        if (device) remember({ token: device.token, watch: message.watch });
-        if (message.watch.kind === 'mouse') setWhich(message.watch.button === 5 ? '5' : '4');
+      if (message.t === 'tx') {
+        engineRef.current.cycle(message.dir === 'next' ? 1 : -1);
         return;
       }
-      if (message.t === 'down') {
+      if (message.t === 'ptt' && message.down) {
         if (held.current) return;
         held.current = true;
         externalDown.current = true;
@@ -130,53 +115,86 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButto
         void engineRef.current.unlock().then(() => engineRef.current.ptt(true));
         return;
       }
-      if (message.t === 'up') release();
+      if (message.t === 'ptt') release();
     };
-    ws.onerror = () => { window.clearTimeout(timer); setLinked(false); if (!opts.resume) setError(HELPER_FALLBACK); };
+    ws.onerror = () => { window.clearTimeout(timer); if (!accepted.current && alive.current) setPhase('absent'); };
     ws.onclose = () => {
       window.clearTimeout(timer);
       release();
+      const wasLinked = sawLink.current;
       setLinked(false);
       if (socket.current === ws) socket.current = null;
+      if (!alive.current) return;
+      if (wasLinked) {
+        sawLink.current = false;
+        setPhase('absent');
+        setError('The helper window closed.');
+      }
     };
   };
 
   useEffect(() => { onLinked?.(linked); }, [linked, onLinked]);
 
   useEffect(() => {
+    if (!helperCodeFromHash(window.location.hash)) return;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, []);
+
+  useEffect(() => {
     const device = storedDevice();
-    if (device) connect(helperResumeMessage(device.token), { resume: true, watch: device.watch });
+    if (device) connect(helperResumeMessage(device.token));
     return () => { alive.current = false; release(); closeSocket(); };
   }, []);
 
-  const sawLink = useRef(false);
   useEffect(() => {
-    if (!linked) { sawLink.current = false; return; }
-    const justLinked = !sawLink.current;
-    sawLink.current = true;
-    if (justLinked || which !== 'key') return;
-    const watch = watchFor('key', talkKey);
-    const ws = socket.current;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(helperWatchMessage(watch));
-    const device = storedDevice();
-    if (device) remember({ token: device.token, watch });
-  }, [talkKey, linked, which]);
+    if (!slot || linked || storedDevice() || socket.current) return;
+    let cancelled = false;
+    setPhase('looking');
+    setError('');
+    let ws: WebSocket;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      cancelled = true;
+      try { ws.close(); } catch { /* already closed */ }
+      if (alive.current) setPhase('absent');
+    }, 1500);
+    try { ws = new WebSocket(HELPER_URL); } catch {
+      window.clearTimeout(timer);
+      setPhase('absent');
+      return;
+    }
+    ws.onopen = () => {
+      if (cancelled) { ws.close(); return; }
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (alive.current) setPhase('found');
+      ws.close();
+    };
+    ws.onerror = () => {
+      if (cancelled) return;
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (alive.current) setPhase('absent');
+    };
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (ws.readyState < WebSocket.CLOSING) ws.close();
+    };
+  }, [slot, linked]);
 
   const link = () => {
-    const trimmed = code.trim();
+    const trimmed = codeRef.current.trim().toUpperCase();
     if (trimmed.length < 4) { setError('Type the pairing code from the helper window.'); return; }
-    const watch = watchFor(whichRef.current, talkKeyRef.current);
-    connect(helperPairMessage(trimmed, watch), { resume: false, watch });
+    connect(helperPairMessage(trimmed));
   };
 
-  const choose = (next: Which) => {
-    setWhich(next);
-    const watch = watchFor(next, talkKeyRef.current);
-    const device = storedDevice();
-    if (device) remember({ token: device.token, watch });
-    const ws = socket.current;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(helperWatchMessage(watch));
-  };
+  useEffect(() => {
+    if (phase !== 'found' || !prefilled.current || autoSent.current) return;
+    if (code.trim().length < 12) return;
+    autoSent.current = true;
+    link();
+  }, [phase, code]);
 
   const dropRemote = (token: string) => {
     let drop: WebSocket;
@@ -204,49 +222,37 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButto
     forgetStored();
     setRemembered(false);
     setLinked(false);
+    setPhase('found');
     setCode('');
     setError('');
+    sawLink.current = false;
     release();
     closeSocket();
     if (device && !open) dropRemote(device.token);
   };
 
-  const close = () => { setOpen(false); onOpenedChange?.(false); };
-
-  return (
-    <>
-      {showButton && <button className="btn sm" onClick={() => setOpen(true)}>{linked ? 'Helper linked' : 'Link helper'}</button>}
-      {shown && (
-        <div className="modal-bg" onClick={close}>
-          <div className="modal phone-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: 0 }}>Windows helper</h3>
-            <p className="sub" style={{ margin: 0 }}>
-              {remembered
-                ? 'This browser reconnects without the pairing code. Unlink on this page or with Unlink in the helper window.'
-                : 'Open RadioNetHelper.exe. The window shows a pairing code and stays on screen. Closing it exits the helper. It watches only the key you pick here, or with Set key in that window.'}
-            </p>
-            <p className="talk-links">
-              <a href={HELPER_DOWNLOAD_URL}>Download RadioNetHelper.exe</a>
-              <a href={HELPER_SOURCE_URL} target="_blank" rel="noreferrer">Open source on GitHub</a>
-            </p>
-            {!remembered && (
-              <label className="helper-code-label">Pairing code
-                <input className="helper-code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoCapitalize="characters" spellCheck={false} />
-              </label>
-            )}
-            <label><input type="radio" name="helper-watch" checked={which === 'key'} onChange={() => choose('key')} /> Talk key ({talkLabel})</label>
-            <label><input type="radio" name="helper-watch" checked={which === '4'} onChange={() => choose('4')} /> Mouse 4</label>
-            <label><input type="radio" name="helper-watch" checked={which === '5'} onChange={() => choose('5')} /> Mouse 5</label>
-            {linked && <p className="who live">{holding ? 'Holding. The mic is live.' : 'Helper linked. Hold the key.'}</p>}
-            {error && <p className="err">{error}</p>}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              {remembered && <button className="btn ghost" onClick={unlink}>Unlink</button>}
-              <button className="btn ghost" onClick={close}>Close</button>
-              {!remembered && <button className="btn primary" onClick={link}>Link</button>}
-            </div>
-          </div>
-        </div>
+  if (!slot) return null;
+  const status = error || helperSetupStatus(phase, holding);
+  return createPortal(
+    <div className="helper-panel">
+      {!remembered && (
+        <label className="helper-code-label">Pairing code
+          <input
+            className="helper-code"
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => { if (e.key === 'Enter') link(); }}
+            autoCapitalize="characters"
+            spellCheck={false}
+          />
+        </label>
       )}
-    </>
+      <p className={phase === 'absent' && !holding ? 'err' : `helper-status${phase === 'connected' ? ' live' : ''}`}>{status}</p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {remembered && <button className="btn ghost" type="button" onClick={unlink}>Unlink</button>}
+        {!remembered && <button className="btn primary" type="button" onClick={link}>Link</button>}
+      </div>
+    </div>,
+    slot,
   );
 }

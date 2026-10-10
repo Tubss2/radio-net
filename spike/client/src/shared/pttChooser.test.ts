@@ -19,8 +19,12 @@ describe('push-to-talk chooser', () => {
       'Open it. It only runs while its window is open.',
       'Enter the code from the helper window.',
     ]);
-    expect(helperSetupStatus(false)).toBe('Not linked yet.');
-    expect(helperSetupStatus(true)).toBe('Helper linked.');
+    expect(helperSetupStatus('idle')).toBe('Not linked yet.');
+    expect(helperSetupStatus('looking')).toBe('Looking for the helper...');
+    expect(helperSetupStatus('found')).toContain('Helper found');
+    expect(helperSetupStatus('absent')).toContain("isn't running");
+    expect(helperSetupStatus('connected')).toBe('Connected.');
+    expect(helperSetupStatus('connected', true)).toContain('microphone');
     expect(pttChoices[3].body).toContain('trust the developer personally');
   });
 

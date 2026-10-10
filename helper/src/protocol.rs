@@ -8,6 +8,43 @@ pub enum Watch {
     Mouse { button: u8 },
 }
 
+/// Which helper binding a key belongs to. The page never sees the key itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub enum Role {
+    Ptt,
+    Prev,
+    Next,
+}
+
+impl Role {
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn index(self) -> usize {
+        match self {
+            Role::Ptt => 0,
+            Role::Prev => 1,
+            Role::Next => 2,
+        }
+    }
+}
+
+/// What the helper tells the page. These names are actions, not key codes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutEvent {
+    Ptt(bool),
+    /// `true` is the next transmit channel. `false` is the previous one.
+    Tx(bool),
+}
+
+pub fn event_message(event: OutEvent) -> &'static str {
+    match event {
+        OutEvent::Ptt(true) => r#"{"t":"ptt","v":"down"}"#,
+        OutEvent::Ptt(false) => r#"{"t":"ptt","v":"up"}"#,
+        OutEvent::Tx(true) => r#"{"t":"tx","v":"next"}"#,
+        OutEvent::Tx(false) => r#"{"t":"tx","v":"prev"}"#,
+    }
+}
+
 /// Short name for the helper window. Letters use the virtual-key code, which matches `KeyK` style DOM codes.
 pub fn watch_label(watch: &Watch) -> String {
     match watch {
@@ -16,19 +53,8 @@ pub fn watch_label(watch: &Watch) -> String {
     }
 }
 
-/// Tell the page which key the window just bound, using the same shape the page sends.
-pub fn watch_message(watch: &Watch) -> Option<String> {
-    let body = match watch {
-        Watch::Mouse { button } => format!(r#"{{"kind":"mouse","button":{button}}}"#),
-        Watch::Key { vk } => {
-            let code = dom_code_for_vk(*vk)?;
-            format!(r#"{{"kind":"key","code":"{code}"}}"#)
-        }
-    };
-    Some(format!(r#"{{"t":"watch","watch":{body}}}"#))
-}
-
-/// Inverse of [`dom_code_to_vk`] for the keys the page can store. Left/right modifiers share one virtual key.
+/// Inverse of [`dom_code_to_vk`] for labels in the helper window. Left/right modifiers share one virtual key.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn dom_code_for_vk(vk: u16) -> Option<String> {
     Some(match vk {
         0x08 => "Backspace".into(),
@@ -106,28 +132,17 @@ pub fn origin_allowed(origin: &str) -> bool {
     host == "localhost" || host == "127.0.0.1"
 }
 
-/// `KeyboardEvent.code` or a mouse button of 4 or 5 (side buttons).
-pub fn parse_pair(text: &str, expected_code: &str) -> Result<Watch, &'static str> {
+/// The pairing message is the code only. A key name in this message is refused.
+pub fn parse_pair(text: &str, expected_code: &str) -> Result<(), &'static str> {
     let text = text.trim();
+    if text.contains("\"watch\"") || text.contains("\"vk\"") || text.contains("\"button\"") {
+        return Err("bad pair");
+    }
     let code = json_string(text, "code").ok_or("bad pair")?;
     if code != expected_code {
         return Err("bad code");
     }
-    let watch = object_after(text, "watch").ok_or("bad pair")?;
-    let kind = json_string(watch, "kind").ok_or("bad pair")?;
-    if kind == "mouse" {
-        let button = json_number(watch, "button").ok_or("bad pair")?;
-        if button != 4 && button != 5 {
-            return Err("unsupported button");
-        }
-        return Ok(Watch::Mouse { button: button as u8 });
-    }
-    if kind == "key" {
-        let dom = json_string(watch, "code").ok_or("bad pair")?;
-        let vk = dom_code_to_vk(&dom).ok_or("unsupported key")?;
-        return Ok(Watch::Key { vk });
-    }
-    Err("bad pair")
+    Ok(())
 }
 
 pub fn frame_text(payload: &str) -> Vec<u8> {
@@ -328,7 +343,7 @@ pub fn parse_watch(json: &str) -> Result<Watch, &'static str> {
 }
 
 pub enum Hello {
-    Pair { watch: Watch },
+    Pair,
     Resume { token: String },
 }
 
@@ -340,31 +355,22 @@ pub fn parse_hello(text: &str, expected_code: &str) -> Result<Hello, &'static st
         return Ok(Hello::Resume { token });
     }
     if kind == "pair" {
-        let watch = parse_pair(text, expected_code)?;
-        return Ok(Hello::Pair { watch });
+        parse_pair(text, expected_code)?;
+        return Ok(Hello::Pair);
     }
     Err("bad pair")
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum LinkedCommand {
-    Watch(Watch),
     Forget,
 }
 
-/// Messages after the link is up. Anything else is refused, so the socket cannot carry other keys.
+/// Messages after the link is up. Unlink is the only one. A key name closes the link.
 pub fn parse_linked(text: &str) -> Result<LinkedCommand, &'static str> {
     let kind = json_string(text, "t").ok_or("bad message")?;
     if kind == "forget" {
         return Ok(LinkedCommand::Forget);
-    }
-    if kind == "watch" {
-        let watch = object_after(text, "watch").ok_or("bad watch")?;
-        // The page names a DOM key or a side button. A raw virtual-key number is only for the stored file.
-        if json_string(watch, "kind").as_deref() == Some("key") && json_string(watch, "code").is_none() {
-            return Err("bad watch");
-        }
-        return Ok(LinkedCommand::Watch(parse_watch(watch)?));
     }
     Err("unsupported")
 }
@@ -401,37 +407,39 @@ mod tests {
     }
 
     #[test]
-    fn pairs_a_key_or_side_button_and_rejects_other_buttons() {
+    fn pair_is_a_code_and_a_key_name_is_refused() {
+        assert!(parse_pair(r#"{"t":"pair","code":"K7QM2P"}"#, "K7QM2P").is_ok());
+        assert_eq!(parse_pair(r#"{"t":"pair","code":"K7QM2P"}"#, "OTHER").unwrap_err(), "bad code");
         let key = r#"{"t":"pair","code":"K7QM2P","watch":{"kind":"key","code":"KeyK"}}"#;
-        assert_eq!(parse_pair(key, "K7QM2P").unwrap(), Watch::Key { vk: b'K' as u16 });
-        let mouse = r#"{"t":"pair","code":"K7QM2P","watch":{"kind":"mouse","button":4}}"#;
-        assert_eq!(parse_pair(mouse, "K7QM2P").unwrap(), Watch::Mouse { button: 4 });
-        assert_eq!(parse_pair(mouse, "OTHER").unwrap_err(), "bad code");
-        let left = r#"{"t":"pair","code":"K7QM2P","watch":{"kind":"mouse","button":1}}"#;
-        assert_eq!(parse_pair(left, "K7QM2P").unwrap_err(), "unsupported button");
+        assert_eq!(parse_pair(key, "K7QM2P").unwrap_err(), "bad pair");
         assert_eq!(dom_code_to_vk("Space"), Some(0x20));
-        assert_eq!(dom_code_to_vk("F2"), Some(0x71));
-        assert_eq!(watch_label(&Watch::Key { vk: b'K' as u16 }), "K");
+        assert_eq!(dom_code_to_vk("F1"), Some(0x70));
+        assert_eq!(dom_code_to_vk("F3"), Some(0x72));
+        assert_eq!(dom_code_to_vk("F4"), Some(0x73));
+        assert_eq!(watch_label(&Watch::Key { vk: 0x70 }), "F1");
         assert_eq!(watch_label(&Watch::Key { vk: 0x20 }), "Space");
         assert_eq!(watch_label(&Watch::Mouse { button: 5 }), "Mouse 5");
-        assert_eq!(watch_message(&Watch::Key { vk: b'K' as u16 }).as_deref(), Some(r#"{"t":"watch","watch":{"kind":"key","code":"KeyK"}}"#));
+        assert_eq!(event_message(OutEvent::Ptt(true)), r#"{"t":"ptt","v":"down"}"#);
+        assert_eq!(event_message(OutEvent::Ptt(false)), r#"{"t":"ptt","v":"up"}"#);
+        assert_eq!(event_message(OutEvent::Tx(true)), r#"{"t":"tx","v":"next"}"#);
+        assert_eq!(event_message(OutEvent::Tx(false)), r#"{"t":"tx","v":"prev"}"#);
+        assert!(!event_message(OutEvent::Ptt(true)).contains("vk"));
         assert_eq!(dom_code_to_vk(&dom_code_for_vk(0x20).unwrap()), Some(0x20));
     }
 
     #[test]
-    fn resume_and_watch_updates_do_not_accept_other_buttons() {
+    fn resume_and_unlink_do_not_accept_a_key() {
         let resume = r#"{"t":"resume","token":"abc"}"#;
         match parse_hello(resume, "K7QM2P").unwrap() {
             Hello::Resume { token } => assert_eq!(token, "abc"),
-            Hello::Pair { .. } => panic!("resume was read as a pair"),
+            Hello::Pair => panic!("resume was read as a pair"),
         }
-        let watch = r#"{"t":"watch","watch":{"kind":"key","code":"KeyV"}}"#;
-        assert_eq!(parse_linked(watch).unwrap(), LinkedCommand::Watch(Watch::Key { vk: b'V' as u16 }));
+        assert!(matches!(parse_hello(r#"{"t":"pair","code":"K7QM2P"}"#, "K7QM2P").unwrap(), Hello::Pair));
         assert_eq!(parse_linked(r#"{"t":"forget"}"#).unwrap(), LinkedCommand::Forget);
         assert!(parse_linked(r#"{"t":"down","code":"KeyA"}"#).is_err());
+        assert!(parse_linked(r#"{"t":"watch","watch":{"kind":"key","code":"KeyV"}}"#).is_err());
         assert!(parse_linked(r#"{"t":"watch","watch":{"kind":"key","vk":65}}"#).is_err());
-        let left = r#"{"t":"watch","watch":{"kind":"mouse","button":1}}"#;
-        assert_eq!(parse_linked(left).unwrap_err(), "unsupported button");
+        assert!(parse_linked(r#"{"t":"ptt","v":"down"}"#).is_err());
     }
 
     #[test]

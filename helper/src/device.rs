@@ -1,7 +1,7 @@
 //! Long-lived device token. The plaintext token is sent to the page once.
-//! This file stores only its SHA-256, plus the one watched key.
+//! This file stores only its SHA-256, plus the keys the window is watching.
 
-use crate::protocol::{parse_hello, parse_linked, Hello, LinkedCommand, Watch};
+use crate::protocol::{parse_hello, parse_linked, Hello, LinkedCommand, Role, Watch};
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -9,29 +9,71 @@ use std::path::{Path, PathBuf};
 
 pub const TOKEN_BYTES: usize = 32;
 
+/// Push-to-talk, previous channel, and next channel. Defaults are F1, F3, and F4.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Binds {
+    pub ptt: Option<Watch>,
+    pub prev: Option<Watch>,
+    pub next: Option<Watch>,
+}
+
+impl Default for Binds {
+    fn default() -> Self {
+        Self {
+            ptt: Some(Watch::Key { vk: 0x70 }),
+            prev: Some(Watch::Key { vk: 0x72 }),
+            next: Some(Watch::Key { vk: 0x73 }),
+        }
+    }
+}
+
+impl Binds {
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn get(&self, role: Role) -> Option<&Watch> {
+        match role {
+            Role::Ptt => self.ptt.as_ref(),
+            Role::Prev => self.prev.as_ref(),
+            Role::Next => self.next.as_ref(),
+        }
+    }
+
+    /// One physical key belongs to one row. Binding it again clears the other row.
+    pub fn set(&mut self, role: Role, watch: Watch) {
+        for slot in [&mut self.ptt, &mut self.prev, &mut self.next] {
+            if slot.as_ref() == Some(&watch) {
+                *slot = None;
+            }
+        }
+        match role {
+            Role::Ptt => self.ptt = Some(watch),
+            Role::Prev => self.prev = Some(watch),
+            Role::Next => self.next = Some(watch),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeviceState {
     pub token_hash: Option<String>,
-    pub watch: Option<Watch>,
+    pub binds: Binds,
     /// Old tray builds wrote this. The window build never starts with Windows, and clears the Run key.
     pub autostart: bool,
 }
 
 impl Default for DeviceState {
     fn default() -> Self {
-        Self { token_hash: None, watch: None, autostart: false }
+        Self { token_hash: None, binds: Binds::default(), autostart: false }
     }
 }
 
 impl DeviceState {
-    /// Drops the browser token. The watched key stays, so Unlink does not forget the binding.
+    /// Drops the browser token. The keys stay, so Unlink does not forget the bindings.
     pub fn forget_link(&mut self) {
         self.token_hash = None;
     }
 }
 
 pub struct Session {
-    pub watch: Watch,
     /// Body of the ok frame. A fresh pair includes the plaintext token. A resume does not.
     pub ok_body: String,
     pub fresh: bool,
@@ -40,13 +82,11 @@ pub struct Session {
 /// Decide whether this first message may link. Does not write the ok frame.
 pub fn authorize(device: &DeviceState, text: &str, expected_code: &str) -> Result<(DeviceState, Session), &'static str> {
     match parse_hello(text, expected_code)? {
-        Hello::Pair { watch } => {
+        Hello::Pair => {
             let token = device_token();
             let mut next = device.clone();
             next.token_hash = Some(token_hash(&token));
-            next.watch = Some(watch.clone());
             Ok((next, Session {
-                watch,
                 ok_body: format!(r#"{{"t":"ok","token":"{token}"}}"#),
                 fresh: true,
             }))
@@ -55,9 +95,7 @@ pub fn authorize(device: &DeviceState, text: &str, expected_code: &str) -> Resul
             if !accepts_token(device, &token) {
                 return Err("denied");
             }
-            let watch = device.watch.clone().ok_or("denied")?;
             Ok((device.clone(), Session {
-                watch,
                 ok_body: r#"{"t":"ok"}"#.into(),
                 fresh: false,
             }))
@@ -68,10 +106,7 @@ pub fn authorize(device: &DeviceState, text: &str, expected_code: &str) -> Resul
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn apply_linked(device: &mut DeviceState, text: &str) -> Result<LinkedCommand, &'static str> {
     let command = parse_linked(text)?;
-    match &command {
-        LinkedCommand::Forget => device.forget_link(),
-        LinkedCommand::Watch(watch) => device.watch = Some(watch.clone()),
-    }
+    device.forget_link();
     Ok(command)
 }
 
@@ -156,13 +191,19 @@ pub fn encode_state(state: &DeviceState) -> String {
         Some(value) => format!("\"{value}\""),
         None => "null".into(),
     };
-    let watch = match &state.watch {
+    let ptt = encode_slot(&state.binds.ptt);
+    let prev = encode_slot(&state.binds.prev);
+    let next = encode_slot(&state.binds.next);
+    let autostart = if state.autostart { "true" } else { "false" };
+    format!(r#"{{"v":2,"tokenHash":{hash},"ptt":{ptt},"prev":{prev},"next":{next},"autostart":{autostart}}}"#)
+}
+
+fn encode_slot(watch: &Option<Watch>) -> String {
+    match watch {
         Some(Watch::Key { vk }) => format!(r#"{{"kind":"key","vk":{vk}}}"#),
         Some(Watch::Mouse { button }) => format!(r#"{{"kind":"mouse","button":{button}}}"#),
         None => "null".into(),
-    };
-    let autostart = if state.autostart { "true" } else { "false" };
-    format!(r#"{{"v":1,"tokenHash":{hash},"watch":{watch},"autostart":{autostart}}}"#)
+    }
 }
 
 pub fn decode_state(json: &str) -> Result<DeviceState, &'static str> {
@@ -171,14 +212,40 @@ pub fn decode_state(json: &str) -> Result<DeviceState, &'static str> {
         Some(_) => return Err("bad hash"),
         None => None,
     };
-    let watch = if json.contains(r#""watch":null"#) {
-        None
-    } else {
+    let binds = if json.contains("\"ptt\"") {
+        Binds {
+            ptt: decode_slot(json, "ptt")?,
+            prev: decode_slot(json, "prev")?,
+            next: decode_slot(json, "next")?,
+        }
+    } else if json.contains("\"watch\"") && !json.contains(r#""watch":null"#) {
         let raw = crate::protocol::object_after(json, "watch").ok_or("bad watch")?;
-        Some(crate::protocol::parse_watch(raw)?)
+        let mut binds = Binds::default();
+        binds.set(Role::Ptt, crate::protocol::parse_watch(raw)?);
+        binds
+    } else {
+        Binds::default()
     };
     let autostart = json.contains(r#""autostart":true"#);
-    Ok(DeviceState { token_hash, watch, autostart })
+    Ok(DeviceState { token_hash, binds, autostart })
+}
+
+fn decode_slot(json: &str, key: &str) -> Result<Option<Watch>, &'static str> {
+    let null = format!("\"{key}\":null");
+    if json.contains(&null) {
+        return Ok(None);
+    }
+    let pattern = format!("\"{key}\":");
+    if !json.contains(&pattern) {
+        return Ok(match key {
+            "ptt" => Binds::default().ptt,
+            "prev" => Binds::default().prev,
+            "next" => Binds::default().next,
+            _ => None,
+        });
+    }
+    let raw = crate::protocol::object_after(json, key).ok_or("bad watch")?;
+    Ok(Some(crate::protocol::parse_watch(raw)?))
 }
 
 /// `%APPDATA%\RadioNet\helper-device.bin` on Windows. Tests pass their own path.
@@ -294,38 +361,50 @@ pub const AUTOSTART_VALUE: &str = "RadioNetHelper";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::Watch;
+    use crate::protocol::{Role, Watch};
 
     #[test]
     fn token_is_32_bytes_and_the_file_keeps_only_the_hash() {
         assert_eq!(device_token().len(), 43);
         let mut device = DeviceState::default();
         assert!(!device.autostart);
-        let text = r#"{"t":"pair","code":"K7QM2P","watch":{"kind":"key","code":"KeyK"}}"#;
+        let text = r#"{"t":"pair","code":"K7QM2P"}"#;
         let (next, session) = authorize(&device, text, "K7QM2P").unwrap();
         assert!(session.fresh);
         assert!(session.ok_body.contains(&token_shape_from(&session.ok_body)));
-        assert!(!session.ok_body.contains("KeyK"));
+        assert!(!session.ok_body.contains("F1"));
         device = next;
         assert!(!encode_state(&device).contains(&token_shape_from(&session.ok_body)));
         let saved = encode_state(&device);
         assert!(saved.contains("tokenHash"));
-        assert_eq!(decode_state(&saved).unwrap().watch, Some(Watch::Key { vk: b'K' as u16 }));
+        assert_eq!(decode_state(&saved).unwrap().binds.ptt, Some(Watch::Key { vk: 0x70 }));
+        assert_eq!(decode_state(&saved).unwrap().binds.prev, Some(Watch::Key { vk: 0x72 }));
+        assert_eq!(decode_state(&saved).unwrap().binds.next, Some(Watch::Key { vk: 0x73 }));
 
         let resume = format!(r#"{{"t":"resume","token":"{}"}}"#, token_shape_from(&session.ok_body));
         let (same, again) = authorize(&device, &resume, "UNUSED").unwrap();
         assert!(!again.fresh);
         assert_eq!(again.ok_body, r#"{"t":"ok"}"#);
-        assert_eq!(again.watch, Watch::Key { vk: b'K' as u16 });
         assert_eq!(same.token_hash, device.token_hash);
 
         assert!(authorize(&device, r#"{"t":"resume","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#, "K7QM2P").is_err());
-        apply_linked(&mut device, r#"{"t":"watch","watch":{"kind":"mouse","button":5}}"#).unwrap();
-        assert_eq!(device.watch, Some(Watch::Mouse { button: 5 }));
+        assert!(apply_linked(&mut device, r#"{"t":"watch","watch":{"kind":"mouse","button":5}}"#).is_err());
+        device.binds.set(Role::Ptt, Watch::Mouse { button: 5 });
+        assert_eq!(device.binds.ptt, Some(Watch::Mouse { button: 5 }));
         apply_linked(&mut device, r#"{"t":"forget"}"#).unwrap();
         assert!(device.token_hash.is_none());
-        assert_eq!(device.watch, Some(Watch::Mouse { button: 5 }));
+        assert_eq!(device.binds.ptt, Some(Watch::Mouse { button: 5 }));
         assert!(authorize(&device, &resume, "K7QM2P").is_err());
+
+        let legacy = r#"{"v":1,"tokenHash":null,"watch":{"kind":"key","vk":75},"autostart":false}"#;
+        let migrated = decode_state(legacy).unwrap();
+        assert_eq!(migrated.binds.ptt, Some(Watch::Key { vk: 75 }));
+        assert_eq!(migrated.binds.prev, Some(Watch::Key { vk: 0x72 }));
+        assert_eq!(migrated.binds.next, Some(Watch::Key { vk: 0x73 }));
+        let was_f3 = r#"{"v":1,"tokenHash":null,"watch":{"kind":"key","vk":114},"autostart":false}"#;
+        let moved = decode_state(was_f3).unwrap();
+        assert_eq!(moved.binds.ptt, Some(Watch::Key { vk: 0x72 }));
+        assert_eq!(moved.binds.prev, None);
     }
 
     fn token_shape_from(ok_body: &str) -> String {
@@ -341,16 +420,18 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("helper-device.bin");
         let token = device_token();
-        let state = DeviceState {
+        let mut state = DeviceState {
             token_hash: Some(token_hash(&token)),
-            watch: Some(Watch::Key { vk: 0x20 }),
+            binds: Binds::default(),
             autostart: false,
         };
+        state.binds.set(Role::Next, Watch::Key { vk: 0x20 });
         save_device(&path, &state).unwrap();
         let raw = std::fs::read(&path).unwrap();
         let text = String::from_utf8_lossy(&raw);
         assert!(!text.contains(&token));
-        assert_eq!(load_device(&path).watch, Some(Watch::Key { vk: 0x20 }));
+        assert_eq!(load_device(&path).binds.next, Some(Watch::Key { vk: 0x20 }));
+        assert_eq!(load_device(&path).binds.ptt, Some(Watch::Key { vk: 0x70 }));
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

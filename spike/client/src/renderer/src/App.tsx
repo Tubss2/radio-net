@@ -425,7 +425,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [talkOpen, setTalkOpen] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
-  const [helperOpen, setHelperOpen] = useState(false);
+  const [helperSlot, setHelperSlot] = useState<HTMLDivElement | null>(null);
   const [phoneLinked, setPhoneLinked] = useState(false);
   const [helperLinked, setHelperLinked] = useState(false);
   const [copiedInvite, setCopiedInvite] = useState(false);
@@ -770,7 +770,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           helperLinked={helperLinked}
           onBrowser={() => setTalkOpen(true)}
           onPhone={() => setPhoneOpen(true)}
-          onHelper={() => setHelperOpen(true)}
+          onHelperSlot={setHelperSlot}
         />
         <p className="notice">Use a phone, the Windows helper, or the desktop app for in-game push-to-talk. This page transmits only while the tab is in front. The microphone opens when you tune a channel and stays muted until you hold the button.</p>
         <div className="web-bar">
@@ -796,11 +796,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
             <HelperLink
               engine={engine}
               externalDown={externalDown}
-              talkKey={boot.talkKey}
-              talkLabel={talkKeyLabel(boot.talkKey)}
-              showButton={false}
-              opened={helperOpen}
-              onOpenedChange={setHelperOpen}
+              slot={helperSlot}
               onLinked={setHelperLinked}
             />
           )}

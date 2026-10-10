@@ -4,7 +4,7 @@ mod device;
 mod protocol;
 
 use device::{authorize, DeviceState};
-use protocol::{frame_text, host_allowed, origin_allowed, pairing_code, parse_linked, read_client_frame, LinkedCommand, Watch};
+use protocol::{event_message, frame_text, host_allowed, origin_allowed, pairing_code, parse_linked, read_client_frame, LinkedCommand, OutEvent};
 use sha1::{Digest, Sha1};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -72,7 +72,6 @@ fn base64(bytes: &[u8]) -> String {
 
 #[derive(Debug)]
 pub(crate) struct OpenLink {
-    pub watch: Watch,
     /// Kept so the socket stays open for the caller. Tests do not read the bytes.
     #[allow(dead_code)]
     pub stream: TcpStream,
@@ -80,7 +79,7 @@ pub(crate) struct OpenLink {
     pub origin: String,
 }
 
-/// Accept one local page, check its origin, and return the watch while the socket stays open.
+/// Accept one local page and check its origin. The socket stays open for the caller.
 /// `fresh` is true when a pairing code was used and a new device token was issued.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn handshake(
@@ -146,17 +145,16 @@ pub(crate) fn finish_stream(
     }
     *device = next;
     stream.write_all(&frame_text(&session.ok_body)).map_err(|err| err.to_string())?;
-    Ok(OpenLink { watch: session.watch, stream, fresh: session.fresh, origin })
+    Ok(OpenLink { stream, fresh: session.fresh, origin })
 }
 
-/// Forward press and release until the page closes the socket.
-/// The page may change the watched key or forget the device. Any other client frame closes the link.
+/// Forward talk and channel actions until the page closes the socket.
+/// The page may forget the device. Any other client frame closes the link.
 pub(crate) fn pump(
     mut stream: TcpStream,
-    events: Receiver<bool>,
+    events: Receiver<OutEvent>,
     forget: &std::sync::atomic::AtomicBool,
     mut on_client: impl FnMut(LinkedCommand) -> Result<(), String>,
-    mut poll_rebind: impl FnMut() -> Option<Watch>,
 ) -> Result<(), String> {
     let _ = stream.set_read_timeout(Some(Duration::from_millis(20)));
     let _ = stream.set_nodelay(true);
@@ -172,18 +170,11 @@ pub(crate) fn pump(
             return Err("forgotten".into());
         }
         match events.recv_timeout(Duration::from_millis(20)) {
-            Ok(down) => {
-                let payload = if down { r#"{"t":"down"}"# } else { r#"{"t":"up"}"# };
-                stream.write_all(&frame_text(payload)).map_err(|err| err.to_string())?;
+            Ok(event) => {
+                stream.write_all(&frame_text(event_message(event))).map_err(|err| err.to_string())?;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return Ok(()),
-        }
-        if let Some(watch) = poll_rebind() {
-            if let Some(payload) = protocol::watch_message(&watch) {
-                on_client(LinkedCommand::Watch(watch))?;
-                stream.write_all(&frame_text(&payload)).map_err(|err| err.to_string())?;
-            }
         }
         match stream.read(&mut buf) {
             Ok(0) => return Ok(()),
@@ -194,16 +185,12 @@ pub(crate) fn pump(
                         Ok((text, used)) => {
                             pending.drain(..used);
                             match parse_linked(&text) {
-                                Ok(LinkedCommand::Watch(watch)) => {
-                                    on_client(LinkedCommand::Watch(watch))?;
-                                    stream.write_all(&frame_text(r#"{"t":"ok"}"#)).map_err(|err| err.to_string())?;
-                                }
                                 Ok(LinkedCommand::Forget) => {
                                     on_client(LinkedCommand::Forget)?;
                                     let _ = stream.write_all(&frame_text(r#"{"t":"denied"}"#));
                                     return Err("forgotten".into());
                                 }
-                                Err(_) => return Err("the page sent something other than a watch change".into()),
+                                Err(_) => return Err("the page sent something other than unlink".into()),
                             }
                         }
                         Err("short") => break,
@@ -250,7 +237,7 @@ fn read_text(stream: &mut TcpStream, pending: &mut Vec<u8>) -> Result<String, St
 mod tests {
     use super::{accept_key, handshake, pump};
     use crate::device::DeviceState;
-    use crate::protocol::{LinkedCommand, Watch};
+    use crate::protocol::{LinkedCommand, OutEvent};
     use std::sync::atomic::AtomicBool;
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -294,7 +281,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let client = std::thread::spawn(move || {
             let mut stream = TcpStream::connect(addr).unwrap();
-            let pair = masked(r#"{"t":"pair","code":"K7QM2P","watch":{"kind":"key","code":"KeyK"}}"#);
+            let pair = masked(r#"{"t":"pair","code":"K7QM2P"}"#);
             stream.write_all(&upgrade("127.0.0.1", "http://127.0.0.1:5175", &pair)).unwrap();
             stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
             let mut buf = Vec::new();
@@ -317,7 +304,6 @@ mod tests {
         let mut device = DeviceState::default();
         let link = handshake(&listener, "K7QM2P", &mut device, |_| Ok(())).unwrap();
         assert!(link.fresh);
-        assert_eq!(link.watch, Watch::Key { vk: b'K' as u16 });
         assert_eq!(link.origin, "http://127.0.0.1:5175");
         assert!(device.token_hash.is_some());
         let reply = client.join().unwrap();
@@ -334,7 +320,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let client = std::thread::spawn(move || {
             let mut stream = TcpStream::connect(addr).unwrap();
-            let pair = masked(r#"{"t":"pair","code":"K7QM2P","watch":{"kind":"mouse","button":4}}"#);
+            let pair = masked(r#"{"t":"pair","code":"K7QM2P"}"#);
             stream.write_all(&upgrade("localhost", "https://tubss2.github.io", &pair)).unwrap();
             stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
             let mut buf = Vec::new();
@@ -355,7 +341,6 @@ mod tests {
         let mut device = DeviceState::default();
         let link = handshake(&listener, "K7QM2P", &mut device, |_| Ok(())).unwrap();
         assert!(link.fresh);
-        assert_eq!(link.watch, Watch::Mouse { button: 4 });
         assert_eq!(link.origin, "https://tubss2.github.io");
         let reply = client.join().unwrap();
         let marker = r#""token":""#;
@@ -388,7 +373,6 @@ mod tests {
         });
         let link = handshake(&listener, "WRONGCODE", &mut device, |_| Ok(())).unwrap();
         assert!(!link.fresh);
-        assert_eq!(link.watch, Watch::Mouse { button: 4 });
         assert_eq!(link.origin, "https://tubss2.github.io");
         let again = client.join().unwrap();
         assert!(again.contains(r#"{"t":"ok"}"#));
@@ -496,7 +480,7 @@ mod tests {
                     Ok(0) => break,
                     Ok(n) => {
                         buf.extend_from_slice(&chunk[..n]);
-                        if buf.windows(br#"{"t":"up"}"#.len()).any(|w| w == br#"{"t":"up"}"#) {
+                        if buf.windows(br#"{"t":"tx","v":"next"}"#.len()).any(|w| w == br#"{"t":"tx","v":"next"}"#) {
                             break;
                         }
                     }
@@ -510,14 +494,20 @@ mod tests {
         });
         let (server, _) = listener.accept().unwrap();
         let (tx, rx) = mpsc::channel();
-        tx.send(true).unwrap();
-        tx.send(false).unwrap();
+        tx.send(OutEvent::Ptt(true)).unwrap();
+        tx.send(OutEvent::Ptt(false)).unwrap();
+        tx.send(OutEvent::Tx(false)).unwrap();
+        tx.send(OutEvent::Tx(true)).unwrap();
         drop(tx);
-        pump(server, rx, &AtomicBool::new(false), |_| Ok(()), || None).unwrap();
+        pump(server, rx, &AtomicBool::new(false), |_| Ok(())).unwrap();
         let buf = client.join().unwrap();
         let text = String::from_utf8_lossy(&buf);
-        assert!(text.contains(r#"{"t":"down"}"#));
-        assert!(text.contains(r#"{"t":"up"}"#));
+        assert!(text.contains(r#"{"t":"ptt","v":"down"}"#));
+        assert!(text.contains(r#"{"t":"ptt","v":"up"}"#));
+        assert!(text.contains(r#"{"t":"tx","v":"prev"}"#));
+        assert!(text.contains(r#"{"t":"tx","v":"next"}"#));
+        assert!(!text.contains("vk"));
+        assert!(!text.contains("Key"));
     }
 
     #[test]
@@ -526,7 +516,6 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let client = std::thread::spawn(move || {
             let mut stream = TcpStream::connect(addr).unwrap();
-            stream.write_all(&masked(r#"{"t":"watch","watch":{"kind":"key","code":"KeyV"}}"#)).unwrap();
             stream.write_all(&masked(r#"{"t":"forget"}"#)).unwrap();
             stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
             let mut buf = Vec::new();
@@ -552,17 +541,37 @@ mod tests {
         let err = pump(server, rx, &AtomicBool::new(false), |cmd| {
             seen.lock().unwrap().push(cmd);
             Ok(())
-        }, || None).unwrap_err();
+        }).unwrap_err();
         assert_eq!(err, "forgotten");
         let seen = seen.into_inner().unwrap();
-        assert_eq!(seen, vec![
-            LinkedCommand::Watch(Watch::Key { vk: b'V' as u16 }),
-            LinkedCommand::Forget,
-        ]);
+        assert_eq!(seen, vec![LinkedCommand::Forget]);
         let raw = client.join().unwrap();
         let body = String::from_utf8_lossy(&raw);
-        assert!(body.contains(r#"{"t":"ok"}"#));
         assert!(body.contains(r#"{"t":"denied"}"#));
+        assert!(!body.contains("Key"));
+    }
+
+    #[test]
+    fn pump_closes_when_the_page_names_a_key() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            stream.write_all(&masked(r#"{"t":"watch","watch":{"kind":"key","code":"KeyV"}}"#)).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut buf = [0u8; 64];
+            let _ = stream.read(&mut buf);
+        });
+        let (server, _) = listener.accept().unwrap();
+        let (_tx, rx) = mpsc::channel();
+        let seen = std::sync::Mutex::new(Vec::new());
+        let err = pump(server, rx, &AtomicBool::new(false), |cmd| {
+            seen.lock().unwrap().push(cmd);
+            Ok(())
+        }).unwrap_err();
+        assert_eq!(err, "the page sent something other than unlink");
+        assert!(seen.into_inner().unwrap().is_empty());
+        client.join().unwrap();
     }
 }
 

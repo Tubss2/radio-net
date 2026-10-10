@@ -53,6 +53,23 @@ describe('preview radio', () => {
     await engine.dispose();
   });
 
+  it('steps the talk channel forward and back', async () => {
+    const engine = new PreviewEngine();
+    const api = new PreviewApi();
+    const channels = await api.channels();
+    const logi = channels.find((c) => c.id === 'logi');
+    const cmd = channels.find((c) => c.id === 'cmd');
+    if (!logi || !cmd) throw new Error('preview channels missing');
+    await engine.tune(logi);
+    await engine.tune(cmd);
+    engine.setTx('logi');
+    engine.cycle(1);
+    expect(engine.txId).not.toBe('logi');
+    engine.cycle(-1);
+    expect(engine.txId).toBe('logi');
+    await engine.dispose();
+  });
+
   it('steps frequency-style talkers only while auto is on', async () => {
     const engine = new PreviewEngine();
     const api = new PreviewApi();

@@ -1,19 +1,24 @@
-import { useState } from 'react';
-import { HELPER_DOWNLOAD_URL, HELPER_SOURCE_URL } from '../../shared/helperLink';
-import { DESKTOP_RELEASE_URL, PTT_CHOOSER_INTRO, helperSetupStatus, helperSetupSteps, pttChoices } from '../../shared/pttChooser';
+import { useEffect, useRef, useState } from 'react';
+import { HELPER_DOWNLOAD_URL, HELPER_SOURCE_URL, helperCodeFromHash } from '../../shared/helperLink';
+import { DESKTOP_RELEASE_URL, PTT_CHOOSER_INTRO, helperSetupSteps, pttChoices } from '../../shared/pttChooser';
 import { describePttMode } from '../../shared/pttMode';
 
 /** One button that leads into the browser, phone, or helper setup that already exists. */
-export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBrowser, onPhone, onHelper }: {
+export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBrowser, onPhone, onHelperSlot }: {
   talkMode: 'hold' | 'voice';
   talkLabel: string;
   phoneLinked: boolean;
   helperLinked: boolean;
   onBrowser: () => void;
   onPhone: () => void;
-  onHelper: () => void;
+  onHelperSlot?: (slot: HTMLDivElement | null) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => helperCodeFromHash(window.location.hash) != null);
+  const helperSlot = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    onHelperSlot?.(open ? helperSlot.current : null);
+    return () => onHelperSlot?.(null);
+  }, [open, onHelperSlot]);
   const current = describePttMode({ talkMode, talkLabel, phoneLinked, helperLinked });
   const close = () => setOpen(false);
   const [browser, phone, helper, desktop] = pttChoices;
@@ -52,14 +57,12 @@ export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBr
                     <li>{helperSetupSteps[1]}</li>
                     <li>
                       {helperSetupSteps[2]}
-                      {' '}
-                      <button className="btn sm" type="button" onClick={() => { close(); onHelper(); }}>Enter code</button>
+                      <div ref={helperSlot} />
                     </li>
                   </ol>
                   <span className="talk-links">
                     <a href={HELPER_SOURCE_URL} target="_blank" rel="noreferrer">Source on GitHub</a>
                   </span>
-                  <p className={`helper-status${helperLinked ? ' live' : ''}`}>{helperSetupStatus(helperLinked)}</p>
                 </div>
               </div>
               <div className="talk-choice">

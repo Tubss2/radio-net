@@ -46,9 +46,9 @@ A malicious website that never saw the QR cannot pair. A malicious website that 
 
 ## Localhost Raw Input helper
 
-The helper is a process on the gaming PC. It registers for keyboard and mouse with `RegisterRawInputDevices` and `RIDEV_INPUTSINK`, drops every key that is not the push-to-talk bind, and speaks WebSocket on `127.0.0.1:47321` only. It does not call `SendInput`. It does not open a port on the LAN.
+The helper is a process on the gaming PC. It registers for keyboard and mouse with `RegisterRawInputDevices` and `RIDEV_INPUTSINK`, drops every key that is not one of the three binds (push to talk, previous channel, next channel), and speaks WebSocket on `127.0.0.1:47321` only. It does not call `SendInput`. It does not open a port on the LAN.
 
-Raw Input still delivers every key into that process. The filter has to run before the key code is logged, stored, or written on the socket. The socket carries "talk down" and "talk up" for the paired page. It does not carry other key codes.
+Raw Input still delivers every key into that process. The filter has to run before the key code is logged, stored, or written on the socket. The socket carries push-to-talk down and up, and next or previous channel. It does not carry key codes.
 
 | ID | Worry | What a malicious website could do if we get this wrong | Control |
 |---|---|---|---|
@@ -58,7 +58,7 @@ Raw Input still delivers every key into that process. The filter has to run befo
 | H4 | Private Network Access | Chrome blocks a public origin from touching loopback unless the helper answers the preflight with `Access-Control-Allow-Private-Network: true`. | Send that header, and `Access-Control-Allow-Origin`, only for an allowlisted origin. Do not send `*` . A failed preflight is what we want for every other site. |
 | H5 | Pairing secret left in the page, replayed | XSS or a second tab reuses the secret and attaches its own socket. | One success burns the secret. A second socket does not get the button. The user can pair again from the helper. |
 | H6 | Helper listens on `0.0.0.0` | Phones and other PCs on the LAN key the mic, or an attacker on the cafe Wi-Fi does. | Bind `127.0.0.1` only. Firewall is not the control. The bind is. |
-| H7 | The process logs keys | A crash dump or a debug line becomes a key log. | The native callback prints nothing except talk up/down for the one bound button. |
+| H7 | The process logs keys | A crash dump or a debug line becomes a key log. | The native callback prints nothing. The socket messages are the three actions, not key names. |
 
 The Pages CSP has to list `ws://127.0.0.1:47321` and `http://127.0.0.1:47321` (the preflight). A wildcard `ws:` would let a cross-site script on our origin talk to any local port. Pin the port.
 
@@ -91,5 +91,5 @@ The Pages CSP has to list `ws://127.0.0.1:47321` and `http://127.0.0.1:47321` (t
 | Mock at `/preview/` with `connect-src 'none'` | Workflow is on the product branch. The CSP meta tag is [#23](https://github.com/Tubss2/radio-net/pull/23). | None for the path. |
 | API CORS allowlist | [#19](https://github.com/Tubss2/radio-net/pull/19), merged | Not deployed to Sydney. |
 | Phone code, fragment, single use, data-only LiveKit grant, tap before redeem | Product branch, with the length, API host, and tap in [#23](https://github.com/Tubss2/radio-net/pull/23) | No session epoch. Redeem is a hash-map lookup. At 32 bytes that is not a practical guess. |
-| Helper origin, Host, Private Network Access, one-time code, bind `127.0.0.1:47321` | Product branch plus [#23](https://github.com/Tubss2/radio-net/pull/23) | The exe is unsigned. The workflow attaches it to the `helper-2` release, which is not the desktop update feed. |
+| Helper origin, Host, Private Network Access, one-time code, bind `127.0.0.1:47321` | Product branch plus [#23](https://github.com/Tubss2/radio-net/pull/23) | The exe is unsigned. The workflow attaches it to the `helper-3` release, which is not the desktop update feed. |
 | Raw Input inside the Electron app, replacing `uiohook-napi` | Not started | The desktop hook is unchanged. The Rust helper is a separate process for the website. |
