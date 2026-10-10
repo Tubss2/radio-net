@@ -12,10 +12,20 @@ export function allowedPhoneApi(api: string): string | null {
 }
 
 /** URL the phone opens. The code is one-time; the API origin tells the phone which server issued it. */
-export function phonePageUrl(opts: { code: string; apiBase: string; electron: boolean; origin: string; base: string }): string {
+export function phonePageUrl(opts: {
+  code: string;
+  apiBase: string;
+  electron: boolean;
+  origin: string;
+  base: string;
+  /** ISO time from the pairing response, so the phone can show the same two-minute clock. */
+  expiresAt?: string;
+}): string {
   const root = opts.electron ? PAGES_ROOT : joinBase(opts.origin, opts.base);
   const api = encodeURIComponent(opts.apiBase);
-  return `${root}#/p/${encodeURIComponent(opts.code)}?api=${api}`;
+  const expMs = opts.expiresAt ? Date.parse(opts.expiresAt) : NaN;
+  const exp = Number.isFinite(expMs) ? `&exp=${expMs}` : '';
+  return `${root}#/p/${encodeURIComponent(opts.code)}?api=${api}${exp}`;
 }
 
 function joinBase(origin: string, base: string): string {
@@ -24,7 +34,7 @@ function joinBase(origin: string, base: string): string {
   return `${origin}${withSlash}`;
 }
 
-export function parsePhoneHash(hash: string): { code: string; api: string | null } | null {
+export function parsePhoneHash(hash: string): { code: string; api: string | null; expiresAt: number | null } | null {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash;
   const match = /^\/p\/([^?]+)/.exec(raw);
   if (!match) return null;
@@ -32,9 +42,67 @@ export function parsePhoneHash(hash: string): { code: string; api: string | null
   try { code = decodeURIComponent(match[1]); } catch { return null; }
   if (code.length < 8 || code.length > 80) return null;
   const query = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
-  const api = new URLSearchParams(query).get('api');
+  const params = new URLSearchParams(query);
+  const api = params.get('api');
   if (api && !/^https?:\/\//i.test(api)) return null;
-  return { code, api: api ? allowedPhoneApi(api) : null };
+  const exp = params.get('exp');
+  const expiresAt = exp && /^\d+$/.test(exp) ? Number(exp) : null;
+  return { code, api: api ? allowedPhoneApi(api) : null, expiresAt };
+}
+
+/** `m:ss` for the two-minute pairing code. */
+export function formatCodeClock(remainingMs: number): string {
+  const total = Math.max(0, Math.ceil(remainingMs / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+/** What the computer says while the QR is on screen. */
+export function phoneHostStatus(input: {
+  linked: boolean;
+  makingCode: boolean;
+  remainingMs: number | null;
+  tuned: boolean;
+}): string {
+  if (input.makingCode) return 'Making a code…';
+  if (input.linked && input.tuned) return 'Phone connected. Hold the button on the phone.';
+  if (input.linked) return 'Phone connected. Tune a channel on this computer. The phone will show it.';
+  if (input.remainingMs != null && input.remainingMs <= 0) return 'This code expired. Choose New code and scan again.';
+  if (input.remainingMs != null) return `On the phone, tap Connect. This code expires in ${formatCodeClock(input.remainingMs)}.`;
+  return 'On the phone, tap Connect. The code expires in two minutes.';
+}
+
+export type PhonePhase = 'idle' | 'connecting' | 'live' | 'error';
+
+/** Hold stays off until the phone has joined the computer. */
+export function phoneHold(phase: PhonePhase, onAir: boolean): { label: string; enabled: boolean } {
+  if (phase === 'live' && onAir) return { label: 'ON AIR', enabled: true };
+  if (phase === 'live') return { label: 'Hold to talk', enabled: true };
+  if (phase === 'connecting') return { label: 'Connecting…', enabled: false };
+  return { label: 'Tap Connect first', enabled: false };
+}
+
+/** Shown in place of the channel list until the computer has something tuned. */
+export function phoneChannelNote(phase: PhonePhase, channelCount: number): string | null {
+  if (phase !== 'live') return null;
+  if (channelCount === 0) return 'Connected. Tune a channel on the computer.';
+  return null;
+}
+
+export function phoneExpiryNote(remainingMs: number | null, phase: PhonePhase): string | null {
+  if (phase === 'live' || phase === 'connecting') return null;
+  if (remainingMs == null) return 'The code expires two minutes after the computer showed it. Tap Connect before then.';
+  if (remainingMs <= 0) return 'This code expired. On the computer, choose New code and scan again.';
+  return `This code expires in ${formatCodeClock(remainingMs)}. Tap Connect before then.`;
+}
+
+/** A failed redeem should say the code is finished, which is what the server means by "not valid". */
+export function phoneRedeemError(message: string): string {
+  if (/not valid|expired|already used/i.test(message)) {
+    return 'This code expired or was already used. On the computer, choose New code and scan again.';
+  }
+  return message;
 }
 
 export interface PhoneChannel {
