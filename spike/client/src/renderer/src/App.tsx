@@ -1075,8 +1075,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
             Next <kbd>{bindLabel(binds.next)}</kbd>
             Wheel <kbd>{bindLabel(binds.wheel)}</kbd>
             Overlay <kbd>{bindLabel(binds.overlay)}</kbd>
-            {allCallButton}
           </div>
+          {allCallButton}
         </div>
         <div className="grid">
           {tuned.map((t) => <Card key={t.channel.id} t={t} engine={engine} />)}
