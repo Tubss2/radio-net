@@ -39,6 +39,6 @@ On Windows, for the M1 test: point `VITE_API_URL` at the API, run `npm run dev` 
 ## Known spike shortcuts
 
 - The dev server keeps communities in memory unless `RN_DATA_FILE` is set. The VPS setup writes `/var/lib/radionet/store.json`. No HTTPS on the local spike (Caddy on the VPS). Channel list polls every 10 s.
-- Keybinds have a settings screen (click a slot, press a key or mouse button, conflicts, clear, reset). Defaults are F1 talk (hold), F2 show or hide overlay, F3 previous transmit channel, F4 next transmit channel, and F5 channel wheel. A profile that already saved its own keys keeps them. A profile still on the old Mouse 4, Mouse 5, F2, and F10 defaults moves to this set. The wheel takes focus while it is open so scroll works immediately; if the game keeps focus, the global hook still steps the dial. Hold F5 and press 1–9 for the same fallback.
+- Keybinds have a settings screen (click a slot, press a key, conflicts, clear, reset). Defaults are F1 talk (hold), F2 channel wheel, F3 previous transmit channel, F4 next transmit channel, and F5 show or hide overlay. A profile that already saved its own keys keeps them. A profile still on an older untouched default set moves to this one. The wheel takes focus while it is open so scroll works immediately; if the game keeps focus, the global hook still steps the dial. Hold F2 and press 1–9 for the same fallback.
 - Electron can hang on quit under the test harness (likely `uIOhook.stop()`); to fix in M3.
 - `RN_FAKE_MEDIA=1` enables a fake mic for tests; must never be set in release builds.

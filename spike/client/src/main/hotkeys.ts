@@ -15,7 +15,7 @@ export class Hotkeys {
   private held = new Set<string>(); // de-dupe OS key-repeat
   private recording: ((b: Bind | null) => void) | null = null;
   private wheelDownAt: number | null = null;
-  /** Latched or held. Scroll keeps working after the wheel key (default F5) is released. */
+  /** Latched or held. Scroll keeps working after the wheel key (default F2) is released. */
   private wheelOpen = false;
   private running = false;
   private listenersOn = false;
@@ -48,7 +48,7 @@ export class Hotkeys {
       // Observe-only. The game still sees the notch. index.ts drops a copy the overlay page
       // will already apply (foreground window, not click-through). Click-through does not
       // forward the wheel, and a latched wheel stays open after the wheel key is released, so this
-      // runs the whole time the wheel is on screen — not only while F5 (the default) is held.
+      // runs the whole time the wheel is on screen — not only while F2 (the default) is held.
       if (e.direction !== WheelDirection.VERTICAL) return;
       if (!hookShouldEmitScroll({ wheelOpen: this.wheelOpen, wheelKeyHeld: this.wheelDownAt != null })) return;
       const steps = scrollSteps(e.rotation);

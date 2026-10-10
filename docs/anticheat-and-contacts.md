@@ -44,7 +44,7 @@ Set expectations: the enforcement page says "We don't publish the detail of how 
 >
 > Before anyone tests it with the game, we want to make sure it won't cause problems with your anti-cheat. What it does:
 > - Runs as its own process. It never opens, reads or writes the WARDOGS process, memory or files.
-> - Push-to-talk on a key or mouse button (e.g. Mouse 4). It only *reads* the button to know when to transmit; it never sends or automates any input to the game.
+> - Push-to-talk on a key (for example F1). It only *reads* the key to know when to transmit; it never sends or automates any input to the game.
 > - Optional small always-on-top, click-through window showing which channel you're talking on (a normal Windows window, not injected into the game; needs borderless windowed).
 > - Voice runs through our own server, nothing to do with your Vivox voice chat.
 >
@@ -62,7 +62,7 @@ Set expectations: the enforcement page says "We don't publish the detail of how 
 
 | Rank | Design | Anti-cheat risk | Tradeoffs |
 |---|---|---|---|
-| 1 | **Raw Input hotkeys** (`RegisterRawInputDevices` with `RIDEV_INPUTSINK`), replacing uiohook | Low: no hook in the input chain; same approach as Mumble 1.4+ | Key down **and** up, mouse buttons incl. Mouse 4/5, multiple devices. Can't swallow the key (the game also sees Mouse 4, which is fine if it's unbound in-game). Needs a small native addon (~1-2 dev days). Elevated-game caveat as above. |
+| 1 | **Raw Input hotkeys** (`RegisterRawInputDevices` with `RIDEV_INPUTSINK`), replacing uiohook | Low: no hook in the input chain; same approach as Mumble 1.4+ | Key down **and** up, including extra buttons, multiple devices. Can't swallow the key (the game also sees it, which is fine if it is unbound in-game). Needs a small native addon (~1-2 dev days). Elevated-game caveat as above. |
 | 2 | **Overlay off by default**; audio cues (TX chirp, spoken channel name on switch), tray icon, optional second-screen/compact window | Removes the overlay risk entirely | Less glanceable mid-fight. Keep the click-through overlay as opt-in once the anti-cheat night is clean. |
 | 3 | **Dedicated USB PTT button / foot pedal**, read by our app via Raw Input/HID | Low: our app reads its own device; no global key watching needed | ~NZ$30-80 hardware per person; many cheap pedals pretend to be a keyboard (still fine with Raw Input). The EULA's "hardware devices to automate inputs" line doesn't fit (no game input is automated), but worth naming in the email. |
 | 4 | **Phone as PTT** (big button in a web page/app on the phone, talks to the desktop app or straight to LiveKit) | Lowest on the PC: zero input footprint | Awkward with hands on mouse/keyboard; extra latency; phone has to be on the desk. Good fallback for nervous testers. |

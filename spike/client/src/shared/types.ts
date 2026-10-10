@@ -8,8 +8,8 @@ export interface Keybinds {
   ptt: Bind | null; // talk on the active channel (desktop default F1, hold)
   prev: Bind | null; // previous transmit channel (desktop default F3)
   next: Bind | null; // next transmit channel (desktop default F4)
-  overlay: Bind | null; // show/hide overlay (desktop default F2)
-  wheel: Bind | null; // open the channel radial (desktop default F5)
+  overlay: Bind | null; // show/hide overlay (desktop default F5)
+  wheel: Bind | null; // open the channel radial (desktop default F2)
   /** Direct push-to-talk on a specific tuned channel (channel id -> bind). */
   direct: Record<string, Bind>;
   /** Press to make that channel the transmit channel (channel id -> bind). */

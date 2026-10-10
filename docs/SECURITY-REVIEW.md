@@ -27,7 +27,7 @@ Severity is the practical risk to a person installing the public v0.4.3 build, n
 | V1 | The server operator can hear voice | High | Open | Only join a server run by someone you trust. The public Sydney box is run by the repo owner. |
 | A1 | Elytra (kernel anti-cheat) plus a global input hook and an always-on-top overlay | High for the game account | Open | Do not use this on a WARDOGS account you cannot lose. Bulkhead has not published a yes. |
 | M1 | Microphone is opened when you tune, not only while you talk | Medium | Open | Untune when you leave the radio. A Windows microphone indicator means the device is open. |
-| O1 | Always-on-top, click-through overlay | Medium | Mitigated | It is a separate window, not a draw inside the game. F10 hides the talker list. It can still look like a cheat overlay to anti-cheat. |
+| O1 | Always-on-top, click-through overlay | Medium | Mitigated | It is a separate window, not a draw inside the game. The overlay bind hides the talker list. It can still look like a cheat overlay to anti-cheat. |
 | N1 | The server sees your IP, callsign, and which channels you tune | Medium | Open | Inherent once you connect. The operator also keeps Caddy access logs. |
 | I1 | The invite code is the whole login. A callsign is not an identity. | Medium | Mitigated | Do not post the invite in public. Anyone with it can join and pick any callsign, including yours. Rotating the invite does not end sessions that are already open (they last up to 12 hours). |
 | L1 | Admin key and session token stored on the PC | Medium | Mitigated | On a normal Windows PC the profile is encrypted with DPAPI (`safeStorage`). If OS encryption is unavailable the same file is written in the clear. Do not copy the profile folder onto a shared disk. |
@@ -55,7 +55,7 @@ What the current code does with that stream:
 
 That is a real filter. It is not a guarantee. The native hook has already seen the key before JavaScript drops it. A memory dump of the process can see the codes of keys that are held down. A replaced `hotkeys.ts` in a later update can keep them. There is no on-screen indicator that the hook is installed, and there is no button to unhook without quitting.
 
-Windows does not offer an API that delivers only "Mouse 4" and "F2" to an unelevated app while also letting the game see those same buttons. `RegisterHotKey` can watch a shortcut and it consumes the key, so the game would not see it. Raw Input (`RegisterRawInputDevices` with `RIDEV_INPUTSINK`) is the better long-term design: it is not a `WH_*_LL` hook in the input chain, which matters for latency and for anti-cheat heuristics, but the process still receives the other keys and must drop them. A small native addon can drop them before the code reaches JavaScript. That addon is not in v0.4.3. The design notes already in [`anticheat-and-contacts.md`](anticheat-and-contacts.md) match this.
+Windows does not offer an API that delivers only the bound keys to an unelevated app while also letting the game see those same keys. `RegisterHotKey` can watch a shortcut and it consumes the key, so the game would not see it. Raw Input (`RegisterRawInputDevices` with `RIDEV_INPUTSINK`) is the better long-term design: it is not a `WH_*_LL` hook in the input chain, which matters for latency and for anti-cheat heuristics, but the process still receives the other keys and must drop them. A small native addon can drop them before the code reaches JavaScript. That addon is not in v0.4.3. The design notes already in [`anticheat-and-contacts.md`](anticheat-and-contacts.md) match this.
 
 The hook also fails open in one direction that is easy to miss: if the game runs as administrator and Radio Net does not, Windows hides that game's input from the hook. The app does not work around that by asking for admin. That is the right choice. An admin copy of this hook would be worse.
 
@@ -77,7 +77,7 @@ Until one of those is in place, a cautious user is trusting a GitHub login. I wo
 
 The overlay is a transparent, frameless, always-on-top, click-through window. It is created by Electron, not by injecting a DLL into WARDOGS. Clicks pass through to the game except while the channel wheel is open, when the window takes focus so the wheel can be used. That focus steal is visible: the game loses the keyboard until the wheel closes.
 
-It does not capture the screen and it does not read pixels from the game. The worry is appearance and anti-cheat heuristics, plus a window that can sit above other programs for as long as the app is running. The talker list can be hidden with the overlay bind (default F10). The process keeps running.
+It does not capture the screen and it does not read pixels from the game. The worry is appearance and anti-cheat heuristics, plus a window that can sit above other programs for as long as the app is running. The talker list can be hidden with the overlay bind. The process keeps running.
 
 ## The microphone (M1)
 
