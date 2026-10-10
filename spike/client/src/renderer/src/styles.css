@@ -153,6 +153,7 @@ html.overlay-root, html.overlay-root body, html.overlay-root #root { background:
 .radial-add .create input:first-child { width: 64px; font-family: var(--mono); }
 .radial-add input:focus { border-color: var(--accent); }
 .radial-add .err { text-align: center; font-size: 11px; }
+.talk-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); }
 .sounds { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; margin-top: 4px; border-top: 1px solid var(--line); }
 .sounds h3 { margin: 0; font-size: 16px; }
 .sounds .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

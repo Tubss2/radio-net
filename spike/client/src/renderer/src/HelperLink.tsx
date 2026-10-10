@@ -5,6 +5,7 @@ import {
   helperResumeMessage, isHelperCode, parseHelperEvent, readHelperDevice, writeHelperDevice, type StoredHelper,
 } from '../../shared/helperLink';
 import { helperSetupStatus, type HelperPhase } from '../../shared/pttChooser';
+import type { TalkHolds } from '../../shared/talkHolds';
 import type { RadioControl } from './lib/radioEngine';
 
 function storedDevice(): StoredHelper | null {
@@ -20,9 +21,9 @@ function forgetStored(): void {
 }
 
 /** Link this browser to the Windows helper window. The socket stays up when the setup dialog closes. */
-export function HelperLink({ engine, externalDown, slot, onLinked, onDisconnectReady }: {
+export function HelperLink({ engine, holds, slot, onLinked, onDisconnectReady }: {
   engine: RadioControl;
-  externalDown: { current: boolean };
+  holds: TalkHolds;
   slot: HTMLElement | null;
   onLinked?: (linked: boolean) => void;
   /** The main radio calls this to unlink without opening the setup dialog. */
@@ -47,12 +48,14 @@ export function HelperLink({ engine, externalDown, slot, onLinked, onDisconnectR
   const codeRef = useRef(code);
   codeRef.current = code;
 
+  const holdsRef = useRef(holds);
+  holdsRef.current = holds;
+
   const release = () => {
     if (!held.current) return;
     held.current = false;
-    externalDown.current = false;
     if (alive.current) setHolding(false);
-    void engineRef.current.ptt(false);
+    holdsRef.current.up('helper');
   };
 
   const closeSocket = () => {
@@ -112,9 +115,8 @@ export function HelperLink({ engine, externalDown, slot, onLinked, onDisconnectR
       if (message.t === 'ptt' && message.down) {
         if (held.current) return;
         held.current = true;
-        externalDown.current = true;
         setHolding(true);
-        void engineRef.current.unlock().then(() => engineRef.current.ptt(true));
+        holdsRef.current.down('helper');
         return;
       }
       if (message.t === 'ptt') release();
@@ -145,7 +147,12 @@ export function HelperLink({ engine, externalDown, slot, onLinked, onDisconnectR
   useEffect(() => {
     const device = storedDevice();
     if (device) connect(helperResumeMessage(device.token));
-    return () => { alive.current = false; release(); closeSocket(); };
+    return () => {
+      alive.current = false;
+      held.current = false;
+      holdsRef.current.drop('helper');
+      closeSocket();
+    };
   }, []);
 
   useEffect(() => {

@@ -2,18 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Room, RoomEvent } from 'livekit-client';
 import { decodePhone, encodePhone, formatCodeClock, PHONE_SYNC_ID, phoneHostStatus, phonePageUrl, type PhoneState } from '../../shared/phonePage';
+import type { TalkHolds } from '../../shared/talkHolds';
 import type { Api } from './lib/api';
 import { resolveLivekitUrl } from './lib/livekitUrl';
 import type { RadioControl } from './lib/radioEngine';
 
 /** QR for a one-time phone link. The phone keys the mic that is already published on this computer. */
-export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, showButton = true, opened = false, onOpenedChange, onLinked, onDisconnectReady }: {
+export function PhoneLink({ api, cid, apiBase, electron, engine, holds, showButton = true, opened = false, onOpenedChange, onLinked, onDisconnectReady }: {
   api: Api;
   cid: string;
   apiBase: string;
   electron: boolean;
   engine: RadioControl;
-  externalDown: { current: boolean };
+  holds: TalkHolds;
   showButton?: boolean;
   opened?: boolean;
   onOpenedChange?: (open: boolean) => void;
@@ -64,11 +65,14 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
     void room.localParticipant.publishData(encodePhone(snapshot()), { reliable: true, topic: 'rn' });
   };
 
+  const holdsRef = useRef(holds);
+  holdsRef.current = holds;
+
   const releaseHold = () => {
     if (!held.current) return;
     held.current = false;
-    externalDown.current = false;
-    void engineRef.current.ptt(false).finally(() => publish());
+    holdsRef.current.up('phone');
+    publish();
   };
 
   useEffect(() => {
@@ -116,11 +120,9 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
         lastDown.current = Date.now();
         if (!held.current) {
           held.current = true;
-          externalDown.current = true;
-          void engineRef.current.unlock()
-            .then(() => engineRef.current.ptt(true))
-            .finally(() => publish());
-        } else publish();
+          holdsRef.current.down('phone');
+        }
+        publish();
         return;
       }
       if (held.current) releaseHold();
@@ -160,7 +162,8 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
       dead = true;
       clearInterval(watch);
       clearInterval(pulse);
-      releaseHold();
+      held.current = false;
+      holdsRef.current.drop('phone');
       roomRef.current = null;
       void room.disconnect();
     };
