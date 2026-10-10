@@ -35,6 +35,8 @@ export interface Profile {
    */
   keybindsVersion?: number;
   overlayOn: boolean;
+  /** Desktop channel wheel. Off ignores the wheel key. */
+  wheelOn: boolean;
   /** Static when this radio adds a channel. Older profiles stored this as the only UI-sounds switch. */
   soundsOn: boolean;
   /** Own push-to-talk press and release. Off unless this profile turned it on. */
@@ -61,7 +63,7 @@ export interface Profile {
 
 export function emptyProfile(): Profile {
   return {
-    callsign: '', servers: [], keybinds: null, keybindsVersion: 0, overlayOn: true,
+    callsign: '', servers: [], keybinds: null, keybindsVersion: 0, overlayOn: true, wheelOn: true,
     soundsOn: true, soundPtt: false, soundTx: true, soundVolume: DEFAULT_SOUND_VOLUME,
     talkKey: 'Space', talkMode: 'hold', voiceSensitivity: 0.45, voiceReleaseMs: 300, simpleOn: false, simpleOnTop: false, radios: {},
     privacyAccepted: false, hotkeysEnabled: true,
@@ -106,6 +108,7 @@ export function normaliseProfile(raw: unknown): Profile {
       ? p.keybindsVersion
       : 0,
     overlayOn: p.overlayOn !== false,
+    wheelOn: p.wheelOn !== false,
     soundsOn: p.soundsOn !== false,
     soundPtt: p.soundPtt === true,
     soundTx: p.soundTx !== false,

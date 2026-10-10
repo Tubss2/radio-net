@@ -65,8 +65,28 @@ export interface LooseKeybinds {
   select?: Record<string, Bind>;
 }
 
+const KEY_LABELS: Record<number, string> = {
+  [UIO_F1]: 'F1',
+  [UIO_F2]: 'F2',
+  [UIO_F3]: 'F3',
+  [UIO_F4]: 'F4',
+  [UIO_F5]: 'F5',
+  [UIO_F10]: 'F10',
+  [UIO_G]: 'G',
+  [UIO_ESCAPE]: 'Escape',
+};
+
 export function bindId(b: Bind): string {
   return b.kind === 'key' ? `k${b.keycode}` : `m${b.button}`;
+}
+
+/** What to show for a slot. A missing label still names the key or mouse button. */
+export function bindLabel(bind: Bind | null | undefined): string {
+  if (!bind) return 'Unbound';
+  const label = bind.label.trim();
+  if (label) return label;
+  if (bind.kind === 'mouse') return `Mouse ${bind.button}`;
+  return KEY_LABELS[bind.keycode] ?? `Key ${bind.keycode}`;
 }
 
 export function cloneBinds(b: Keybinds = DEFAULT_BINDS): Keybinds {
@@ -106,14 +126,33 @@ function sameSlot(saved: Bind | null | undefined, legacy: { kind: 'key'; keycode
   return false;
 }
 
-/** True when the stored desktop binds are the pre-F-key defaults and nothing else was set. */
+function slotMatchesOrEmpty(saved: Bind | null | undefined, legacy: { kind: 'key'; keycode: number } | { kind: 'mouse'; button: number }): boolean {
+  return saved == null || sameSlot(saved, legacy);
+}
+
+/**
+ * True when every saved slot is still the pre-F-key default (or was never stored).
+ * An older profile can omit the overlay and still be the untouched set. Talk has
+ * to be the old mouse button, so a custom talk key is not rewritten.
+ */
 export function isLegacyDefaultKeybinds(raw: LooseKeybinds): boolean {
   if (!emptyMap(raw.direct) || !emptyMap(raw.select)) return false;
-  if (raw.prev != null || raw.next != null) return false;
-  return sameSlot(raw.ptt, LEGACY_DEFAULT_BINDS.ptt)
-    && sameSlot(raw.cycle, LEGACY_DEFAULT_BINDS.cycle)
-    && sameSlot(raw.overlay, LEGACY_DEFAULT_BINDS.overlay)
-    && sameSlot(raw.wheel, LEGACY_DEFAULT_BINDS.wheel);
+  if (raw.prev != null) return false;
+  if (raw.next != null && !sameSlot(raw.next, LEGACY_DEFAULT_BINDS.cycle)) return false;
+  if (raw.cycle != null && !sameSlot(raw.cycle, LEGACY_DEFAULT_BINDS.cycle)) return false;
+  if (!sameSlot(raw.ptt, LEGACY_DEFAULT_BINDS.ptt)) return false;
+  return slotMatchesOrEmpty(raw.overlay, LEGACY_DEFAULT_BINDS.overlay)
+    && slotMatchesOrEmpty(raw.wheel, LEGACY_DEFAULT_BINDS.wheel);
+}
+
+/**
+ * The header showed Talk "Mouse 4" and Overlay "—" when the overlay slot was
+ * missing. That is still the old default, including after a version bump that
+ * kept the hole. A profile that actually saved an overlay key is left alone.
+ */
+export function isIncompleteLegacyKeybinds(raw: LooseKeybinds): boolean {
+  if (raw.overlay != null) return false;
+  return isLegacyDefaultKeybinds(raw);
 }
 
 /** True when the stored binds are still the unreleased version-2 defaults and nothing else was set. */
@@ -145,6 +184,9 @@ export function migrateDesktopKeybinds(raw: unknown, version: unknown): DesktopK
   if (raw == null) return { keybinds: null, version: storedVersion, changed: false };
   if (typeof raw !== 'object') return { keybinds: cloneBinds(), version: KEYBINDS_VERSION, changed: true };
   const body = raw as LooseKeybinds;
+  if (isIncompleteLegacyKeybinds(body)) {
+    return { keybinds: cloneBinds(), version: KEYBINDS_VERSION, changed: true };
+  }
   if (storedVersion >= KEYBINDS_VERSION) {
     const keybinds = cloneBinds(withBindDefaults(body));
     return { keybinds, version: storedVersion, changed: body.cycle != null };

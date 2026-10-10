@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { BrowserWindow, app, ipcMain, safeStorage, screen, session, type WebContents } from 'electron';
+import { BrowserWindow, app, ipcMain, safeStorage, screen, session, shell, type WebContents } from 'electron';
 import { parseKeybinds, parseLogEvent, parseOverlayState, parseWheelInput } from '../shared/ipcValidate';
 import { migrateDesktopKeybinds, withBindDefaults } from '../shared/keybinds';
 import { duplicateWheelNotch, hookScrollReachesPage, type WheelNotch } from '../shared/radialWheel';
@@ -8,7 +8,7 @@ import { isAllowedAppUrl, mediaTypesOf, RENDERER_CSP, rendererWebPreferences, sh
 import type { HotkeyEvent } from '../shared/types';
 import { clientLog } from './clientLog';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
-import { downloadAvailableUpdate, installDownloadedUpdate, startUpdater } from './updater';
+import { checkForUpdatesNow, downloadAvailableUpdate, installDownloadedUpdate, startUpdater } from './updater';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 // Test-only: fake microphone (a beep) so the app can be exercised headlessly. Never set in release builds.
@@ -270,6 +270,19 @@ ipcMain.on('window:simple', (e, payload: unknown) => {
 
 ipcMain.on('update:install', (e) => { if (fromApp(e.sender)) installDownloadedUpdate(); });
 ipcMain.on('update:download', (e) => { if (fromApp(e.sender)) downloadAvailableUpdate(); });
+ipcMain.handle('update:check', (e) => (fromApp(e.sender) ? checkForUpdatesNow() : { state: 'dev' as const }));
+ipcMain.handle('logs:show', (e) => {
+  if (!fromApp(e.sender)) return;
+  const dir = app.getPath('userData');
+  const file = join(dir, 'radio-net.log');
+  if (existsSync(file)) shell.showItemInFolder(file);
+  else void shell.openPath(dir);
+});
+ipcMain.handle('app:facts', (e) => ({
+  packaged: fromApp(e.sender) ? app.isPackaged : false,
+  platform: process.platform,
+  arch: process.arch,
+}));
 ipcMain.on('log:event', (e, event: unknown, detail: unknown) => {
   if (!fromApp(e.sender)) return;
   const parsed = parseLogEvent(event, detail);

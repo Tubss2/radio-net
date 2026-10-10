@@ -5,7 +5,7 @@ import { APP_VERSION } from '../../shared/version';
 import { bridge, inElectron } from './bridge';
 import { isPreview } from './lib/previewMode';
 import type { SoundPrefs } from '../../shared/sounds';
-import { previewSound } from './lib/uiSounds';
+import { SoundsSettings } from './SoundsSettings';
 
 export interface BindRow { id: string; label: string }
 
@@ -88,25 +88,7 @@ export function Settings({ binds, quick, hotkeysOn, onHotkeys, onPrivacy, sounds
         {quick.length === 0 && <div className="sub">Tune a channel to add a quick-select key for it.</div>}
         {clashes.map((c) => <div key={c} className="err">{c}</div>)}
         {err && <div className="err">{err}</div>}
-        <div className="sounds">
-          <h3>Sounds</h3>
-          <p className="sub" style={{ margin: 0 }}>Saved on this browser or this PC. The volume applies to every cue below.</p>
-          <div className="row">
-            <label><input type="checkbox" checked={sounds.addChannel} onChange={(e) => onSounds({ ...sounds, addChannel: e.target.checked })} /> Add a channel</label>
-            <button className="btn sm ghost" type="button" onClick={() => previewSound('add')}>Play</button>
-          </div>
-          <div className="row">
-            <label><input type="checkbox" checked={sounds.ptt} onChange={(e) => onSounds({ ...sounds, ptt: e.target.checked })} /> Push-to-talk press and release</label>
-            <button className="btn sm ghost" type="button" onClick={() => previewSound('ptt')}>Play</button>
-          </div>
-          <div className="row">
-            <label><input type="checkbox" checked={sounds.txChange} onChange={(e) => onSounds({ ...sounds, txChange: e.target.checked })} /> Change transmit channel</label>
-            <button className="btn sm ghost" type="button" onClick={() => previewSound('tx')}>Play</button>
-          </div>
-          <label className="row">Volume
-            <input type="range" min={0} max={100} value={Math.round(sounds.volume * 100)} aria-label="UI sound volume" onChange={(e) => onSounds({ ...sounds, volume: Number(e.target.value) / 100 })} />
-          </label>
-        </div>
+        <SoundsSettings sounds={sounds} onSounds={onSounds} />
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn ghost" type="button" onClick={onPrivacy}>Privacy notes</button>
           <button className="btn ghost" onClick={() => onChange(inElectron ? cloneBinds(DEFAULT_BINDS) : pageKeybinds(null, isPreview))}>Reset to defaults</button>

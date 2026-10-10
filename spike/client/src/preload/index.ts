@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Profile } from '../shared/profile';
 import type { Bind, HotkeyEvent, Keybinds, OverlayState, UpdateReady, WheelInput } from '../shared/types';
+import type { UpdateCheckState } from '../shared/updates';
 
 const api = {
   getProfile: (): Promise<Profile> => ipcRenderer.invoke('profile:get'),
@@ -42,6 +43,9 @@ const api = {
   },
   downloadUpdate: () => ipcRenderer.send('update:download'),
   installUpdate: () => ipcRenderer.send('update:install'),
+  checkForUpdates: (): Promise<UpdateCheckState> => ipcRenderer.invoke('update:check'),
+  showLogs: (): Promise<void> => ipcRenderer.invoke('logs:show'),
+  appFacts: (): Promise<{ packaged: boolean; platform: string; arch: string }> => ipcRenderer.invoke('app:facts'),
   log: (event: string, detail?: string) => ipcRenderer.send('log:event', event, detail),
   /** Compact the main window. The radio stays in this window so there is one microphone. */
   setSimpleWindow: (state: { compact: boolean; alwaysOnTop: boolean }) => ipcRenderer.send('window:simple', state),

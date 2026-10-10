@@ -3,6 +3,7 @@ import { browserDiskNeedsScrub, profileForDisk, profileWithSessions, sessionsFro
 import { pageKeybinds } from '../../shared/keybinds';
 import { emptyProfile, normaliseProfile, type Profile } from '../../shared/profile';
 import type { Bind, Keybinds, OverlayState, WheelInput } from '../../shared/types';
+import type { UpdateCheckState } from '../../shared/updates';
 import { emitPreviewWheel, onPreviewHotkey, onPreviewOverlay, onPreviewUpdate, onPreviewWheel, publishOverlay } from './lib/previewBus';
 import { isPreview } from './lib/previewMode';
 
@@ -126,6 +127,9 @@ function previewBridge(): RadioNetBridge {
     onUpdateReady: (cb) => onPreviewUpdate(cb),
     downloadUpdate: () => undefined,
     installUpdate: () => { document.documentElement.dataset.updateInstall = '1'; },
+    checkForUpdates: async (): Promise<UpdateCheckState> => ({ state: 'dev' }),
+    showLogs: async () => undefined,
+    appFacts: async () => ({ packaged: false, platform: 'preview', arch: '' }),
     log: () => undefined,
     setSimpleWindow: () => undefined,
   };
@@ -148,6 +152,9 @@ const browserFallback: RadioNetBridge = {
   onUpdateReady: () => () => undefined,
   downloadUpdate: () => undefined,
   installUpdate: () => undefined,
+  checkForUpdates: async (): Promise<UpdateCheckState> => ({ state: 'dev' }),
+  showLogs: async () => undefined,
+  appFacts: async () => ({ packaged: false, platform: 'browser', arch: '' }),
   log: () => undefined,
   setSimpleWindow: () => undefined,
 };
