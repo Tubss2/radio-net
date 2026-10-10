@@ -28,6 +28,7 @@ The full notes are in [`docs/PRIVACY.md`](docs/PRIVACY.md). An outside-style ass
 | [`docs/anticheat-and-contacts.md`](docs/anticheat-and-contacts.md) | Anti-cheat notes, who to contact, and lower-risk input designs |
 | [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md) | Outside review: what would worry someone installing the app |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model: assets, attackers, trust boundaries |
+| [`docs/IDENTITY.md`](docs/IDENTITY.md) | Proposal: device keys, one-time invite enrollment, revoke one device |
 | [`docs/PRIVACY.md`](docs/PRIVACY.md) | What the app reads, what leaves the PC, and what stays |
 | [`spike/`](spike/README.md) | M1 spike: API server, Electron client, LiveKit dev runner, tests, screenshots |
 | [`deploy/`](deploy/README.md) | Vultr Sydney deploy kit: cloud-init, setup, pack/deploy scripts, systemd units |
