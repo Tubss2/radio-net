@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { cloneBinds, KEYBINDS_VERSION, migrateDesktopKeybinds, pageKeybinds } from '../../shared/keybinds';
+import { bindLabel, cloneBinds, KEYBINDS_VERSION, migrateDesktopKeybinds, pageKeybinds } from '../../shared/keybinds';
 import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
+import { DEFAULT_SOUND_VOLUME, soundPrefsFrom, type SoundPrefs } from '../../shared/sounds';
+import { APP_VERSION } from '../../shared/version';
 import type { Keybinds } from '../../shared/types';
 import { acceptChannelList, removedTunedIds } from '../../shared/channelList';
 import { matchChannel } from '../../shared/radialWheel';
-import { soundPrefsFrom, type SoundPrefs } from '../../shared/sounds';
 import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import { RECONNECTING } from '../../shared/net';
@@ -20,6 +21,7 @@ import { PhoneLink } from './PhoneLink';
 import { HelperLink } from './HelperLink';
 import { TalkSetup } from './TalkSetup';
 import { RadialWheel } from './RadialWheel';
+import { OptionsMenu } from './OptionsMenu';
 import { Settings } from './Settings';
 import { SimpleRadio } from './SimpleRadio';
 import { PrivacyConsent, PrivacyNotes } from './Privacy';
@@ -167,6 +169,8 @@ export function App() {
           void save({ ...cur, servers: cur.servers.filter((s) => s.id !== active.id), radios });
           setActiveId(null);
         }}
+        onChangeBinds={changeBinds}
+        onPrivacy={() => setPrivacyOpen(true)}
       />
       <SettingsHost
         binds={binds}
@@ -397,7 +401,7 @@ function talkKeyLabel(code: string): string {
   return code;
 }
 
-function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile, onServer, onRemoved }: {
+function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile, onServer, onRemoved, onChangeBinds, onPrivacy }: {
   server: ServerEntry;
   callsign: string;
   binds: Keybinds;
@@ -407,6 +411,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   onProfile: (p: Profile) => void;
   onServer: (s: ServerEntry) => void;
   onRemoved: () => void;
+  onChangeBinds: (b: Keybinds) => void;
+  onPrivacy: () => void;
 }) {
   const api = useMemo(
     () => clientFor(server),
@@ -422,6 +428,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const [query, setQuery] = useState('');
   const [err, setErr] = useState('');
   const [overlayOn, setOverlayOn] = useState(boot.overlayOn);
+  const [wheelOn, setWheelOn] = useState(boot.wheelOn);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [newCh, setNewCh] = useState(false);
   const [restored, setRestored] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
@@ -545,6 +553,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const wheel = useChannelWheel(engine, channels, binds.wheel, {
     canCreate: isAdmin,
     listReady,
+    enabled: wheelOn,
     createChannel: async (freq, name) => {
       const ch = await api.createChannel(server.id, freq, name);
       await load();
@@ -582,8 +591,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       pan: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.pan])),
     };
     const prev = profileRef.current.radios[server.id];
-    if (JSON.stringify(prev) === JSON.stringify(prefs) && profileRef.current.overlayOn === overlayOn) return;
-    const next = { ...profileRef.current, overlayOn, radios: { ...profileRef.current.radios, [server.id]: prefs } };
+    if (JSON.stringify(prev) === JSON.stringify(prefs) && profileRef.current.overlayOn === overlayOn && profileRef.current.wheelOn === wheelOn) return;
+    const next = { ...profileRef.current, overlayOn, wheelOn, radios: { ...profileRef.current.radios, [server.id]: prefs } };
     profileRef.current = next;
     onProfile(next);
   });
@@ -595,7 +604,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       if (e.type === 'overlay') setOverlayOn((v) => !v);
       if (e.type === 'direct') void engine.ptt(e.down, e.channelId);
       if (e.type === 'select') engine.setTx(e.channelId);
-      if (e.type === 'wheel') wheel.onKey(e.down, e.heldMs);
+      if (e.type === 'wheel' && wheelOn) wheel.onKey(e.down, e.heldMs);
+      if (e.type === 'wheel' && !wheelOn) wheel.close();
       if (e.type === 'wheel-scroll') wheel.onFallbackScroll(e.steps, e.shift);
       if (e.type === 'wheel-number') wheel.onNumber(e.n);
       if (e.type === 'wheel-cancel') wheel.close();
@@ -613,7 +623,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     const ku = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space') void engine.ptt(false); };
     window.addEventListener('keydown', kd, true); window.addEventListener('keyup', ku, true);
     return () => { off(); offWheel(); window.removeEventListener('keydown', kd, true); window.removeEventListener('keyup', ku, true); };
-  }, [engine, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close]);
+  }, [engine, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close, wheelOn]);
 
   const tuned = engine.tuned;
   const tx = tuned.find((t) => t.channel.id === engine.txId) ?? null;
@@ -707,6 +717,64 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   }, [simpleOn, onTop]);
 
   const patchProfile = (patch: Partial<Profile>) => onProfile({ ...profileRef.current, ...patch });
+  const resetSettings = () => {
+    if (!confirm('Reset keybinds, overlay, channel wheel, sounds, and simple mode on this PC? Your callsign and communities stay.')) return;
+    const nextBinds = cloneBinds();
+    onChangeBinds(nextBinds);
+    setOverlayOn(true);
+    setWheelOn(true);
+    setSimpleOn(false);
+    setOnTop(false);
+    onHotkeys(true);
+    patchProfile({
+      keybinds: nextBinds,
+      keybindsVersion: KEYBINDS_VERSION,
+      overlayOn: true,
+      wheelOn: true,
+      soundsOn: true,
+      soundPtt: false,
+      soundTx: true,
+      soundVolume: DEFAULT_SOUND_VOLUME,
+      simpleOn: false,
+      simpleOnTop: false,
+      hotkeysEnabled: true,
+    });
+  };
+  const optionsMenu = optionsOpen ? (
+    <OptionsMenu
+      profile={boot}
+      server={server}
+      binds={binds}
+      overlayOn={overlayOn}
+      wheelOn={wheelOn}
+      simpleOn={simpleOn}
+      hotkeysOn={hotkeysOn}
+      onOverlay={(on) => { setOverlayOn(on); patchProfile({ overlayOn: on }); }}
+      onWheel={(on) => { setWheelOn(on); patchProfile({ wheelOn: on }); if (!on) wheel.close(); }}
+      onSimple={(on) => { setSimpleOn(on); patchProfile({ simpleOn: on }); }}
+      onHotkeys={onHotkeys}
+      onSounds={(sounds) => patchProfile({ soundsOn: sounds.addChannel, soundPtt: sounds.ptt, soundTx: sounds.txChange, soundVolume: sounds.volume })}
+      onServer={onServer}
+      onKeybinds={() => { setOptionsOpen(false); openSettings(); }}
+      onPhone={() => { setOptionsOpen(false); setPhoneOpen(true); }}
+      onPrivacy={() => { setOptionsOpen(false); onPrivacy(); }}
+      onReset={resetSettings}
+      onClose={() => setOptionsOpen(false)}
+    />
+  ) : null;
+  const phoneLink = !isPreview ? (
+    <PhoneLink
+      api={api}
+      cid={server.id}
+      apiBase={server.url || API_URL}
+      electron={inElectron}
+      engine={engine}
+      externalDown={externalDown}
+      showButton={false}
+      opened={phoneOpen}
+      onOpenedChange={setPhoneOpen}
+    />
+  ) : null;
   const armKey = () => {
     setArming(true);
     const onKey = (e: KeyboardEvent) => {
@@ -853,17 +921,20 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     );
   }
 
-  if (inElectron && simpleOn) {
+  if (!isWeb && simpleOn) {
     return (
       <div className={`simple-screen${keyed ? ' on-air' : ''}`}>
         <OnAirBanner engine={engine} />
         <div className="web-bar">
           <strong>{server.name}</strong>
           <button className="btn sm" onClick={() => { setSimpleOn(false); patchProfile({ simpleOn: false }); }}>Full radio</button>
-          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
+          <button className="btn sm" type="button" onClick={() => setOptionsOpen(true)}>Options</button>
+          <span className="foot-ver">v{APP_VERSION}</span>
           <label className="sub"><input type="checkbox" checked={onTop} onChange={(e) => { setOnTop(e.target.checked); patchProfile({ simpleOnTop: e.target.checked }); }} /> Always on top</label>
         </div>
-        <SimpleRadio engine={engine} onDown={() => { void engine.ptt(true); }} onUp={() => { void engine.ptt(false); }} label={binds.ptt?.label ?? 'Hold'} />
+        <SimpleRadio engine={engine} onDown={() => { void engine.ptt(true); }} onUp={() => { void engine.ptt(false); }} label={bindLabel(binds.ptt)} />
+        {phoneLink}
+        {optionsMenu}
       </div>
     );
   }
@@ -901,15 +972,9 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
         </div>
         <div className="foot">
           <div className="avatar">{initials(callsign)}</div>
-          <div style={{ flex: 1 }}>
-            <div>{callsign}</div>
-            <button className="link" type="button" onClick={() => onHotkeys(!hotkeysOn)}>
-              {inElectron ? (hotkeysOn ? 'Keybinds on — bound keys only' : 'Keybinds paused') : (hotkeysOn ? 'Preview: hold Space' : 'Keybinds paused')}
-            </button>
-          </div>
-          {inElectron && <button className="btn sm" onClick={() => { setSimpleOn(true); patchProfile({ simpleOn: true }); }}>Simple</button>}
-          {!isPreview && <PhoneLink api={api} cid={server.id} apiBase={server.url || API_URL} electron={inElectron} engine={engine} externalDown={externalDown} />}
-          <button className="btn sm" onClick={openSettings}>Keybinds</button>
+          <div className="foot-name">{callsign}</div>
+          <button className="btn sm" type="button" onClick={() => setOptionsOpen(true)}>Options</button>
+          <span className="foot-ver">v{APP_VERSION}</span>
         </div>
       </aside>
 
@@ -922,10 +987,11 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           </div>
           <div className="nm">{tx?.channel.name ?? 'Tune a channel to talk'}</div>
           <div className="keys">
-            Talk <kbd>{binds.ptt?.label ?? '—'}</kbd>
-            {binds.prev ? <> Prev <kbd>{binds.prev.label}</kbd></> : null}
-            {binds.next ? <> Next <kbd>{binds.next.label}</kbd></> : null}
-            {' '}Wheel <kbd>{binds.wheel?.label ?? '—'}</kbd> Overlay <kbd>{binds.overlay?.label ?? '—'}</kbd>
+            Talk <kbd>{bindLabel(binds.ptt)}</kbd>
+            Prev <kbd>{bindLabel(binds.prev)}</kbd>
+            Next <kbd>{bindLabel(binds.next)}</kbd>
+            Wheel <kbd>{bindLabel(binds.wheel)}</kbd>
+            Overlay <kbd>{bindLabel(binds.overlay)}</kbd>
           </div>
         </div>
         <div className="grid">
@@ -944,6 +1010,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
         setNewCh(false);
       }} />}
       {wheelPortal}
+      {phoneLink}
+      {optionsMenu}
     </>
   );
 }

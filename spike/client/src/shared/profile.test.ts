@@ -29,6 +29,8 @@ describe('profile secrets', () => {
     expect(p.privacyAccepted).toBe(false);
     expect(p.hotkeysEnabled).toBe(true);
     expect(p.keybindsVersion).toBe(0);
+    expect(p.wheelOn).toBe(true);
+    expect(normaliseProfile({ wheelOn: false }).wheelOn).toBe(false);
     expect(normaliseProfile({ hotkeysEnabled: false }).hotkeysEnabled).toBe(false);
     expect(normaliseProfile({ keybindsVersion: 2 }).keybindsVersion).toBe(2);
   });

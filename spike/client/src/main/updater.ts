@@ -1,6 +1,7 @@
 import { app, type BrowserWindow } from 'electron';
 import { autoUpdater, type NsisUpdater } from 'electron-updater';
-import { isPinnedUpdateFeed, UPDATE_CHECK_INTERVAL_MS, UPDATE_OWNER, UPDATE_REPO } from '../shared/updates';
+import { redactSecrets } from '../shared/redact';
+import { isPinnedUpdateFeed, UPDATE_CHECK_INTERVAL_MS, UPDATE_OWNER, UPDATE_REPO, type UpdateCheckState } from '../shared/updates';
 import { clientLog } from './clientLog';
 
 const PINNED_FEED = { provider: 'github' as const, owner: UPDATE_OWNER, repo: UPDATE_REPO, private: false };
@@ -47,6 +48,25 @@ export function startUpdater(getWindow: () => BrowserWindow | null): void {
   check();
   const timer = setInterval(check, UPDATE_CHECK_INTERVAL_MS);
   app.once('before-quit', () => clearInterval(timer));
+}
+
+/** One check from the Options menu. The installed app is the only copy that asks GitHub. */
+export async function checkForUpdatesNow(): Promise<UpdateCheckState> {
+  if (!app.isPackaged) return { state: 'dev' };
+  if (!isPinnedUpdateFeed(PINNED_FEED)) return { state: 'error', message: 'Update feed is not the public GitHub release.' };
+  skipSignatureCheck();
+  autoUpdater.setFeedURL(PINNED_FEED);
+  autoUpdater.autoDownload = false;
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result) return { state: 'none', version: app.getVersion() };
+    if (result.isUpdateAvailable) return { state: 'available', version: result.updateInfo.version };
+    return { state: 'none', version: result.updateInfo.version || app.getVersion() };
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : 'Could not check for updates.';
+    const message = redactSecrets(raw).replace(/[\r\n]+/g, ' ').trim().slice(0, 180);
+    return { state: 'error', message: message || 'Could not check for updates.' };
+  }
 }
 
 export function downloadAvailableUpdate(): void {

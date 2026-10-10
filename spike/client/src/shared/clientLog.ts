@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { redactSecrets } from './redact';
 
 /** Current file plus two rotated copies. */
 export const LOG_KEEP = 3;
@@ -7,11 +8,7 @@ export const LOG_MAX_BYTES = 256 * 1024;
 
 /** Drop secrets before a line is written. Callers should not pass them anyway. */
 export function redactLog(text: string): string {
-  return text
-    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-    .replace(/rnk_[A-Za-z0-9_-]+/g, 'rnk_[redacted]')
-    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+)?/g, '[redacted-token]')
-    .replace(/access_token=[^&\s]+/gi, 'access_token=[redacted]');
+  return redactSecrets(text);
 }
 
 export function logLine(event: string, detail?: string, at = new Date()): string {

@@ -3,6 +3,8 @@ import {
   cloneBinds,
   conflicts,
   DEFAULT_BINDS,
+  bindLabel,
+  isIncompleteLegacyKeybinds,
   isLegacyDefaultKeybinds,
   isV2DefaultKeybinds,
   KEYBINDS_VERSION,
@@ -139,6 +141,46 @@ describe('keybinds', () => {
     expect(migrated.keybinds?.next).toMatchObject({ button: 5 });
     expect(migrated.keybinds?.prev).toBeNull();
     expect(migrated.keybinds?.select.cmd).toMatchObject({ keycode: UIO_G, label: 'G' });
+  });
+
+  it('treats a saved Mouse 4 profile with a missing overlay as the old defaults', () => {
+    const shown = {
+      ptt: { kind: 'mouse' as const, button: 4, label: 'Mouse 4' },
+      wheel: { kind: 'key' as const, keycode: UIO_F2, label: 'F2' },
+      overlay: null,
+      direct: {},
+      select: {},
+    };
+    expect(isIncompleteLegacyKeybinds(shown)).toBe(true);
+    expect(bindLabel(shown.overlay)).toBe('Unbound');
+    expect(bindLabel(shown.ptt)).toBe('Mouse 4');
+    const migrated = migrateDesktopKeybinds(shown, 0);
+    expect(migrated.changed).toBe(true);
+    expect(migrated.keybinds).toEqual(cloneBinds());
+    expect(bindLabel(migrated.keybinds?.ptt)).toBe('F1');
+    expect(bindLabel(migrated.keybinds?.overlay)).toBe('F5');
+    expect(bindLabel(migrated.keybinds?.wheel)).toBe('F2');
+    const alreadyBumped = migrateDesktopKeybinds(shown, KEYBINDS_VERSION);
+    expect(alreadyBumped.changed).toBe(true);
+    expect(alreadyBumped.keybinds?.ptt).toMatchObject({ keycode: UIO_F1, label: 'F1' });
+    expect(alreadyBumped.keybinds?.overlay).toMatchObject({ keycode: UIO_F5, label: 'F5' });
+  });
+
+  it('keeps a custom talk key when the overlay slot is empty', () => {
+    const custom = {
+      ptt: { kind: 'key' as const, keycode: UIO_G, label: 'G' },
+      wheel: { kind: 'key' as const, keycode: UIO_F2, label: 'F2' },
+      overlay: null,
+    };
+    expect(isLegacyDefaultKeybinds(custom)).toBe(false);
+    const migrated = migrateDesktopKeybinds(custom, 0);
+    expect(migrated.keybinds?.ptt).toMatchObject({ keycode: UIO_G, label: 'G' });
+    expect(migrated.keybinds?.overlay).toBeNull();
+  });
+
+  it('names a bind that was stored without a label', () => {
+    expect(bindLabel({ kind: 'key', keycode: UIO_F10, label: '' })).toBe('F10');
+    expect(bindLabel({ kind: 'mouse', button: 4, label: '  ' })).toBe('Mouse 4');
   });
 
   it('leaves a profile that never saved binds on the current defaults', () => {

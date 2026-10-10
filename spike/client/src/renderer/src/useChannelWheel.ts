@@ -26,6 +26,8 @@ export interface WheelOptions {
   createChannel?: (freq: string, name: string) => Promise<ChannelInfo>;
   /** False until the server channel list has been fetched. An empty list before that is not "everything was deleted". */
   listReady?: boolean;
+  /** False ignores the wheel key. The Options menu turns this off. */
+  enabled?: boolean;
 }
 
 /**
@@ -162,6 +164,10 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
   };
 
   const onKey = useCallback((down: boolean, heldMs: number) => {
+    if (optionsRef.current?.enabled === false) {
+      if (openRef.current) closeWheel();
+      return;
+    }
     const next = onWheelKey(
       { open: openRef.current, latched: latchedRef.current, adding: modelRef.current.adding },
       { down, heldMs },
@@ -211,6 +217,7 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
     if (inElectron) return;
     const downAt = { t: null as number | null };
     const matches = (e: KeyboardEvent) => {
+      if (optionsRef.current?.enabled === false) return false;
       const b = wheelBindRef.current;
       if (isCapturingBind()) return false;
       if (!b) return e.code === 'F2';
