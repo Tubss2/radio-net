@@ -33,5 +33,8 @@ describe('profile secrets', () => {
     expect(normaliseProfile({ wheelOn: false }).wheelOn).toBe(false);
     expect(normaliseProfile({ hotkeysEnabled: false }).hotkeysEnabled).toBe(false);
     expect(normaliseProfile({ keybindsVersion: 2 }).keybindsVersion).toBe(2);
+    const kept = normaliseProfile({ servers: [{ id: 'c', url: 'https://radio.example', deviceRole: 'admin', deviceId: 'ab'.repeat(32), inviteCode: 'ABCD-EF23' }] });
+    expect(kept.servers[0].deviceRole).toBe('admin');
+    expect(kept.servers[0].deviceId).toBe('ab'.repeat(32));
   });
 });

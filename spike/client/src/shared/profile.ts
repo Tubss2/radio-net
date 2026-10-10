@@ -11,9 +11,13 @@ export interface ServerEntry {
   /** Web only. The admin key is written to localStorage only when this is true. */
   rememberAdmin?: boolean;
   lastUsed: string;
-  /** Short-lived join session. Refreshed by joining again with the invite code and callsign. */
+  /** Short-lived join session. A device session is refreshed by signing a challenge. */
   token?: string;
   tokenExp?: number;
+  /** Enrolled device. Public id, safe to keep with the server list. */
+  deviceId?: string;
+  /** From the device row. The admin key is not required once this is admin. */
+  deviceRole?: 'member' | 'admin';
 }
 
 export interface RadioPrefs {
@@ -87,6 +91,8 @@ function cleanServer(s: ServerEntry): ServerEntry {
   if (s.rememberAdmin === true) entry.rememberAdmin = true;
   if (typeof s.token === 'string' && s.token.length > 0 && s.token.length <= 4000) entry.token = s.token;
   if (typeof s.tokenExp === 'number' && Number.isFinite(s.tokenExp)) entry.tokenExp = s.tokenExp;
+  if (typeof s.deviceId === 'string' && /^[0-9a-f]{64}$/.test(s.deviceId)) entry.deviceId = s.deviceId;
+  if (s.deviceRole === 'admin' || s.deviceRole === 'member') entry.deviceRole = s.deviceRole;
   return entry;
 }
 
