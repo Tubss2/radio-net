@@ -35,7 +35,7 @@ export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBr
               </button>
               <div className="talk-choice">
                 <strong>Small open-source helper</strong>
-                <span>A Windows program that only monitors the keys you assign, and links to this page. It does not hear the microphone.</span>
+                <span>A small window on this computer. It watches one key or mouse side button and links to this page. Closing the window exits it. It does not hear the microphone.</span>
                 <span className="talk-links">
                   <a href={HELPER_DOWNLOAD_URL}>Download RadioNetHelper.exe</a>
                   <a href={HELPER_SOURCE_URL} target="_blank" rel="noreferrer">Source on GitHub</a>

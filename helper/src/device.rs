@@ -13,7 +13,7 @@ pub const TOKEN_BYTES: usize = 32;
 pub struct DeviceState {
     pub token_hash: Option<String>,
     pub watch: Option<Watch>,
-    /// Tray toggle. Off unless the user turns it on. Unlink does not change it.
+    /// Old tray builds wrote this. The window build never starts with Windows, and clears the Run key.
     pub autostart: bool,
 }
 
@@ -24,9 +24,9 @@ impl Default for DeviceState {
 }
 
 impl DeviceState {
+    /// Drops the browser token. The watched key stays, so Unlink does not forget the binding.
     pub fn forget_link(&mut self) {
         self.token_hash = None;
-        self.watch = None;
     }
 }
 
@@ -288,7 +288,7 @@ fn unseal_dpapi(bytes: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Registry value under `HKCU\...\Run`. Absent unless the user turns the tray toggle on.
+/// Old tray builds used this Run-key name. The window build deletes it on startup.
 pub const AUTOSTART_VALUE: &str = "RadioNetHelper";
 
 #[cfg(test)]
@@ -324,7 +324,7 @@ mod tests {
         assert_eq!(device.watch, Some(Watch::Mouse { button: 5 }));
         apply_linked(&mut device, r#"{"t":"forget"}"#).unwrap();
         assert!(device.token_hash.is_none());
-        assert!(device.watch.is_none());
+        assert_eq!(device.watch, Some(Watch::Mouse { button: 5 }));
         assert!(authorize(&device, &resume, "K7QM2P").is_err());
     }
 

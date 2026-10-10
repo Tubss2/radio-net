@@ -8,6 +8,91 @@ pub enum Watch {
     Mouse { button: u8 },
 }
 
+/// Short name for the helper window. Letters use the virtual-key code, which matches `KeyK` style DOM codes.
+pub fn watch_label(watch: &Watch) -> String {
+    match watch {
+        Watch::Mouse { button } => format!("Mouse {button}"),
+        Watch::Key { vk } => vk_label(*vk),
+    }
+}
+
+/// Tell the page which key the window just bound, using the same shape the page sends.
+pub fn watch_message(watch: &Watch) -> Option<String> {
+    let body = match watch {
+        Watch::Mouse { button } => format!(r#"{{"kind":"mouse","button":{button}}}"#),
+        Watch::Key { vk } => {
+            let code = dom_code_for_vk(*vk)?;
+            format!(r#"{{"kind":"key","code":"{code}"}}"#)
+        }
+    };
+    Some(format!(r#"{{"t":"watch","watch":{body}}}"#))
+}
+
+/// Inverse of [`dom_code_to_vk`] for the keys the page can store. Left/right modifiers share one virtual key.
+pub fn dom_code_for_vk(vk: u16) -> Option<String> {
+    Some(match vk {
+        0x08 => "Backspace".into(),
+        0x09 => "Tab".into(),
+        0x0D => "Enter".into(),
+        0x10 => "ShiftLeft".into(),
+        0x11 => "ControlLeft".into(),
+        0x12 => "AltLeft".into(),
+        0x1B => "Escape".into(),
+        0x20 => "Space".into(),
+        0x25 => "ArrowLeft".into(),
+        0x26 => "ArrowUp".into(),
+        0x27 => "ArrowRight".into(),
+        0x28 => "ArrowDown".into(),
+        0xBA => "Semicolon".into(),
+        0xBB => "Equal".into(),
+        0xBC => "Comma".into(),
+        0xBD => "Minus".into(),
+        0xBE => "Period".into(),
+        0xBF => "Slash".into(),
+        0xC0 => "Backquote".into(),
+        0xDB => "BracketLeft".into(),
+        0xDC => "Backslash".into(),
+        0xDD => "BracketRight".into(),
+        0xDE => "Quote".into(),
+        value if (b'0' as u16..=b'9' as u16).contains(&value) => format!("Digit{}", char::from(value as u8)),
+        value if (b'A' as u16..=b'Z' as u16).contains(&value) => format!("Key{}", char::from(value as u8)),
+        value if (0x70..=0x7B).contains(&value) => format!("F{}", value - 0x6F),
+        _ => return None,
+    })
+}
+
+fn vk_label(vk: u16) -> String {
+    match vk {
+        0x08 => "Backspace".into(),
+        0x09 => "Tab".into(),
+        0x0D => "Enter".into(),
+        0x10 => "Shift".into(),
+        0x11 => "Ctrl".into(),
+        0x12 => "Alt".into(),
+        0x1B => "Esc".into(),
+        0x20 => "Space".into(),
+        0x25 => "Left".into(),
+        0x26 => "Up".into(),
+        0x27 => "Right".into(),
+        0x28 => "Down".into(),
+        0xBA => ";".into(),
+        0xBB => "=".into(),
+        0xBC => ",".into(),
+        0xBD => "-".into(),
+        0xBE => ".".into(),
+        0xBF => "/".into(),
+        0xC0 => "`".into(),
+        0xDB => "[".into(),
+        0xDC => "\\".into(),
+        0xDD => "]".into(),
+        0xDE => "'".into(),
+        value if (b'0' as u16..=b'9' as u16).contains(&value) => char::from(value as u8).to_string(),
+        value if (b'A' as u16..=b'Z' as u16).contains(&value) => char::from(value as u8).to_string(),
+        value if (0x70..=0x7B).contains(&value) => format!("F{}", value - 0x6F),
+        value => format!("VK {value}"),
+    }
+}
+
 /// Browser `Origin` values the helper will upgrade. Anything else is refused.
 pub fn origin_allowed(origin: &str) -> bool {
     if origin == PAGES_ORIGIN {
@@ -326,6 +411,11 @@ mod tests {
         assert_eq!(parse_pair(left, "K7QM2P").unwrap_err(), "unsupported button");
         assert_eq!(dom_code_to_vk("Space"), Some(0x20));
         assert_eq!(dom_code_to_vk("F2"), Some(0x71));
+        assert_eq!(watch_label(&Watch::Key { vk: b'K' as u16 }), "K");
+        assert_eq!(watch_label(&Watch::Key { vk: 0x20 }), "Space");
+        assert_eq!(watch_label(&Watch::Mouse { button: 5 }), "Mouse 5");
+        assert_eq!(watch_message(&Watch::Key { vk: b'K' as u16 }).as_deref(), Some(r#"{"t":"watch","watch":{"kind":"key","code":"KeyK"}}"#));
+        assert_eq!(dom_code_to_vk(&dom_code_for_vk(0x20).unwrap()), Some(0x20));
     }
 
     #[test]
