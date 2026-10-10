@@ -2,9 +2,10 @@
 export const HELPER_URL = 'ws://127.0.0.1:47321';
 
 /**
- * Stable download. The helper workflow attaches this file to the `helper-4` release
- * only after that commit is on main. It is not listed in `latest.yml`, so the desktop
- * updater does not treat it as an app update.
+ * Download for one immutable helper-N release. A newer approved build is a new tag,
+ * and this constant is updated to that tag after the tag exists. It does not use
+ * /releases/latest, because that address follows whichever release is newest,
+ * including the desktop installer. The file is not listed in latest.yml.
  */
 export const HELPER_DOWNLOAD_URL = 'https://github.com/Tubss2/radio-net/releases/download/helper-4/RadioNetHelper.exe';
 
