@@ -61,17 +61,27 @@ export class PreviewEngine implements RadioControl {
   setPan(id: string, p: number) { const s = this.slots.get(id); if (!s) return; s.pan = p; this.changed(); }
   setTx(id: string) { if (this.slots.get(id)?.canTransmit) { this.txId = id; this.changed(); } }
 
+  ensureTx() {
+    if (this.txId && this.slots.get(this.txId)?.canTransmit && this.slots.get(this.txId)?.status !== 'gone') return;
+    const next = this.tuned.find((row) => row.canTransmit && row.status !== 'gone');
+    const id = next?.channel.id ?? null;
+    if (id === this.txId) return;
+    this.txId = id;
+    this.changed();
+  }
+
   cycle() {
     const ids = this.tuned.filter((t) => t.canTransmit && t.status !== 'gone').map((t) => t.channel.id);
     if (!ids.length) { this.txId = null; this.changed(); return; }
     this.setTx(ids[(ids.indexOf(this.txId ?? '') + 1) % ids.length]);
   }
 
-  async ptt(down: boolean, channelId?: string) {
+  async ptt(down: boolean, channelId?: string): Promise<boolean> {
     const id = channelId ?? this.txId;
-    if (!id || !this.slots.get(id)?.canTransmit) return;
+    if (!id || !this.slots.get(id)?.canTransmit) return false;
     this.transmittingOn = down ? id : (this.transmittingOn === id ? null : this.transmittingOn);
     this.changed();
+    return this.transmittingOn === id;
   }
 
   /** Advance the automatic talker, or do nothing while a demo button is holding a state. */

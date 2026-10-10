@@ -195,12 +195,29 @@ button.talk-choice:hover { border-color: var(--accent); }
 .helper-code-label { display: flex; flex-direction: column; gap: 4px; }
 .helper-code { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; letter-spacing: .14em; font-family: var(--mono); }
 .qr svg { width: 220px; height: auto; display: block; margin: 0 auto; background: var(--panel); border-radius: 12px; }
-.phone-remote { min-height: 100dvh; display: flex; flex-direction: column; gap: 12px; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
-.phone-connect { width: 100%; min-height: 88px; font-size: 22px; }
+.phone-remote {
+  min-height: 100dvh; height: 100dvh; display: flex; flex-direction: column; gap: 10px; overflow: hidden;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+.phone-remote .simple-list { flex: 0 1 auto; max-height: 22dvh; }
+.phone-connect { width: 100%; min-height: 72px; font-size: 22px; }
 .phone-clock { margin: 0; font-family: var(--mono); font-size: 40px; font-weight: 700; letter-spacing: .04em; }
 .phone-status { margin: 0; }
-.phone-remote .ptt { touch-action: none; }
+.phone-remote .ptt {
+  flex: 1 1 auto; min-height: 52dvh; margin-top: 0; font-size: clamp(26px, 7vw, 40px); line-height: 1.15;
+  padding: 28px 16px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+.phone-remote .ptt.on { background: var(--tx); color: #fff; box-shadow: inset 0 0 0 3px #fff, 0 0 48px var(--tx); }
 .phone-remote .ptt:disabled { opacity: 0.45; }
+.onair-banner {
+  position: fixed; top: 12px; left: 12px; right: 12px; z-index: 40;
+  display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-radius: 16px;
+  background: #3a1d1f; color: #fff; border: 2px solid var(--tx);
+  box-shadow: 0 0 0 4px var(--tx-dim), 0 0 28px var(--tx-dim); font-size: 18px; font-weight: 700;
+}
+.onair-banner .freq { font-family: var(--mono); font-size: 28px; font-weight: 700; }
+body:has(.onair-banner) { box-shadow: inset 0 0 0 5px var(--tx); }
 .qr.expired { opacity: 0.35; }
 .phone-remote .simple { }
 .phone-install { text-align: center; margin: 0; }

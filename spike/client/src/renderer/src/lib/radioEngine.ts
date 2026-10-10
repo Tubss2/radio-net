@@ -2,9 +2,11 @@ import {
   type LocalTrackPublication, type RemoteTrack, Room, RoomEvent, Track, createLocalAudioTrack, DisconnectReason,
 } from 'livekit-client';
 import { RECONNECTING } from '../../../shared/net';
+import { pickTransmitId } from '../../../shared/transmit';
 import { isReconnectError, type Api, type ChannelInfo } from './api';
 import { clientLog } from './clientLog';
 import { resolveLivekitUrl } from './livekitUrl';
+import { playSquelch } from './uiSounds';
 
 /**
  * The radio: one LiveKit Room per tuned channel.
@@ -38,8 +40,11 @@ export interface RadioControl {
   setMuted(id: string, m: boolean): void;
   setPan(id: string, p: number): void;
   setTx(id: string): void;
+  /** A tuned channel that can transmit becomes the talk channel when none is chosen. */
+  ensureTx(): void;
   cycle(): void;
-  ptt(down: boolean, channelId?: string): Promise<void>;
+  /** True only after this call left the microphone unmuted. */
+  ptt(down: boolean, channelId?: string): Promise<boolean>;
   /** Resume audio and open the mic on a user gesture. The track stays published and muted until PTT. */
   unlock(): Promise<void>;
   /** RMS of the open mic, about 0..1. Used for voice activation. */
@@ -131,6 +136,7 @@ export class RadioEngine implements RadioControl {
       info: { channel, status: 'connecting', canTransmit: grant.canTransmit, volume: 1, pan: 0, muted: false, speakers: [], listeners: 0 },
     };
     this.slots.set(channel.id, slot);
+    this.ensureTx();
     this.changed();
 
     room
@@ -178,9 +184,11 @@ export class RadioEngine implements RadioControl {
       await room.connect(url, grant.token, { autoSubscribe: true });
     } catch (err) {
       this.slots.delete(channel.id);
+      if (this.txId === channel.id) this.txId = null;
       slot.gain.disconnect();
       void room.disconnect();
       clientLog('livekit', `connect ${channel.freq} failed`);
+      this.ensureTx();
       this.changed();
       if (isReconnectError(err)) throw new Error(RECONNECTING);
       throw err;
@@ -234,6 +242,15 @@ export class RadioEngine implements RadioControl {
 
   setTx(id: string) { if (this.slots.get(id)?.info.canTransmit) { this.txId = id; this.blip(880); this.changed(); } }
 
+  ensureTx() {
+    const next = pickTransmitId(this.txId, this.tuned.map((row) => ({
+      id: row.channel.id, canTransmit: row.canTransmit, status: row.status,
+    })));
+    if (next === this.txId) return;
+    this.txId = next;
+    this.changed();
+  }
+
   /** Cycle key: move TX to the next tuned channel (by frequency). */
   cycle() {
     const ids = this.tuned.filter((t) => t.canTransmit && t.status !== 'gone').map((t) => t.channel.id);
@@ -242,22 +259,42 @@ export class RadioEngine implements RadioControl {
     this.setTx(next);
   }
 
-  /** PTT on the TX channel, or on a specific channel (direct per-channel key). */
-  async ptt(down: boolean, channelId?: string) {
+  /**
+   * PTT on the TX channel, or on a specific channel (direct per-channel key).
+   * transmittingOn is set only after the microphone actually unmutes, so the
+   * on-air banner and the phone both wait for a live mic.
+   */
+  async ptt(down: boolean, channelId?: string): Promise<boolean> {
     const id = channelId ?? this.txId;
     const slot = id ? this.slots.get(id) : undefined;
-    if (!slot?.mic) return;
     if (down) {
+      if (!slot?.mic) return false;
       if (this.transmittingOn && this.transmittingOn !== id) await this.ptt(false, this.transmittingOn);
-      this.transmittingOn = id!;
-      await slot.mic.unmute();
-      this.blip(1200);
-    } else if (this.transmittingOn === id) {
-      await slot.mic.mute();
+      const already = this.transmittingOn === id;
+      try {
+        await slot.mic.unmute();
+      } catch (err) {
+        clientLog('livekit', `unmute ${slot.info.channel.freq} ${(err as Error).message}`);
+        if (this.transmittingOn === id) this.transmittingOn = null;
+        this.changed();
+        return false;
+      }
+      this.transmittingOn = id;
+      if (!already) {
+        this.blip(1200);
+        playSquelch();
+      }
+      this.changed();
+      return true;
+    }
+    if (this.transmittingOn === id) {
+      if (slot?.mic) await slot.mic.mute().catch(() => undefined);
       this.transmittingOn = null;
       this.blip(700);
+      playSquelch();
+      this.changed();
     }
-    this.changed();
+    return false;
   }
 
   /** Short confirmation tone (not a radio effect). */
