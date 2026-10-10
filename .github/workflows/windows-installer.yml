@@ -27,20 +27,19 @@ permissions:
 jobs:
   installer:
     runs-on: windows-latest
-    # contents: write is required to push the version tag and publish the GitHub Release.
-    # The token is not used for anything else.
+    # Read-only. This job runs npm ci, so a compromised package must not receive a token that can publish.
     permissions:
-      contents: write
+      contents: read
     env:
       VITE_API_URL: ${{ github.event.inputs.api_url || 'https://radio-149-28-170-200.sslip.io' }}
       VITE_LIVEKIT_URL: ${{ github.event.inputs.livekit_url || 'wss://lk-149-28-170-200.sslip.io' }}
-      # A v* tag, or a manual run with publish left on, uploads the release.
-      PUBLISH: ${{ (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true') }}
       # Unsigned on purpose. Do not let electron-builder look for a certificate.
       # Resource editing stays on, so the app exe file properties carry the package.json version.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -114,68 +113,75 @@ jobs:
           $file = "${{ steps.installer.outputs.file }}"
           $hash = (Get-FileHash "release\$file" -Algorithm SHA256).Hash.ToLower()
           Set-Content -Encoding ascii "release\SHA256SUMS.txt" "$hash  $file"
-      - name: Tag this commit when a manual run publishes
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
-        shell: pwsh
-        run: |
-          $version = "${{ steps.installer.outputs.version }}"
-          $tag = "v$version"
-          $remote = git ls-remote --tags origin "refs/tags/${tag}"
-          if ($remote) {
-            Write-Host "$tag already exists"
-            exit 0
-          }
-          git tag $tag
-          if ($LASTEXITCODE -ne 0) { throw "Could not create $tag" }
-          git push origin "refs/tags/$tag"
-          if ($LASTEXITCODE -ne 0) { throw "Could not push $tag" }
-      - name: Publish the installer to GitHub Releases
-        if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
-        # The exe and the blockmap publish at the same time. One of them can lose the
-        # race to create the release (422 already_exists) and fail this step. The next
-        # step uploads the finished files either way.
-        continue-on-error: true
-        working-directory: spike/client
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: npx electron-builder --prepackaged release/win-unpacked --win nsis --publish always
-      - name: Attach the installer, update feed, and checksum
-        if: ${{ !cancelled() && ((github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')) }}
-        working-directory: spike/client
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $version = "${{ steps.installer.outputs.version }}"
-          $file = "${{ steps.installer.outputs.file }}"
-          foreach ($path in @("release\$file", "release\$file.blockmap", 'release\latest.yml')) {
-            if (-not (Test-Path $path)) { throw "Missing $path" }
-          }
-          # The publish step rebuilds the installer, so hash the file that is about to be uploaded.
-          $hash = (Get-FileHash "release\$file" -Algorithm SHA256).Hash.ToLower()
-          Set-Content -Encoding ascii "release\SHA256SUMS.txt" "$hash  $file"
-          # electron-builder uploads the blockmap and the exe at the same time, and the exe
-          # can be dropped when both try to create the release. Upload the finished files after.
-          gh release view "v$version" --json tagName *> $null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create "v$version" --title $version --notes-file release-notes.md --latest
-            if ($LASTEXITCODE -ne 0) { throw "Could not create the v$version release" }
-          }
-          gh release upload "v$version" "release\$file" "release\$file.blockmap" release/latest.yml release/SHA256SUMS.txt --clobber
-          if ($LASTEXITCODE -ne 0) { throw "Could not upload the v$version installer assets" }
-          # electron-updater reads GitHub's Latest release for latest.yml. The helper
-          # release must not stay Latest. This does not replace helper-4 files.
-          gh release edit "v$version" --latest
-          if ($LASTEXITCODE -ne 0) { throw "Could not mark v$version as the latest release" }
+          Set-Content -Encoding ascii "release\version.txt" "${{ steps.installer.outputs.version }}"
+          Copy-Item release-notes.md release\release-notes.md
       - name: Upload the installer, blockmap, and latest.yml
         if: always() && steps.installer.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: RadioNet-Setup-${{ steps.installer.outputs.version }}
+          name: RadioNet-Setup
           path: |
             spike/client/release/${{ steps.installer.outputs.file }}
             spike/client/release/${{ steps.installer.outputs.file }}.blockmap
             spike/client/release/latest.yml
             spike/client/release/SHA256SUMS.txt
+            spike/client/release/version.txt
+            spike/client/release/release-notes.md
           if-no-files-found: error
+
+  # Publishes only for a v* tag, or a manual run with publish left on.
+  # Settings → Environments → release should require Tobias as a reviewer.
+  # Until that rule exists, a tag still publishes, but the build job cannot.
+  publish:
+    needs: installer
+    if: >-
+      (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Download the built installer
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: RadioNet-Setup
+          path: dist
+      - name: Publish the installer to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          function Find-One($name) {
+            $hits = @(Get-ChildItem -Recurse dist -File | Where-Object { $_.Name -eq $name })
+            if ($hits.Count -ne 1) { throw "Expected one $name, found $($hits.Count)" }
+            return $hits[0].FullName
+          }
+          $version = (Get-Content (Find-One 'version.txt') -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Bad version '$version'" }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag '$($env:GITHUB_REF_NAME)' does not match package version v$version."
+          }
+          $fileName = "RadioNet-Setup-$version.exe"
+          $exe = Find-One $fileName
+          $blockmap = Find-One "$fileName.blockmap"
+          $latest = Find-One 'latest.yml'
+          $sums = Find-One 'SHA256SUMS.txt'
+          $notes = Find-One 'release-notes.md'
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $listed = (Get-Content $sums -Raw).Trim()
+          if ($listed -ne "$hash  $fileName") { throw "SHA256SUMS.txt does not match $fileName" }
+          $tag = "v$version"
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag $exe $blockmap $latest $sums --target $env:GITHUB_SHA --title $version --notes-file $notes --latest
+            if ($LASTEXITCODE -ne 0) { throw "Could not create the $tag release" }
+          } else {
+            gh release upload $tag $exe $blockmap $latest $sums --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Could not upload the $tag installer assets" }
+          }
+          # electron-updater reads GitHub's Latest release for latest.yml.
+          # A helper release must not stay Latest. This does not replace helper files.
+          gh release edit $tag --latest
+          if ($LASTEXITCODE -ne 0) { throw "Could not mark $tag as the latest release" }
