@@ -18,6 +18,7 @@ import type { Bind, WheelChannelChoice, WheelView } from '../../shared/types';
 import { domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import type { ChannelInfo } from './lib/api';
 import type { RadioControl } from './lib/radioEngine';
+import { playsAddSquelch } from '../../shared/sounds';
 import { playSquelch } from './lib/uiSounds';
 
 export interface WheelOptions {
@@ -123,7 +124,7 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
       const list = dials();
       if (!list.some((c) => c.id === ch.id)) list.push({ id: ch.id, freqKHz: ch.freqKHz, name: ch.name });
       const { model: next, intents } = applyWheelInput(modelRef.current, { type: 'add-pick', channelId: ch.id }, list, engineRef.current.txId);
-      applyResult(next, intents, true);
+      applyResult(next, intents, playsAddSquelch('create'));
     } catch (e) {
       commit({ ...modelRef.current, addError: (e as Error).message });
     }
@@ -132,7 +133,7 @@ export function useChannelWheel(engine: RadioControl, channels: ChannelInfo[], w
   const apply = (input: WheelInput) => {
     if (input.type === 'add-create') { void createAndTune(input.freq, input.name); return; }
     const { model: next, intents } = applyWheelInput(modelRef.current, input, dials(), engineRef.current.txId);
-    applyResult(next, intents, input.type === 'add-pick');
+    applyResult(next, intents, input.type === 'add-pick' && playsAddSquelch('add'));
   };
 
   const openWheel = () => {

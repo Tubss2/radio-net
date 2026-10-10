@@ -21,6 +21,7 @@ Nothing to install.
 
 Good to know:
 
+- Adding a channel to your radio plays a short static. Creating a channel does not. **Sounds** (on the bar, or inside Keybinds on the desktop app) can turn that off, turn on a press and release sound, and set the volume. Those choices stay in this browser.
 - Your session lasts 12 hours. After that, enter the invite code again.
 - If the page looks out of date, press **Ctrl+F5** to hard-refresh. The site can be cached for about 10 minutes after an update.
 
@@ -54,7 +55,7 @@ Your phone is only a button. The microphone stays on your PC.
 When you're actually on air:
 
 - Your phone turns red and says **TRANSMITTING on** the frequency (for example **TRANSMITTING on 60.0**).
-- Your PC shows a red edge, a **Transmitting** banner, and plays a squelch sound.
+- Your PC shows a red edge and a **Transmitting** banner. A press and release sound plays only after you turn it on under **Sounds**.
 
 If your phone doesn't turn red, people can't hear you yet. The phone may vibrate when you press, but vibration may not work on iPhone Safari.
 

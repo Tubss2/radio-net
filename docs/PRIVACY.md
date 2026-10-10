@@ -19,7 +19,7 @@ Other keystrokes are dropped in the main process. They are not written to `radio
 
 **Microphone.** The first time you tune a channel you are allowed to talk on, the app calls the system for a microphone track and publishes it to that voice room in a muted state. Holding push-to-talk unmutes it. Letting go mutes it. Windows can show the microphone as in use for the whole time you are tuned in. The app asks Electron only for media, and the page's permission handler allows that request. It does not ask for the camera, the screen, or your files.
 
-**Speakers.** Remote voice is played locally. UI sounds (a squelch when you tune) play if you leave them on.
+**Speakers.** Remote voice is played locally. UI sounds play on this machine: static when you add a channel (on unless you turn it off), a tone when you change transmit channel, and a press/release cue only if you turn that one on.
 
 **Nothing else.** No contacts, no game memory, no screenshots, no window titles.
 

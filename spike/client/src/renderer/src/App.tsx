@@ -5,6 +5,7 @@ import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type Serve
 import type { Keybinds } from '../../shared/types';
 import { acceptChannelList, removedTunedIds } from '../../shared/channelList';
 import { matchChannel } from '../../shared/radialWheel';
+import { soundPrefsFrom, type SoundPrefs } from '../../shared/sounds';
 import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import { RECONNECTING } from '../../shared/net';
@@ -63,7 +64,7 @@ export function App() {
   const save = useCallback(async (next: Profile) => {
     profileRef.current = next;
     setProfile(next);
-    setUiSounds(next.soundsOn, next.soundVolume);
+    setUiSounds(soundPrefsFrom(next));
     await bridge.setProfile(next);
   }, []);
 
@@ -82,7 +83,7 @@ export function App() {
       profileRef.current = nextProfile;
       setProfile(nextProfile);
       setHotkeysOn(nextProfile.hotkeysEnabled);
-      setUiSounds(nextProfile.soundsOn, nextProfile.soundVolume);
+      setUiSounds(soundPrefsFrom(nextProfile));
       setBinds(nextBinds);
       await bridge.setKeybinds(nextBinds);
       if (nextProfile !== p) await bridge.setProfile(nextProfile);
@@ -172,12 +173,11 @@ export function App() {
         hotkeysOn={hotkeysOn}
         onHotkeys={setListening}
         onPrivacy={() => setPrivacyOpen(true)}
-        soundsOn={profile.soundsOn}
-        soundVolume={profile.soundVolume}
-        onSounds={(soundsOn, soundVolume) => {
+        sounds={soundPrefsFrom(profile)}
+        onSounds={(sounds) => {
           const cur = profileRef.current;
           if (!cur) return;
-          void save({ ...cur, soundsOn, soundVolume });
+          void save({ ...cur, soundsOn: sounds.addChannel, soundPtt: sounds.ptt, soundTx: sounds.txChange, soundVolume: sounds.volume });
         }}
         onChange={changeBinds}
       />
@@ -189,14 +189,13 @@ export function App() {
 }
 
 /** Settings is opened from inside Radio via a custom event so the radio tree can stay the owner of tuned channels. */
-function SettingsHost({ binds, hotkeysOn, onHotkeys, onPrivacy, soundsOn, soundVolume, onSounds, onChange }: {
+function SettingsHost({ binds, hotkeysOn, onHotkeys, onPrivacy, sounds, onSounds, onChange }: {
   binds: Keybinds;
   hotkeysOn: boolean;
   onHotkeys: (enabled: boolean) => void;
   onPrivacy: () => void;
-  soundsOn: boolean;
-  soundVolume: number;
-  onSounds: (on: boolean, volume: number) => void;
+  sounds: SoundPrefs;
+  onSounds: (next: SoundPrefs) => void;
   onChange: (b: Keybinds) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -211,7 +210,7 @@ function SettingsHost({ binds, hotkeysOn, onHotkeys, onPrivacy, soundsOn, soundV
     return () => window.removeEventListener('rn-settings', onOpen);
   }, []);
   if (!open) return null;
-  return <Settings binds={binds} quick={quick} hotkeysOn={hotkeysOn} onHotkeys={onHotkeys} onPrivacy={onPrivacy} soundsOn={soundsOn} soundVolume={soundVolume} onSounds={onSounds} onChange={onChange} onClose={() => setOpen(false)} />;
+  return <Settings binds={binds} quick={quick} hotkeysOn={hotkeysOn} onHotkeys={onHotkeys} onPrivacy={onPrivacy} sounds={sounds} onSounds={onSounds} onChange={onChange} onClose={() => setOpen(false)} />;
 }
 
 function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
@@ -783,6 +782,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           <strong>{server.name}</strong>
           <span className="sub">{callsign}</span>
           <button className="btn sm" type="button" onClick={() => setChannelsOpen((v) => !v)}>{channelsOpen ? 'Radio' : 'Channels'}</button>
+          <button className="btn sm" type="button" onClick={openSettings}>Sounds</button>
           {isAdmin && <button className="btn sm" type="button" onClick={() => setNewCh(true)}>+ New</button>}
           {!isPreview && (
             <PhoneLink

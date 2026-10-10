@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { clampSoundVolume, DEFAULT_SOUND_VOLUME, uiSoundGain } from './sounds';
+import { clampSoundVolume, DEFAULT_SOUND_VOLUME, playsAddSquelch, soundPrefsFrom, uiSoundGain } from './sounds';
 import { normaliseProfile } from './profile';
 
 const repoRoot = join(import.meta.dirname, '../../../..');
@@ -19,11 +19,22 @@ describe('UI sound level', () => {
   it('keeps a saved level and fills one in for an older profile', () => {
     const older = normaliseProfile({ callsign: 'Toby', servers: [], keybinds: null, overlayOn: true, radios: {} });
     expect(older.soundsOn).toBe(true);
+    expect(older.soundPtt).toBe(false);
+    expect(older.soundTx).toBe(true);
     expect(older.soundVolume).toBe(DEFAULT_SOUND_VOLUME);
     const saved = normaliseProfile({ ...older, soundsOn: false, soundVolume: 0.15 });
     expect(saved.soundsOn).toBe(false);
+    expect(saved.soundPtt).toBe(false);
+    expect(saved.soundTx).toBe(true);
     expect(saved.soundVolume).toBe(0.15);
     expect(saved.callsign).toBe('Toby');
+  });
+
+  it('keeps an explicit push-to-talk cue and a silenced channel-change cue', () => {
+    const prefs = soundPrefsFrom(normaliseProfile({ soundPtt: true, soundTx: false, soundVolume: 0.2 }));
+    expect(prefs).toEqual({ addChannel: true, ptt: true, txChange: false, volume: 0.2 });
+    expect(playsAddSquelch('add')).toBe(true);
+    expect(playsAddSquelch('create')).toBe(false);
   });
 });
 
