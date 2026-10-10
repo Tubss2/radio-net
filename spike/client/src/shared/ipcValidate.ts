@@ -32,18 +32,20 @@ function parseBindMap(raw: unknown): Record<string, Bind> | null {
 /** Reject a keybind payload that is not a small map of keys and mouse buttons. */
 export function parseKeybinds(raw: unknown): Keybinds | null {
   if (!raw || typeof raw !== 'object') return null;
-  const b = raw as Partial<Keybinds>;
+  const b = raw as Partial<Keybinds> & { cycle?: unknown };
   const direct = parseBindMap(b.direct ?? {});
   const select = parseBindMap(b.select ?? {});
   if (!direct || !select) return null;
-  const slot = (raw: unknown): Bind | null | undefined => (raw === undefined ? null : parseBind(raw));
-  const named = [b.ptt, b.cycle, b.overlay, b.wheel].map(slot);
+  const slot = (value: unknown): Bind | null | undefined => (value === undefined ? null : parseBind(value));
+  const next = b.next !== undefined ? b.next : b.cycle;
+  const named = [b.ptt, b.prev, next, b.overlay, b.wheel].map(slot);
   if (named.some((x) => x === undefined)) return null;
   return withBindDefaults({
     ptt: named[0] ?? null,
-    cycle: named[1] ?? null,
-    overlay: named[2] ?? null,
-    wheel: named[3] ?? null,
+    prev: named[1] ?? null,
+    next: named[2] ?? null,
+    overlay: named[3] ?? null,
+    wheel: named[4] ?? null,
     direct,
     select,
   });

@@ -28,6 +28,8 @@ describe('profile secrets', () => {
     const p = normaliseProfile({ callsign: 'Toby' });
     expect(p.privacyAccepted).toBe(false);
     expect(p.hotkeysEnabled).toBe(true);
+    expect(p.keybindsVersion).toBe(0);
     expect(normaliseProfile({ hotkeysEnabled: false }).hotkeysEnabled).toBe(false);
+    expect(normaliseProfile({ keybindsVersion: 2 }).keybindsVersion).toBe(2);
   });
 });

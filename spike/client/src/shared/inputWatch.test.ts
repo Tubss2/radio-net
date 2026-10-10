@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_BINDS, UIO_ESCAPE, UIO_F2, UIO_G } from './keybinds';
+import { DEFAULT_BINDS, UIO_ESCAPE, UIO_F1, UIO_F2, UIO_F5, UIO_G } from './keybinds';
 import { shouldObserveInput, type WatchState } from './inputWatch';
 
 const base = (): WatchState => ({
@@ -13,8 +13,11 @@ const base = (): WatchState => ({
 describe('input watch', () => {
   it('keeps bound keys and drops everything else while the wheel is closed', () => {
     const state = base();
-    expect(shouldObserveInput({ kind: 'mouse', button: 4, label: 'Mouse 4' }, state)).toBe(true);
+    expect(shouldObserveInput(DEFAULT_BINDS.ptt!, state)).toBe(true);
+    expect(shouldObserveInput({ kind: 'key', keycode: UIO_F1, label: 'F1' }, state)).toBe(true);
     expect(shouldObserveInput({ kind: 'key', keycode: UIO_F2, label: 'F2' }, state)).toBe(true);
+    expect(shouldObserveInput({ kind: 'key', keycode: UIO_F5, label: 'F5' }, state)).toBe(true);
+    expect(shouldObserveInput({ kind: 'mouse', button: 4, label: 'Mouse 4' }, state)).toBe(false);
     expect(shouldObserveInput({ kind: 'key', keycode: UIO_G, label: 'G' }, state)).toBe(false);
     expect(shouldObserveInput({ kind: 'key', keycode: UIO_ESCAPE, label: 'Escape' }, state)).toBe(false);
     expect(shouldObserveInput({ kind: 'key', keycode: 2, label: '1' }, state)).toBe(false);

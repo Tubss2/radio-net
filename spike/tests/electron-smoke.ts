@@ -2,8 +2,8 @@
  * Drives the real Electron client (built: ../client/out) on a virtual X display with a fake mic.
  * A bot (rtc-node) plays "Sgt Miller" on the same channels. Proves on Linux/Xvfb:
  *   onboarding by invite code, tune by freq + by name, hearing a remote speaker (speaker UI),
- *   global PTT via the uiohook mouse hook (xdotool presses Mouse 4), audio actually reaching the bot,
- *   cycle key (Mouse 5), overlay window state. Screenshots -> ../shots/.
+ *   global PTT via the uiohook keyboard hook (xdotool holds F1), audio actually reaching the bot,
+ *   next transmit key (F4), overlay window state. Screenshots -> ../shots/.
  * Needs: Xvfb on :99 with RECORD, LiveKit dev server, token server (dev seed, invite DEVN-ET01).
  */
 import { execFileSync } from 'node:child_process';
@@ -92,31 +92,31 @@ async function main() {
   await talking;
   check('app shows remote speaker on the right channel card', seen);
 
-  // Transmit: TX defaults to first tuned TX channel (Command). Hold Mouse 4 via the global hook.
+  // Transmit: TX defaults to first tuned TX channel (Command). Hold F1 via the global hook.
   const before = { ...heard };
   xdo('mousemove', '600', '400');
-  xdo('mousedown', '8');
+  xdo('keydown', 'F1');
   await sleep(1200);
   const keyedUi = await page.locator('.txbar.keyed').count();
   await page.screenshot({ path: SHOTS + '3-transmitting.png' });
   if (ov) await ov.screenshot({ path: SHOTS + '4-overlay.png' }).catch(() => undefined);
   await sleep(800);
-  xdo('mouseup', '8');
+  xdo('keyup', 'F1');
   await sleep(800);
   const gotCmd = (heard['Command:Toby'] ?? 0) - (before['Command:Toby'] ?? 0);
   const gotArty = (heard['Arty:Toby'] ?? 0) - (before['Arty:Toby'] ?? 0);
-  check('global PTT (Mouse 4 via uiohook) keys up the UI', keyedUi === 1);
+  check('global PTT (F1 via uiohook) keys up the UI', keyedUi === 1);
   check('Toby audio reached bot on Command only', gotCmd > 10 && gotArty === 0, `Command frames=${gotCmd}, Arty frames=${gotArty}`);
   check('PTT release un-keys', (await page.locator('.txbar.keyed').count()) === 0);
 
-  // Cycle (Mouse 5) -> TX moves to Arty, then talk again
+  // Next transmit (F4) -> TX moves to Arty, then talk again
   const txBefore = await page.textContent('.txbar .nm');
-  xdo('click', '9');
+  xdo('key', 'F4');
   await sleep(400);
   const txAfter = await page.textContent('.txbar .nm');
-  check('cycle key (Mouse 5) moves TX', txBefore !== txAfter, `${txBefore} -> ${txAfter}`);
+  check('next transmit key (F4) moves TX', txBefore !== txAfter, `${txBefore} -> ${txAfter}`);
   const b2 = { ...heard };
-  xdo('mousedown', '8'); await sleep(1800); xdo('mouseup', '8'); await sleep(800);
+  xdo('keydown', 'F1'); await sleep(1800); xdo('keyup', 'F1'); await sleep(800);
   const a2 = (heard['Arty:Toby'] ?? 0) - (b2['Arty:Toby'] ?? 0);
   const c2 = (heard['Command:Toby'] ?? 0) - (b2['Command:Toby'] ?? 0);
   check('after cycle, audio goes to Arty only', a2 > 10 && c2 === 0, `Arty=${a2}, Command=${c2}`);

@@ -32,7 +32,7 @@ export function shouldObserveInput(input: Bind, state: WatchState): boolean {
 
 function matchesBound(input: Bind, binds: Keybinds): boolean {
   const id = bindId(input);
-  const named = [binds.ptt, binds.cycle, binds.overlay, binds.wheel];
+  const named = [binds.ptt, binds.prev, binds.next, binds.overlay, binds.wheel];
   if (named.some((b) => b && bindId(b) === id)) return true;
   for (const b of Object.values(binds.direct ?? {})) if (bindId(b) === id) return true;
   for (const b of Object.values(binds.select ?? {})) if (bindId(b) === id) return true;

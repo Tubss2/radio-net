@@ -50,7 +50,7 @@ Same profile as the desktop: callsign, server list (name, URL, invite, last used
 
 ### Push-to-talk in the browser
 
-A page only receives the keyboard while its tab is focused. Browsers do not offer the global hook the desktop app uses for Mouse 4. Discord documents the same limit: push-to-talk in the browser app works only while the window is focused, and system-wide push-to-talk means their desktop app ([Voice Input Modes 101](https://support.discord.com/hc/en-us/articles/211376518)). The web playing screen says, in plain words, to use the Radio Net desktop app for in-game push-to-talk.
+A page only receives the keyboard while its tab is focused. Browsers do not offer the global hook the desktop app uses for its talk key (F1 by default). Discord documents the same limit: push-to-talk in the browser app works only while the window is focused, and system-wide push-to-talk means their desktop app ([Voice Input Modes 101](https://support.discord.com/hc/en-us/articles/211376518)). The web playing screen says, in plain words, to use the Radio Net desktop app for in-game push-to-talk.
 
 **Web v1**
 
@@ -129,7 +129,7 @@ Untune, ear pan, the wheel, and channel creation stay on the full radio. Simple 
 
 A separate small `BrowserWindow`, or the main window switched into this layout. Resizable, with a sensible minimum around the width of the wireframe. Optional always-on-top, remembered with the window size and position in the local profile. It is a normal window: it takes focus when you click it, which is how Space and the button work. It does not click through, and it does not cover the game unless you put it on the other screen or tick always-on-top on the same screen.
 
-The global Mouse 4 push-to-talk still works in the desktop app while the game is focused. Simple mode does not replace that. It adds a visible button for when you are looking at the second monitor.
+The global push-to-talk key (F1 by default) still works in the desktop app while the game is focused. Simple mode does not replace that. It adds a visible button for when you are looking at the second monitor.
 
 ### Web
 

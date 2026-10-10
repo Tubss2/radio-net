@@ -5,6 +5,11 @@ import { parseKeybinds, parseLogEvent, parseOverlayState, parseWheelInput } from
 describe('IPC validation', () => {
   it('accepts the default binds and rejects a forged payload', () => {
     expect(parseKeybinds(DEFAULT_BINDS)?.ptt).toEqual(DEFAULT_BINDS.ptt);
+    expect(parseKeybinds(DEFAULT_BINDS)?.prev).toEqual(DEFAULT_BINDS.prev);
+    expect(parseKeybinds({
+      ptt: { kind: 'key', keycode: 34, label: 'G' },
+      cycle: { kind: 'mouse', button: 5, label: 'Mouse 5' },
+    })?.next).toMatchObject({ kind: 'mouse', button: 5 });
     expect(parseKeybinds({ ptt: { kind: 'key', keycode: -1, label: 'nope' } })).toBeNull();
     expect(parseKeybinds({ ptt: { kind: 'key', keycode: 1, label: 'x'.repeat(40) } })).toBeNull();
     expect(parseKeybinds({ direct: { '../x': { kind: 'mouse', button: 4, label: 'Mouse 4' } } })).toBeNull();

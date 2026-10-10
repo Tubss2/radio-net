@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { BrowserWindow, app, ipcMain, safeStorage, screen, session, type WebContents } from 'electron';
 import { parseKeybinds, parseLogEvent, parseOverlayState, parseWheelInput } from '../shared/ipcValidate';
-import { withBindDefaults } from '../shared/keybinds';
+import { migrateDesktopKeybinds, withBindDefaults } from '../shared/keybinds';
 import { duplicateWheelNotch, hookScrollReachesPage, type WheelNotch } from '../shared/radialWheel';
 import { emptyProfile, normaliseProfile, persistableProfile, type Profile } from '../shared/profile';
 import { isAllowedAppUrl, mediaTypesOf, RENDERER_CSP, rendererWebPreferences, shouldAllowMedia } from '../shared/windowPolicy';
@@ -85,7 +85,12 @@ function readProfile(): Profile {
     if (!existsSync(profileFile())) return emptyProfile();
     const buf = readFileSync(profileFile());
     const text = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8');
-    return normaliseProfile(JSON.parse(text));
+    const profile = normaliseProfile(JSON.parse(text));
+    const migrated = migrateDesktopKeybinds(profile.keybinds, profile.keybindsVersion);
+    if (!migrated.changed) return profile;
+    const next = { ...profile, keybinds: migrated.keybinds, keybindsVersion: migrated.version };
+    writeProfile(next);
+    return next;
   } catch {
     return emptyProfile();
   }
