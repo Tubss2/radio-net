@@ -173,15 +173,18 @@ jobs:
           $listed = (Get-Content $sums -Raw).Trim()
           if ($listed -ne "$hash  $fileName") { throw "SHA256SUMS.txt does not match $fileName" }
           $tag = "v$version"
-          gh release view $tag --json tagName *> $null
+          # This job does not check out the repo, so gh cannot discover it from git.
+          if ([string]::IsNullOrWhiteSpace($env:GITHUB_REPOSITORY)) { throw "Missing repository" }
+          $repo = $env:GITHUB_REPOSITORY
+          gh release view $tag --repo $repo --json tagName *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag $exe $blockmap $latest $sums --target $env:GITHUB_SHA --title $version --notes-file $notes --latest
+            gh release create $tag $exe $blockmap $latest $sums --repo $repo --target $env:GITHUB_SHA --title $version --notes-file $notes --latest
             if ($LASTEXITCODE -ne 0) { throw "Could not create the $tag release" }
           } else {
-            gh release upload $tag $exe $blockmap $latest $sums --clobber
+            gh release upload $tag $exe $blockmap $latest $sums --repo $repo --clobber
             if ($LASTEXITCODE -ne 0) { throw "Could not upload the $tag installer assets" }
           }
           # electron-updater reads GitHub's Latest release for latest.yml.
           # A helper release must not stay Latest. This does not replace helper files.
-          gh release edit $tag --latest
+          gh release edit $tag --repo $repo --latest
           if ($LASTEXITCODE -ne 0) { throw "Could not mark $tag as the latest release" }
