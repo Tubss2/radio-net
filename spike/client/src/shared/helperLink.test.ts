@@ -10,7 +10,8 @@ const TOKEN = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ';
 describe('push-to-talk helper link', () => {
   it('pairs with the window code and does not send a key', () => {
     expect(HELPER_URL).toBe('ws://127.0.0.1:47321');
-    expect(HELPER_DOWNLOAD_URL).toBe('https://github.com/Tubss2/radio-net/releases/download/helper-4/RadioNetHelper.exe');
+    expect(HELPER_DOWNLOAD_URL).toBe('https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe');
+    expect(HELPER_DOWNLOAD_URL).not.toContain('/releases/latest');
     expect(HELPER_SOURCE_URL).toBe('https://github.com/Tubss2/radio-net/tree/main/helper');
     const key = helperPairMessage('K7QM2P');
     expect(JSON.parse(key)).toEqual({ t: 'pair', code: 'K7QM2P' });

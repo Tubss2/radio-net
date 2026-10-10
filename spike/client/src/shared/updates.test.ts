@@ -71,20 +71,27 @@ describe('GitHub Releases updates', () => {
     expect(yml).toContain('name: web-site');
   });
 
-  it('publishes RadioNetHelper.exe on helper-4 and leaves the desktop updater alone', () => {
+  it('publishes a new helper tag only when approved and leaves the desktop updater alone', () => {
     const yml = readFileSync(join(repoRoot, '.github/workflows/ptt-helper.yml'), 'utf8');
     expect(yml).toContain('RadioNetHelper.exe');
     expect(yml).toContain('name: RadioNetHelper');
     expect(yml).toContain('contents: read');
-    expect(yml).toContain('helper-4');
+    expect(yml).toContain('publish-new-helper');
+    expect(yml).toContain('HELPER_DOWNLOAD_URL');
+    expect(yml).toContain("github.event_name == 'workflow_dispatch'");
+    expect(yml).toContain("github.ref == 'refs/heads/main'");
+    expect(yml).toContain('gh release create');
+    expect(yml).toContain('--latest=false');
+    expect(yml).toContain('Refusing to replace a published exe.');
+    expect(yml).not.toContain('gh release upload');
+    expect(yml).not.toContain('--clobber');
     expect(yml).not.toContain('helper-1');
     expect(yml).not.toContain('helper-2');
     expect(yml).not.toContain('helper-3');
-    expect(yml).toContain('gh release upload');
-    expect(yml).toContain('--latest=false');
-    expect(yml).toContain("github.ref == 'refs/heads/main'");
+    expect(yml).not.toContain('helper-4');
     expect(yml).not.toContain('softprops/action-gh-release');
     expect(yml).not.toContain('electron-builder');
-    expect(yml).not.toMatch(/release upload[^\n]*latest\.yml/);
+    expect(yml).not.toContain('latest.yml');
+    expect(yml).not.toContain('/releases/latest');
   });
 });
