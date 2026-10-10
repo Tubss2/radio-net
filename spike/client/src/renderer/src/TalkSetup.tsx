@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { HELPER_DOWNLOAD_URL, HELPER_SOURCE_URL } from '../../shared/helperLink';
+import { DESKTOP_RELEASE_URL, PTT_CHOOSER_INTRO, pttChoices } from '../../shared/pttChooser';
 import { describePttMode } from '../../shared/pttMode';
 
 /** One button that leads into the browser, phone, or helper setup that already exists. */
@@ -15,6 +16,7 @@ export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBr
   const [open, setOpen] = useState(false);
   const current = describePttMode({ talkMode, talkLabel, phoneLinked, helperLinked });
   const close = () => setOpen(false);
+  const [browser, phone, helper, desktop] = pttChoices;
   return (
     <div className="ptt-setup-block">
       <button className="btn primary ptt-setup" type="button" onClick={() => setOpen(true)}>Set up push to talk</button>
@@ -23,24 +25,44 @@ export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBr
         <div className="modal-bg" onClick={close}>
           <div className="modal talk-setup-modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Set up push to talk</h3>
+            <p className="sub" style={{ margin: 0 }}>{PTT_CHOOSER_INTRO}</p>
             <p className="sub" style={{ margin: 0 }}>{current}</p>
             <div className="talk-chooser">
               <button className="talk-choice" type="button" onClick={() => { close(); onBrowser(); }}>
-                <strong>Browser only</strong>
-                <span>Open mic (voice activation), or a push-to-talk key while this window is focused.</span>
+                <span className="talk-rank">{browser.rank}</span>
+                <span className="talk-choice-body">
+                  <strong>{browser.title}</strong>
+                  <span>{browser.body}</span>
+                </span>
               </button>
               <button className="talk-choice" type="button" onClick={() => { close(); onPhone(); }}>
-                <strong>For the security conscious</strong>
-                <span>Use your phone as push-to-talk. Scan the code, tap Connect, then press and hold the phone screen. The code lasts two minutes.</span>
+                <span className="talk-rank">{phone.rank}</span>
+                <span className="talk-choice-body">
+                  <strong>{phone.title}</strong>
+                  <span>{phone.body}</span>
+                </span>
               </button>
               <div className="talk-choice">
-                <strong>Small open-source helper</strong>
-                <span>A Windows program that only monitors the keys you assign, and links to this page. It does not hear the microphone.</span>
-                <span className="talk-links">
-                  <a href={HELPER_DOWNLOAD_URL}>Download RadioNetHelper.exe</a>
-                  <a href={HELPER_SOURCE_URL} target="_blank" rel="noreferrer">Source on GitHub</a>
-                </span>
-                <button className="btn sm" type="button" onClick={() => { close(); onHelper(); }}>Link helper</button>
+                <span className="talk-rank">{helper.rank}</span>
+                <div className="talk-choice-body">
+                  <strong>{helper.title}</strong>
+                  <span>{helper.body}</span>
+                  <span className="talk-links">
+                    <a href={HELPER_DOWNLOAD_URL}>Download RadioNetHelper.exe</a>
+                    <a href={HELPER_SOURCE_URL} target="_blank" rel="noreferrer">Source on GitHub</a>
+                  </span>
+                  <button className="btn sm" type="button" onClick={() => { close(); onHelper(); }}>Set up helper</button>
+                </div>
+              </div>
+              <div className="talk-choice">
+                <span className="talk-rank">{desktop.rank}</span>
+                <div className="talk-choice-body">
+                  <strong>{desktop.title}</strong>
+                  <span>{desktop.body}</span>
+                  <span className="talk-links">
+                    <a href={DESKTOP_RELEASE_URL} target="_blank" rel="noreferrer">Latest desktop release</a>
+                  </span>
+                </div>
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

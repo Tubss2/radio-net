@@ -164,12 +164,17 @@ html.web .titlebar { display: none; }
 .ptt-setup-block { display: flex; flex-direction: column; gap: 6px; }
 .ptt-setup { width: 100%; min-height: 64px; font-size: 18px; }
 .ptt-current { margin: 0; }
-.talk-setup-modal { width: min(480px, calc(100vw - 32px)); }
+.modal-bg:has(.talk-setup-modal) { align-items: start; overflow: auto; padding: 24px 16px; }
+.talk-setup-modal { width: min(560px, calc(100vw - 32px)); max-height: none; margin: 0 auto; }
 .talk-chooser { display: flex; flex-direction: column; gap: 10px; }
-.talk-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; padding: 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); width: 100%; }
+.talk-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; text-align: left; padding: 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); width: 100%; }
 button.talk-choice { cursor: pointer; }
 button.talk-choice:hover { border-color: var(--accent); }
+.talk-rank { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; background: var(--card-hi); color: var(--text); font-family: var(--mono); font-size: 16px; font-weight: 700; }
+.talk-choice-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.talk-choice-body strong { font-size: 15px; color: var(--text); }
 .talk-choice span { color: var(--muted); font-size: 13px; font-weight: 400; }
+.talk-choice span.talk-rank { color: var(--text); font-size: 16px; font-weight: 700; }
 .talk-links { display: flex; gap: 12px; flex-wrap: wrap; }
 .talk-links a { color: var(--accent); font-weight: 600; }
 .web-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
