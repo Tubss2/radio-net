@@ -1,10 +1,12 @@
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { BrowserWindow, app, ipcMain, safeStorage, screen, session, shell, type WebContents } from 'electron';
 import { parseKeybinds, parseLogEvent, parseOverlayState, parseWheelInput } from '../shared/ipcValidate';
 import { migrateDesktopKeybinds, withBindDefaults } from '../shared/keybinds';
 import { duplicateWheelNotch, hookScrollReachesPage, type WheelNotch } from '../shared/radialWheel';
 import { emptyProfile, normaliseProfile, persistableProfile, type Profile } from '../shared/profile';
-import { isAllowedAppUrl, mediaTypesOf, RENDERER_CSP, rendererWebPreferences, shouldAllowMedia } from '../shared/windowPolicy';
+import { canArmBindRecord } from '../shared/bindRecord';
+import { filePathname, isAllowedAppUrl, mediaTypesOf, RENDERER_CSP, rendererWebPreferences, shouldAllowMedia } from '../shared/windowPolicy';
 import type { HotkeyEvent } from '../shared/types';
 import { clientLog } from './clientLog';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
@@ -24,15 +26,20 @@ if (process.env.RN_USER_DATA) app.setPath('userData', process.env.RN_USER_DATA);
 let main: BrowserWindow | null = null;
 let overlay: BrowserWindow | null = null;
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+const packagedFilePathnames = ['index.html', 'overlay.html'].flatMap((name) => {
+  const path = filePathname(pathToFileURL(join(__dirname, '../renderer', name)).href);
+  return path ? [path] : [];
+});
 const page = (name: string, w: BrowserWindow) =>
   rendererUrl ? w.loadURL(`${rendererUrl}/${name}.html`) : w.loadFile(join(__dirname, `../renderer/${name}.html`));
+const allowedAppUrl = (url: string) => isAllowedAppUrl(url, rendererUrl, packagedFilePathnames);
 
 const preloadPath = () => join(__dirname, '../preload/index.js');
 
 function guardWindow(win: BrowserWindow) {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   const stop = (event: Electron.Event, url: string) => {
-    if (!isAllowedAppUrl(url, rendererUrl)) event.preventDefault();
+    if (!allowedAppUrl(url)) event.preventDefault();
   };
   win.webContents.on('will-navigate', stop);
   win.webContents.on('will-redirect', stop);
@@ -40,7 +47,7 @@ function guardWindow(win: BrowserWindow) {
 }
 
 function fromApp(sender: WebContents): boolean {
-  return isAllowedAppUrl(sender.getURL(), rendererUrl);
+  return allowedAppUrl(sender.getURL());
 }
 
 function createMain() {
@@ -199,7 +206,12 @@ ipcMain.handle('hotkeys:set', (e, b: unknown) => {
   if (parsed) hotkeys.setBinds(parsed);
 });
 ipcMain.handle('hotkeys:defaults', (e) => (fromApp(e.sender) ? DEFAULT_BINDS : DEFAULT_BINDS));
-ipcMain.handle('hotkeys:record', (e) => (fromApp(e.sender) ? hotkeys.record() : null));
+ipcMain.handle('hotkeys:record', (e) => {
+  if (!main || !canArmBindRecord({ fromApp: fromApp(e.sender), isMainWindow: e.sender === main.webContents, focused: main.isFocused() })) return null;
+  const cancel = () => hotkeys.cancelRecord();
+  main.once('blur', cancel);
+  return hotkeys.record().finally(() => { main?.removeListener('blur', cancel); });
+});
 ipcMain.handle('hotkeys:setEnabled', (e, enabled: unknown) => {
   if (!fromApp(e.sender) || typeof enabled !== 'boolean') return;
   if (enabled) {

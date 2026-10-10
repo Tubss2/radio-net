@@ -20,12 +20,18 @@ describe('window policy', () => {
   });
 
   it('allows only the app pages', () => {
-    expect(isAllowedAppUrl('file:///C:/Radio%20Net/resources/app.asar/out/renderer/index.html')).toBe(true);
-    expect(isAllowedAppUrl('file:///tmp/overlay.html')).toBe(true);
-    expect(isAllowedAppUrl('https://example.com/index.html')).toBe(false);
-    expect(isAllowedAppUrl('http://localhost:5173/index.html', 'http://localhost:5173')).toBe(true);
-    expect(isAllowedAppUrl('http://localhost:5173/overlay.html', 'http://localhost:5173')).toBe(true);
-    expect(isAllowedAppUrl('http://evil.example/index.html', 'http://localhost:5173')).toBe(false);
+    const index = '/C:/Radio Net/resources/app.asar/out/renderer/index.html';
+    const overlay = '/C:/Radio Net/resources/app.asar/out/renderer/overlay.html';
+    const files = [index, overlay];
+    expect(isAllowedAppUrl('file:///C:/Radio%20Net/resources/app.asar/out/renderer/index.html', undefined, files)).toBe(true);
+    expect(isAllowedAppUrl('file:///C:/Radio%20Net/resources/app.asar/out/renderer/overlay.html', undefined, files)).toBe(true);
+    expect(isAllowedAppUrl('file:///tmp/overlay.html', undefined, files)).toBe(false);
+    expect(isAllowedAppUrl('file:///C:/Radio%20Net/resources/app.asar/out/renderer/index.html')).toBe(false);
+    expect(isAllowedAppUrl('file:///C:/Radio%20Net/resources/app.asar/out/renderer/index.html.evil', undefined, files)).toBe(false);
+    expect(isAllowedAppUrl('https://example.com/index.html', undefined, files)).toBe(false);
+    expect(isAllowedAppUrl('http://localhost:5173/index.html', 'http://localhost:5173', files)).toBe(true);
+    expect(isAllowedAppUrl('http://localhost:5173/overlay.html', 'http://localhost:5173', files)).toBe(true);
+    expect(isAllowedAppUrl('http://evil.example/index.html', 'http://localhost:5173', files)).toBe(false);
   });
 
   it('allows the microphone and denies the camera', () => {
