@@ -14,13 +14,22 @@ export function Overlay({ talkersOnly = false }: { talkersOnly?: boolean }) {
       {showTalkers && (
         <div className="overlay">
           <div className="ov">
-            {s!.speakers.map((p, i) => (
-              <div className="sp" key={`${p.name}\0${p.freq}\0${p.channel}\0${i}`}>
-                <span className="dot" />
-                <span>{p.name}</span>
-                <span className="on">{p.freq} {p.channel}</span>
-              </div>
-            ))}
+            {s!.speakers.map((p) => {
+              const opacity = p.opacity ?? 1;
+              const fading = opacity < 1;
+              return (
+                <div
+                  className={`sp ${fading ? 'last' : ''}`}
+                  key={`${p.name}\0${p.freq}\0${p.channel}`}
+                  style={{ opacity }}
+                >
+                  <span className="dot" />
+                  <span>{p.name}</span>
+                  <span className="on">{p.freq} {p.channel}</span>
+                  {fading && <span className="fadebar" style={{ transform: `scaleX(${opacity})` }} />}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -1,7 +1,10 @@
+import { linesForChannel, type SpeakerLine } from '../../shared/lastSpeaker';
 import type { RadioControl } from './lib/radioEngine';
+import { SpeakerChips } from './SpeakerFade';
 
-export function SimpleRadio({ engine, onDown, onUp, label }: {
+export function SimpleRadio({ engine, lines, onDown, onUp, label }: {
   engine: RadioControl;
+  lines: readonly SpeakerLine[];
   onDown: () => void;
   onUp: () => void;
   label: string;
@@ -12,14 +15,14 @@ export function SimpleRadio({ engine, onDown, onUp, label }: {
       <ul className="simple-list">
         {engine.tuned.map((t) => {
           const tx = engine.txId === t.channel.id;
-          const talking = t.speakers.length > 0;
+          const who = linesForChannel(lines, t.channel.id);
           return (
             <li key={t.channel.id} className={`simple-row ${tx ? 'tx' : ''}`}>
               <button className="simple-pick" onClick={() => engine.setTx(t.channel.id)} disabled={!t.canTransmit}>
                 <span className="f">{t.channel.freq}</span>
                 <span className="n">{t.channel.name}</span>
                 {tx && <span className="txmark">TX</span>}
-                <span className={`who ${talking ? 'live' : ''}`}>{talking ? t.speakers.join(', ') : ' '}</span>
+                <span className={`who ${who.some((line) => line.live) ? 'live' : ''}`}>{who.length ? <SpeakerChips lines={who} /> : ' '}</span>
               </button>
               <button className="btn sm ghost" onClick={() => engine.setMuted(t.channel.id, !t.muted)}>{t.muted ? 'Unmute' : 'Mute'}</button>
               <input aria-label={`${t.channel.name} volume`} type="range" min={0} max={1.5} step={0.05} value={t.muted ? 0 : t.volume} onChange={(e) => engine.setVolume(t.channel.id, Number(e.target.value))} />
