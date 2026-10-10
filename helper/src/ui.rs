@@ -3,17 +3,22 @@
 
 use super::{finish_stream, is_shutdown, pump, PORT, SHUTDOWN};
 use crate::device::{self, Binds, DeviceState, Edge};
-use crate::protocol::{watch_label, LinkedCommand, OutEvent, Role, Watch, CAPTURE_HINT, NEXT_ROW, PREV_ROW, TALK_ROW};
+use crate::protocol::{
+    bind_caption, hint_line, status_line, watch_label, LinkedCommand, OutEvent, Rect, Role, Watch, COPY_BUTTON,
+    HELPER_WINDOW_H, HELPER_WINDOW_W, LINKED_LABEL, NEXT_COMPACT, PREV_COMPACT, TALK_ROW,
+};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::Duration;
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{GlobalFree, COLORREF, HANDLE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CreateFontW, CreateSolidBrush, EndPaint, FillRect, GetStockObject, GetSysColorBrush, InvalidateRect,
-    UpdateWindow, COLOR_WINDOW, DEFAULT_GUI_FONT, FW_BOLD, HBRUSH, PAINTSTRUCT,
+    BeginPaint, CreateSolidBrush, EndPaint, FillRect, GetStockObject, GetSysColorBrush, InvalidateRect, UpdateWindow,
+    COLOR_WINDOW, DEFAULT_GUI_FONT, HBRUSH, PAINTSTRUCT,
 };
+use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
+use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE,
@@ -22,7 +27,6 @@ use windows::Win32::UI::Input::{
     GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RIDEV_INPUTSINK,
     RIDEV_REMOVE, RID_INPUT, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE,
 };
-use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetDlgCtrlID, GetMessageW, IsIconic,
     LoadIconW, MessageBoxW, MoveWindow, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetWindowPos,
@@ -30,15 +34,23 @@ use windows::Win32::UI::WindowsAndMessaging::{
     MB_ICONINFORMATION, MB_OK, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER,
     WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_ERASEBKGND, WM_INPUT, WM_PAINT, WM_SETFONT,
     WM_USER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
-    WS_VISIBLE,
 };
 
 const WM_APP_REFRESH: u32 = WM_USER + 20;
 const ID_STATUS: usize = 101;
 const ID_HINT: usize = 102;
 const ID_CODE: usize = 103;
-const ID_OPEN: usize = 104;
+const ID_COPY: usize = 104;
 const ID_UNLINK: usize = 105;
+const ID_DOT: usize = 106;
+const ID_LINKED: usize = 107;
+const CF_UNICODETEXT: u32 = 13;
+const SS_CENTERIMAGE: u32 = 0x0200;
+const SS_ENDELLIPSIS: u32 = 0x4000;
+const SS_NOPREFIX: u32 = 0x0080;
+const ES_CENTER: u32 = 0x0001;
+const ES_AUTOHSCROLL: u32 = 0x0080;
+const ES_READONLY: u32 = 0x0800;
 const ID_PTT_LABEL: usize = 110;
 const ID_PTT_LIGHT: usize = 111;
 const ID_PTT_SET: usize = 112;
@@ -48,7 +60,6 @@ const ID_PREV_SET: usize = 122;
 const ID_NEXT_LABEL: usize = 130;
 const ID_NEXT_LIGHT: usize = 131;
 const ID_NEXT_SET: usize = 132;
-const SS_CENTER: u32 = 0x0001;
 
 static HWND_SLOT: AtomicIsize = AtomicIsize::new(0);
 static EVENTS: Mutex<Option<mpsc::Sender<OutEvent>>> = Mutex::new(None);
@@ -79,7 +90,7 @@ static STATUS: Mutex<Status> = Mutex::new(Status {
     suppress: None,
 });
 static CONTROLS: Mutex<Option<Controls>> = Mutex::new(None);
-static PAINT: Mutex<Paint> = Mutex::new(Paint { red: 0, dim: 0 });
+static PAINT: Mutex<Paint> = Mutex::new(Paint { red: 0, dim: 0, green: 0 });
 
 struct Status {
     linked: bool,
@@ -95,6 +106,7 @@ struct Status {
 struct Paint {
     red: isize,
     dim: isize,
+    green: isize,
 }
 
 #[derive(Clone, Copy)]
@@ -106,10 +118,12 @@ struct Row {
 
 #[derive(Clone, Copy)]
 struct Controls {
+    dot: isize,
     status: isize,
     hint: isize,
     code: isize,
-    open: isize,
+    copy: isize,
+    linked: isize,
     unlink: isize,
     ptt: Row,
     prev: Row,
@@ -316,8 +330,8 @@ fn message_loop() {
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            460,
-            520,
+            HELPER_WINDOW_W,
+            HELPER_WINDOW_H,
             HWND::default(),
             HMENU::default(),
             instance,
@@ -327,32 +341,36 @@ fn message_loop() {
             Err(_) => return,
         };
         HWND_SLOT.store(hwnd.0 as isize, Ordering::SeqCst);
-        let button = WS_CHILD | WS_VISIBLE | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32);
+        let button = WS_CHILD | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32);
+        let text = WS_CHILD | style_bits(SS_CENTERIMAGE) | style_bits(SS_ENDELLIPSIS) | style_bits(SS_NOPREFIX);
+        let edit = WS_CHILD | WS_TABSTOP | WS_BORDER
+            | style_bits(ES_READONLY)
+            | style_bits(ES_AUTOHSCROLL)
+            | style_bits(ES_CENTER);
         let controls = Controls {
-            status: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE, 16, 16, 412, 22, hwnd, ID_STATUS).0 as isize,
-            hint: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE, 16, 44, 412, 64, hwnd, ID_HINT).0 as isize,
-            code: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE | style_bits(SS_CENTER), 16, 112, 412, 48, hwnd, ID_CODE).0 as isize,
-            open: child(w!("BUTTON"), "Open Radio Net", button, 16, 168, 200, 32, hwnd, ID_OPEN).0 as isize,
-            unlink: child(w!("BUTTON"), "Unlink", button, 228, 168, 140, 32, hwnd, ID_UNLINK).0 as isize,
-            ptt: row(hwnd, TALK_ROW, ID_PTT_LABEL, ID_PTT_LIGHT, ID_PTT_SET, 220),
-            prev: row(hwnd, PREV_ROW, ID_PREV_LABEL, ID_PREV_LIGHT, ID_PREV_SET, 260),
-            next: row(hwnd, NEXT_ROW, ID_NEXT_LABEL, ID_NEXT_LIGHT, ID_NEXT_SET, 300),
+            dot: child(w!("RadioNetHelperLight"), "", WS_CHILD, 0, 0, 12, 12, hwnd, ID_DOT).0 as isize,
+            status: child(w!("STATIC"), "", text, 0, 0, 10, 10, hwnd, ID_STATUS).0 as isize,
+            hint: child(w!("STATIC"), "", text, 0, 0, 10, 10, hwnd, ID_HINT).0 as isize,
+            code: child(w!("EDIT"), "", edit, 0, 0, 10, 10, hwnd, ID_CODE).0 as isize,
+            copy: child(w!("BUTTON"), COPY_BUTTON, button, 0, 0, 10, 10, hwnd, ID_COPY).0 as isize,
+            linked: child(w!("STATIC"), LINKED_LABEL, text, 0, 0, 10, 10, hwnd, ID_LINKED).0 as isize,
+            unlink: child(w!("BUTTON"), "Unlink", button, 0, 0, 10, 10, hwnd, ID_UNLINK).0 as isize,
+            ptt: row(hwnd, TALK_ROW, ID_PTT_LABEL, ID_PTT_LIGHT, ID_PTT_SET),
+            prev: row(hwnd, PREV_COMPACT, ID_PREV_LABEL, ID_PREV_LIGHT, ID_PREV_SET),
+            next: row(hwnd, NEXT_COMPACT, ID_NEXT_LABEL, ID_NEXT_LIGHT, ID_NEXT_SET),
         };
         let font = GetStockObject(DEFAULT_GUI_FONT);
-        let code_font = CreateFontW(-32, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, 0, 0, 0, 0, 0, w!("Segoe UI"));
         let red = CreateSolidBrush(COLORREF(0x000000FF));
         let dim = CreateSolidBrush(COLORREF(0x00B0B0B0));
-        *PAINT.lock().unwrap() = Paint { red: red.0 as isize, dim: dim.0 as isize };
+        let green = CreateSolidBrush(COLORREF(0x0000C800));
+        *PAINT.lock().unwrap() = Paint { red: red.0 as isize, dim: dim.0 as isize, green: green.0 as isize };
         let handles = [
-            controls.status, controls.hint, controls.code, controls.open, controls.unlink,
-            controls.ptt.label, controls.ptt.set, controls.prev.label, controls.prev.set,
-            controls.next.label, controls.next.set,
+            controls.status, controls.hint, controls.code, controls.copy, controls.linked, controls.unlink,
+            controls.ptt.label, controls.ptt.set, controls.prev.label, controls.prev.set, controls.next.label,
+            controls.next.set,
         ];
         for control in handles {
             let _ = SendMessageW(hwnd_of(control), WM_SETFONT, WPARAM(font.0 as usize), LPARAM(1));
-        }
-        if !code_font.0.is_null() {
-            let _ = SendMessageW(hwnd_of(controls.code), WM_SETFONT, WPARAM(code_font.0 as usize), LPARAM(1));
         }
         *CONTROLS.lock().unwrap() = Some(controls);
         apply_status(true);
@@ -365,12 +383,13 @@ fn message_loop() {
     }
 }
 
-fn row(parent: HWND, title: &str, label: usize, light: usize, set: usize, y: i32) -> Row {
-    let button = WS_CHILD | WS_VISIBLE | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32);
+fn row(parent: HWND, title: &str, label: usize, light: usize, set: usize) -> Row {
+    let button = WS_CHILD | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32);
+    let text = WS_CHILD | style_bits(SS_CENTERIMAGE) | style_bits(SS_ENDELLIPSIS) | style_bits(SS_NOPREFIX);
     Row {
-        label: child(w!("STATIC"), title, WS_CHILD | WS_VISIBLE, 16, y, 280, 24, parent, label).0 as isize,
-        light: child(w!("RadioNetHelperLight"), "", WS_CHILD | style_bits(WS_BORDER.0), 304, y + 2, 20, 20, parent, light).0 as isize,
-        set: child(w!("BUTTON"), "Set", button, 332, y - 4, 96, 28, parent, set).0 as isize,
+        label: child(w!("STATIC"), title, text, 0, 0, 10, 10, parent, label).0 as isize,
+        light: child(w!("RadioNetHelperLight"), "", WS_CHILD | style_bits(WS_BORDER.0), 0, 0, 10, 10, parent, light).0 as isize,
+        set: child(w!("BUTTON"), "Set", button, 0, 0, 10, 10, parent, set).0 as isize,
     }
 }
 
@@ -437,40 +456,31 @@ fn apply_status(relayout: bool) {
         Some(controls) => controls,
         None => return,
     };
-    let state = if status.linked && !status.origin.is_empty() {
-        format!("Connected to {}", status.origin)
-    } else if status.linked {
-        "Connected".into()
-    } else {
-        "Disconnected".into()
-    };
-    set_text(hwnd_of(controls.status), &state);
-    let show_pair = !status.linked && status.capturing.is_none();
-    let hint = if status.capturing.is_some() {
-        CAPTURE_HINT
-    } else if show_pair {
-        "In Radio Net on the website, click Set up push to talk, then Helper app, and enter this code."
-    } else {
-        ""
-    };
-    set_text(hwnd_of(controls.hint), hint);
+    set_text(hwnd_of(controls.status), status_line(status.linked));
+    let hint = hint_line(status.linked, status.capturing.is_some(), &status.origin);
+    set_text(hwnd_of(controls.hint), &hint);
     set_text(hwnd_of(controls.code), &status.code);
+    set_text(hwnd_of(controls.linked), LINKED_LABEL);
     paint_row(&controls.ptt, TALK_ROW, Role::Ptt, &status);
-    paint_row(&controls.prev, PREV_ROW, Role::Prev, &status);
-    paint_row(&controls.next, NEXT_ROW, Role::Next, &status);
-    if relayout {
-        let show_hint = !hint.is_empty();
-        place(controls.hint, 16, 44, 412, 64, show_hint);
-        place(controls.code, 16, 112, 412, 48, show_pair);
-        place(controls.open, 16, 168, 200, 32, show_pair);
-        let rows_y = if show_pair { 220 } else if show_hint { 120 } else { 48 };
-        place_row(&controls.ptt, rows_y);
-        place_row(&controls.prev, rows_y + 40);
-        place_row(&controls.next, rows_y + 80);
-        place(controls.unlink, 16, rows_y + 128, 140, 32, true);
-        resize_window(if show_pair { 520 } else if show_hint { 400 } else { 300 });
+    paint_row(&controls.prev, PREV_COMPACT, Role::Prev, &status);
+    paint_row(&controls.next, NEXT_COMPACT, Role::Next, &status);
+    if relayout && !window_iconic() {
+        let (width, height) = client_size();
+        let bar = crate::protocol::helper_bar(width, height);
+        place(controls.hint, bar.hint, !hint.is_empty());
+        place(controls.dot, bar.dot, true);
+        place(controls.status, bar.status, true);
+        let pairing = !status.linked;
+        place(controls.code, bar.code, pairing);
+        place(controls.copy, bar.copy, pairing);
+        place(controls.linked, bar.linked, status.linked);
+        place(controls.unlink, bar.unlink, status.linked);
+        place_bind(&controls.ptt, bar.talk, bar.talk_light, bar.talk_set);
+        place_bind(&controls.prev, bar.prev, bar.prev_light, bar.prev_set);
+        place_bind(&controls.next, bar.next, bar.next_light, bar.next_set);
+        resize_window();
     }
-    for light in [controls.ptt.light, controls.prev.light, controls.next.light] {
+    for light in [controls.dot, controls.ptt.light, controls.prev.light, controls.next.light] {
         let hwnd = hwnd_of(light);
         unsafe {
             let _ = InvalidateRect(hwnd, None, true);
@@ -490,41 +500,60 @@ fn paint_row(row: &Row, title: &str, role: Role, status: &StatusCopy) {
         Some(watch) => watch_label(watch),
         None => "not set".into(),
     };
-    let text = if status.capturing == Some(role) {
-        format!("{title} — press a key")
-    } else {
-        format!("{title} — {name}")
-    };
-    set_text(hwnd_of(row.label), &text);
+    set_text(hwnd_of(row.label), &bind_caption(title, &name, status.capturing == Some(role)));
     set_text(hwnd_of(row.set), if status.capturing == Some(role) { "Cancel" } else { "Set" });
 }
 
-fn place(raw: isize, x: i32, y: i32, w: i32, h: i32, show: bool) {
+fn place(raw: isize, rect: Rect, show: bool) {
     unsafe {
         let _ = ShowWindow(hwnd_of(raw), if show { SW_SHOW } else { SW_HIDE });
         if show {
-            let _ = MoveWindow(hwnd_of(raw), x, y, w, h, true);
+            let _ = MoveWindow(hwnd_of(raw), rect.x, rect.y, rect.w, rect.h, true);
         }
     }
 }
 
-fn place_row(row: &Row, y: i32) {
-    place(row.label, 16, y, 280, 24, true);
-    place(row.light, 304, y + 2, 20, 20, true);
-    place(row.set, 332, y - 4, 96, 28, true);
+fn place_bind(row: &Row, label: Rect, light: Rect, set: Rect) {
+    place(row.label, label, true);
+    place(row.light, light, true);
+    place(row.set, set, true);
 }
 
-fn resize_window(height: i32) {
+fn client_size() -> (i32, i32) {
     let raw = HWND_SLOT.load(Ordering::SeqCst);
     if raw == 0 {
+        return (HELPER_WINDOW_W, HELPER_WINDOW_H);
+    }
+    let mut rect = RECT::default();
+    unsafe {
+        let _ = GetClientRect(hwnd_of(raw), &mut rect);
+    }
+    (rect.right.max(1), rect.bottom.max(1))
+}
+
+fn window_iconic() -> bool {
+    let raw = HWND_SLOT.load(Ordering::SeqCst);
+    if raw == 0 {
+        return false;
+    }
+    unsafe { IsIconic(hwnd_of(raw)).as_bool() }
+}
+
+fn resize_window() {
+    let raw = HWND_SLOT.load(Ordering::SeqCst);
+    if raw == 0 || window_iconic() {
         return;
     }
-    let hwnd = hwnd_of(raw);
     unsafe {
-        if IsIconic(hwnd).as_bool() {
-            return;
-        }
-        let _ = SetWindowPos(hwnd, HWND::default(), 0, 0, 460, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        let _ = SetWindowPos(
+            hwnd_of(raw),
+            HWND::default(),
+            0,
+            0,
+            HELPER_WINDOW_W,
+            HELPER_WINDOW_H,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
     }
 }
 
@@ -588,15 +617,38 @@ fn bind_watch(role: Role, watch: Watch) {
     apply_status(true);
 }
 
-fn open_radio(code: &str) {
-    if code.len() != crate::protocol::PAIRING_LEN || !code.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+/// Copies the pairing code only. The device token is not on the clipboard.
+fn copy_code(code: &str) {
+    if code.is_empty() {
         return;
     }
-    let url = format!("https://tubss2.github.io/radio-net/#h={code}");
-    let mut file: Vec<u16> = url.encode_utf16().collect();
-    file.push(0);
     unsafe {
-        let _ = ShellExecuteW(HWND::default(), w!("open"), PCWSTR(file.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+        if OpenClipboard(HWND::default()).is_err() {
+            return;
+        }
+        let _ = EmptyClipboard();
+        let mut units: Vec<u16> = code.encode_utf16().collect();
+        units.push(0);
+        let bytes = units.len() * std::mem::size_of::<u16>();
+        let owned = match GlobalAlloc(GMEM_MOVEABLE, bytes) {
+            Ok(mem) => mem,
+            Err(_) => {
+                let _ = CloseClipboard();
+                return;
+            }
+        };
+        let ptr = GlobalLock(owned);
+        if ptr.is_null() {
+            let _ = GlobalFree(owned);
+            let _ = CloseClipboard();
+            return;
+        }
+        std::ptr::copy_nonoverlapping(units.as_ptr(), ptr as *mut u16, units.len());
+        let _ = GlobalUnlock(owned);
+        if SetClipboardData(CF_UNICODETEXT, HANDLE(owned.0)).is_err() {
+            let _ = GlobalFree(owned);
+        }
+        let _ = CloseClipboard();
     }
 }
 
@@ -615,7 +667,15 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             ID_PREV_SET => toggle_capture(Role::Prev),
             ID_NEXT_SET => toggle_capture(Role::Next),
             ID_UNLINK => unlink_from_window(),
-            ID_OPEN => open_radio(&STATUS.lock().unwrap().code),
+            ID_COPY => {
+                let (code, linked) = {
+                    let status = STATUS.lock().unwrap();
+                    (status.code.clone(), status.linked)
+                };
+                if !linked {
+                    copy_code(&code);
+                }
+            }
             _ => {}
         }
         return LRESULT(0);
@@ -661,9 +721,14 @@ unsafe fn paint_light(hwnd: HWND) {
     if !hdc.0.is_null() {
         let mut rect = RECT::default();
         let _ = GetClientRect(hwnd, &mut rect);
-        let held = light_index(hwnd).is_some_and(|index| STATUS.lock().unwrap().held[index]);
         let paint = PAINT.lock().unwrap();
-        let brush = HBRUSH((if held { paint.red } else { paint.dim }) as *mut core::ffi::c_void);
+        let color = if GetDlgCtrlID(hwnd) as usize == ID_DOT {
+            if STATUS.lock().unwrap().linked { paint.green } else { paint.dim }
+        } else {
+            let held = light_index(hwnd).is_some_and(|index| STATUS.lock().unwrap().held[index]);
+            if held { paint.red } else { paint.dim }
+        };
+        let brush = HBRUSH(color as *mut core::ffi::c_void);
         if !brush.0.is_null() {
             let _ = FillRect(hdc, &rect, brush);
         }

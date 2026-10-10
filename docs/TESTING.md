@@ -64,11 +64,9 @@ A small window that lets you talk with a key while the game is in front. It has 
 
 1. Download [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-4/RadioNetHelper.exe).
 2. Open it. Windows will show a blue "Windows protected your PC" box because it isn't signed yet. Click **More info**, then **Run anyway**.
-3. The window says **Disconnected** and shows a big pairing code.
-4. Link it to the web app, either way:
-   - Click **Open Radio Net** in the helper window. The site opens with the code filled in.
-   - Or, on the site, click **Set up push to talk**, then **Helper app**, and type the code.
-5. The site shows **Looking**, then **Helper found**, then **Connected**. The helper window says **Connected to** the site.
+3. The window is a short wide bar. It says **Disconnected**, shows the pairing code, and has **Copy** next to the code.
+4. On the site, click **Set up push to talk**, then **Helper app**. Copy the code from the helper (or select it) and paste it in.
+5. The site shows **Looking**, then **Helper found**, then **Connected**. The helper dot turns green and says **Connected**. The code is replaced by **Linked** and **Unlink**.
 
 Default keys:
 
@@ -78,8 +76,8 @@ Default keys:
 | F3 | Previous channel |
 | F4 | Next channel |
 
-- To change a key, click **Set** on that row and press the key you want.
-- Each row has a red light that comes on while you hold that key. Use it to check your keys work, even before linking.
+- To change a key, click **Set** on that bind and press the key you want.
+- Each bind has a red light that comes on while you hold that key. Use it to check your keys work, even before linking.
 - To disconnect the browser, click **Unlink** in the helper window. Your keys are kept.
 - Next time, keep the helper window open and the site reconnects by itself.
 
