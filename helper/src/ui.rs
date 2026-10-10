@@ -3,7 +3,7 @@
 
 use super::{finish_stream, is_shutdown, pump, PORT, SHUTDOWN};
 use crate::device::{self, Binds, DeviceState, Edge};
-use crate::protocol::{watch_label, LinkedCommand, OutEvent, Role, Watch, NEXT_ROW, PREV_ROW, TALK_ROW};
+use crate::protocol::{watch_label, LinkedCommand, OutEvent, Role, Watch, CAPTURE_HINT, NEXT_ROW, PREV_ROW, TALK_ROW};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
@@ -447,7 +447,7 @@ fn apply_status(relayout: bool) {
     set_text(hwnd_of(controls.status), &state);
     let show_pair = !status.linked && status.capturing.is_none();
     let hint = if status.capturing.is_some() {
-        "Press a key or a mouse side button."
+        CAPTURE_HINT
     } else if show_pair {
         "In Radio Net on the website, click Set up push to talk, then Helper app, and enter this code."
     } else {
