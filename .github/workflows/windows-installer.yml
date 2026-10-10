@@ -141,6 +141,7 @@ jobs:
     environment: release
     permissions:
       contents: write
+      issues: read
       pull-requests: read
     steps:
       - name: Download the built installer
@@ -178,18 +179,34 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:GITHUB_REPOSITORY)) { throw "Missing repository" }
           $repo = $env:GITHUB_REPOSITORY
           $sha = $env:GITHUB_SHA
-          # Publish only when a comment or review contains: Security review: approved
+          # Publish only when a trusted comment or review starts with: Security review: approved
           $numbers = gh api "repos/$repo/commits/$sha/pulls" --jq '.[] | select(.merged_at != null) | .number'
           if ($LASTEXITCODE -ne 0) { throw "Could not list pull requests for this commit" }
           $approved = $false
+          function Add-TrustedApproval($item, $isReview) {
+            if ($null -eq $item) { return }
+            if ($isReview -and "$($item.state)" -ceq 'CHANGES_REQUESTED') { return }
+            $login = "$($item.user.login)"
+            $slug = "$($item.performed_via_github_app.slug)"
+            $trusted = ($login -ceq 'Tubss2') -or (($login -ceq 'cursor[bot]') -and ($slug -ceq 'cursor'))
+            if (-not $trusted) { return }
+            if ("$($item.body)" -cmatch '^Security review: approved') { $script:approved = $true }
+          }
           foreach ($n in @($numbers)) {
             $id = "$n".Trim()
             if ($id -notmatch '^\d+$') { continue }
-            $comments = gh api "repos/$repo/issues/$id/comments" --paginate --jq '.[].body'
+            $commentJson = gh api --paginate "repos/$repo/issues/$id/comments"
             if ($LASTEXITCODE -ne 0) { throw "Could not read comments on pull request $id" }
-            $reviews = gh api "repos/$repo/pulls/$id/reviews" --paginate --jq '.[].body'
+            $commentItems = ConvertFrom-Json $commentJson
+            if ($null -ne $commentItems) {
+              foreach ($item in @($commentItems)) { Add-TrustedApproval $item $false }
+            }
+            $reviewJson = gh api --paginate "repos/$repo/pulls/$id/reviews"
             if ($LASTEXITCODE -ne 0) { throw "Could not read reviews on pull request $id" }
-            if ("$comments`n$reviews" -match 'Security review:\s*approved') { $approved = $true }
+            $reviewItems = ConvertFrom-Json $reviewJson
+            if ($null -ne $reviewItems) {
+              foreach ($item in @($reviewItems)) { Add-TrustedApproval $item $true }
+            }
           }
           if (-not $approved) {
             Write-Host "Not publishing. This commit is not a merged pull request with a security review approval."

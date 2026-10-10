@@ -2,8 +2,10 @@ name: PTT helper
 
 # Builds the Windows helper window and uploads the Actions artifact.
 # A merge to main publishes the next helper-N tag. No one has to start the
-# workflow or type an approval phrase. The merged pull request must already
-# contain "Security review: approved". The run refuses to upload onto a tag
+# workflow or type an approval phrase. The merged pull request must have a
+# comment or review that starts with "Security review: approved", written by
+# Tubss2 or by cursor[bot] through the cursor app. A review that requests
+# changes does not count. The run refuses to upload onto a tag
 # that already exists. The tag does not start with v, it is not marked as
 # the repository's latest release, and this job does not publish the desktop
 # installer, so installed clients do not treat the helper as an app update.
@@ -46,6 +48,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+      issues: read
       pull-requests: read
     steps:
       - name: Download RadioNetHelper.exe
@@ -67,14 +70,30 @@ jobs:
           $numbers = gh api "repos/$repo/commits/$env:HELPER_TARGET/pulls" --jq '.[] | select(.merged_at != null) | .number'
           if ($LASTEXITCODE -ne 0) { throw "Could not list pull requests for this commit" }
           $approved = $false
+          function Add-TrustedApproval($item, $isReview) {
+            if ($null -eq $item) { return }
+            if ($isReview -and "$($item.state)" -ceq 'CHANGES_REQUESTED') { return }
+            $login = "$($item.user.login)"
+            $slug = "$($item.performed_via_github_app.slug)"
+            $trusted = ($login -ceq 'Tubss2') -or (($login -ceq 'cursor[bot]') -and ($slug -ceq 'cursor'))
+            if (-not $trusted) { return }
+            if ("$($item.body)" -cmatch '^Security review: approved') { $script:approved = $true }
+          }
           foreach ($n in @($numbers)) {
             $id = "$n".Trim()
             if ($id -notmatch '^\d+$') { continue }
-            $comments = gh api "repos/$repo/issues/$id/comments" --paginate --jq '.[].body'
+            $commentJson = gh api --paginate "repos/$repo/issues/$id/comments"
             if ($LASTEXITCODE -ne 0) { throw "Could not read comments on pull request $id" }
-            $reviews = gh api "repos/$repo/pulls/$id/reviews" --paginate --jq '.[].body'
+            $commentItems = ConvertFrom-Json $commentJson
+            if ($null -ne $commentItems) {
+              foreach ($item in @($commentItems)) { Add-TrustedApproval $item $false }
+            }
+            $reviewJson = gh api --paginate "repos/$repo/pulls/$id/reviews"
             if ($LASTEXITCODE -ne 0) { throw "Could not read reviews on pull request $id" }
-            if ("$comments`n$reviews" -match 'Security review:\s*approved') { $approved = $true }
+            $reviewItems = ConvertFrom-Json $reviewJson
+            if ($null -ne $reviewItems) {
+              foreach ($item in @($reviewItems)) { Add-TrustedApproval $item $true }
+            }
           }
           if (-not $approved) { throw "Refusing to publish. The merged pull request has no security review approval." }
           $raw = gh api --paginate "repos/$repo/git/matching-refs/tags/helper-" --jq ".[].ref"
