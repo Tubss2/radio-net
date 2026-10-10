@@ -151,6 +151,11 @@ jobs:
           # electron-builder uploads the blockmap and the exe at the same time, and the exe
           # can be dropped when both try to create the release. Upload the finished files after.
           gh release upload "v$version" "release\$file" "release\$file.blockmap" release/latest.yml release/SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not upload the v$version installer assets" }
+          # electron-updater reads GitHub's Latest release for latest.yml. The helper
+          # release must not stay Latest. This does not replace helper-4 files.
+          gh release edit "v$version" --latest
+          if ($LASTEXITCODE -ne 0) { throw "Could not mark v$version as the latest release" }
       - name: Upload the installer, blockmap, and latest.yml
         if: always() && steps.installer.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

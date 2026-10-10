@@ -23,7 +23,7 @@ describe('GitHub Releases updates', () => {
         win: { verifyUpdateCodeSignature?: boolean };
       };
     };
-    expect(pkg.version).toBe('0.4.4');
+    expect(pkg.version).toBe('0.4.5');
     expect(pkg.build.publish).toEqual({
       provider: 'github',
       owner: UPDATE_OWNER,
@@ -48,6 +48,8 @@ describe('GitHub Releases updates', () => {
     expect(yml).toContain('--publish always');
     expect(yml).toContain('latest.yml');
     expect(yml).toContain('SHA256SUMS.txt');
+    expect(yml).toContain('gh release edit');
+    expect(yml).toContain('--latest');
     expect(yml).toContain('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'spike/client/package.json'), 'utf8')) as {
       scripts: { 'dist:win': string };
@@ -76,6 +78,7 @@ describe('GitHub Releases updates', () => {
     expect(yml).not.toContain('helper-2');
     expect(yml).not.toContain('helper-3');
     expect(yml).toContain('gh release upload');
+    expect(yml).toContain('--latest=false');
     expect(yml).toContain("github.ref == 'refs/heads/main'");
     expect(yml).not.toContain('softprops/action-gh-release');
     expect(yml).not.toContain('electron-builder');
