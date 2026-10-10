@@ -7,7 +7,7 @@ import '../src/renderer/src/styles.css';
 document.documentElement.classList.add('web');
 const phone = parsePhoneHash(location.hash);
 const root = createRoot(document.getElementById('root')!);
-if (phone) root.render(<PhoneRemote code={phone.code} apiBase={phone.api} />);
+if (phone) root.render(<PhoneRemote code={phone.code} apiBase={phone.api} expiresAt={phone.expiresAt} />);
 else root.render(<App />);
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

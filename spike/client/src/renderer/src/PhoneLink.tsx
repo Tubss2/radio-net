@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Room, RoomEvent } from 'livekit-client';
-import { decodePhone, encodePhone, phonePageUrl, type PhoneState } from '../../shared/phonePage';
+import { decodePhone, encodePhone, formatCodeClock, phoneHostStatus, phonePageUrl, type PhoneState } from '../../shared/phonePage';
 import type { Api } from './lib/api';
 import { resolveLivekitUrl } from './lib/livekitUrl';
 import type { RadioControl } from './lib/radioEngine';
@@ -26,6 +26,8 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
   const [svg, setSvg] = useState('');
   const [error, setError] = useState('');
   const [voice, setVoice] = useState<'connecting' | 'ready' | 'down'>('connecting');
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const roomRef = useRef<Room | null>(null);
   const phoneId = useRef('');
   const held = useRef(false);
@@ -72,6 +74,7 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
       if (!participant || participant.identity !== phoneId.current) return;
       const message = decodePhone(payload);
       if (!message || message.t === 'state') return;
+      setLinked(true);
       if (message.t === 'tx') { engineRef.current.setTx(message.id); publish(); return; }
       if (message.down) {
         lastDown.current = Date.now();
@@ -85,7 +88,10 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
     };
     room.on(RoomEvent.DataReceived, onData);
     room.on(RoomEvent.ParticipantConnected, (participant) => {
-      if (participant.identity === phoneId.current) setLinked(true);
+      if (participant.identity !== phoneId.current) return;
+      setLinked(true);
+      // Data messages are not stored. A channel tuned before the phone arrived has to be sent again.
+      publish();
     });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
       if (participant.identity !== phoneId.current) return;
@@ -109,9 +115,12 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
     const watch = setInterval(() => {
       if (held.current && Date.now() - lastDown.current > 1500) releaseHold();
     }, 300);
+    // The phone may join, or a channel may be tuned, between the one-off events.
+    const pulse = setInterval(() => publish(), 1000);
     return () => {
       dead = true;
       clearInterval(watch);
+      clearInterval(pulse);
       releaseHold();
       roomRef.current = null;
       void room.disconnect();
@@ -120,13 +129,23 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
 
   useEffect(() => { if (shown) publish(); }, [shown, engine.version]);
 
+  useEffect(() => {
+    if (!shown || linked || expiresAt == null) return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [shown, linked, expiresAt]);
+
   const showCode = async () => {
     setError('');
     try {
       const paired = await api.phonePair(cid);
       const page = phonePageUrl({
         code: paired.code, apiBase, electron, origin: location.origin, base: import.meta.env.BASE_URL,
+        expiresAt: paired.expiresAt,
       });
+      const exp = Date.parse(paired.expiresAt);
+      setExpiresAt(Number.isFinite(exp) ? exp : null);
+      setNow(Date.now());
       setUrl(page);
       setSvg(await QRCode.toString(page, { type: 'svg', margin: 1, width: 220, color: { dark: '#e8ebf1', light: '#14171d' } }));
     } catch (err) {
@@ -140,9 +159,19 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
     setOpen(false);
     onOpenedChange?.(false);
     setLinked(false);
+    setExpiresAt(null);
     setUrl('');
     setSvg('');
   };
+
+  const remaining = expiresAt == null ? null : expiresAt - now;
+  const expired = remaining != null && remaining <= 0 && !linked;
+  const status = phoneHostStatus({
+    linked,
+    makingCode: shown && !svg && !error,
+    remainingMs: remaining,
+    tuned: engine.tuned.length > 0,
+  });
 
   return (
     <>
@@ -151,17 +180,17 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
         <div className="modal-bg" onClick={close}>
           <div className="modal phone-modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Use phone as push-to-talk</h3>
-            <p className="sub" style={{ margin: 0 }}>
-              Scan this with the phone. The code works once and expires in two minutes. The phone only keys this visit. It does not get your admin key.
-            </p>
-            {svg ? <div className="qr" dangerouslySetInnerHTML={{ __html: svg }} /> : <p className="sub">Making a code…</p>}
-            {linked ? <p className="who live">Phone linked. Hold the button on the phone.</p> : <p className="sub">Waiting for the phone.</p>}
-            {voice === 'down' && <p className="err">The voice server did not accept the link yet. The code is ready; push-to-talk starts when that server is reachable.</p>}
-            {voice === 'connecting' && <p className="sub">Connecting the voice link…</p>}
+            <p className="sub" style={{ margin: 0 }}>The phone only keys this visit. It does not get your admin key.</p>
+            <p className={linked ? 'who live' : 'phone-status'} style={{ margin: 0 }}>{status}</p>
+            {remaining != null && !linked && <p className="phone-clock">{formatCodeClock(remaining)}</p>}
+            {svg ? <div className={`qr${expired ? ' expired' : ''}`} dangerouslySetInnerHTML={{ __html: svg }} /> : <p className="sub">Making a code…</p>}
+            {url && <a href={url} target="_blank" rel="noreferrer">Open the phone page</a>}
+            {voice === 'down' && <p className="err">The voice server did not accept the link yet. The code is ready. Push-to-talk starts when that server is reachable.</p>}
+            {voice === 'connecting' && <p className="sub">Connecting this computer…</p>}
             {error && <p className="err">{error}</p>}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn ghost" onClick={() => void showCode()}>New code</button>
-              <button className="btn primary" onClick={close}>Close</button>
+              <button className={expired ? 'btn primary' : 'btn ghost'} type="button" onClick={() => void showCode()}>New code</button>
+              <button className={expired ? 'btn ghost' : 'btn primary'} type="button" onClick={close}>Close</button>
             </div>
           </div>
         </div>

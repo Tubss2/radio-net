@@ -191,10 +191,17 @@ button.talk-choice:hover { border-color: var(--accent); }
 .ptt.on { background: var(--tx); color: #fff; }
 .web-main .chlist { flex: 1; min-height: 0; }
 .phone-modal { width: min(420px, calc(100vw - 32px)); }
+.phone-modal a { color: var(--accent); font-weight: 600; }
 .helper-code-label { display: flex; flex-direction: column; gap: 4px; }
 .helper-code { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; letter-spacing: .14em; font-family: var(--mono); }
 .qr svg { width: 220px; height: auto; display: block; margin: 0 auto; background: var(--panel); border-radius: 12px; }
-.phone-remote { height: 100%; display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.phone-remote { min-height: 100dvh; display: flex; flex-direction: column; gap: 12px; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
+.phone-connect { width: 100%; min-height: 88px; font-size: 22px; }
+.phone-clock { margin: 0; font-family: var(--mono); font-size: 40px; font-weight: 700; letter-spacing: .04em; }
+.phone-status { margin: 0; }
+.phone-remote .ptt { touch-action: none; }
+.phone-remote .ptt:disabled { opacity: 0.45; }
+.qr.expired { opacity: 0.35; }
 .phone-remote .simple { }
 .phone-install { text-align: center; margin: 0; }
 @media (max-width: 640px) {

@@ -189,11 +189,18 @@ export class RadioEngine implements RadioControl {
     slot.info.status = 'live';
     slot.info.listeners = room.numParticipants;
     if (grant.canTransmit) {
-      const pub = await room.localParticipant.publishTrack((await this.mic()).clone(), {
-        source: Track.Source.Microphone, dtx: true, red: true, name: 'mic',
-      });
-      await pub.mute();
-      slot.mic = pub;
+      try {
+        const pub = await room.localParticipant.publishTrack((await this.mic()).clone(), {
+          source: Track.Source.Microphone, dtx: true, red: true, name: 'mic',
+        });
+        await pub.mute();
+        slot.mic = pub;
+      } catch (err) {
+        clientLog('livekit', `mic ${channel.freq} ${(err as Error).message}`);
+        if (!this.txId) this.txId = channel.id;
+        this.changed();
+        throw new Error('No microphone was found. The channel stays tuned. Plug in a mic to talk.');
+      }
       if (!this.txId) this.txId = channel.id;
     }
     this.changed();

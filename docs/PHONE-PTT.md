@@ -2,9 +2,9 @@
 
 The computer that is in the game keeps the microphone. The phone only holds a button.
 
-On the radio page, **Use phone** asks the API for a data-only LiveKit room and a one-time code. The code is 32 random bytes. A QR code points at this same site, for example `https://tubss2.github.io/radio-net/#/p/<code>?api=<server>`. The code expires in two minutes and works once. The phone uses that `api` value only when it is the Sydney origin or localhost. Any other host is ignored, so a rewritten link cannot collect the code. Redeeming it returns a two-hour data token for that visit. It does not return the computer's session token, and the phone cannot publish a microphone. Closing the phone dialog disconnects that visit, which drops the button.
+On the radio page, **Set up push to talk** then **For the security conscious** asks the API for a data-only LiveKit room and a one-time code. The code is 32 random bytes. A QR code points at this same site, for example `https://tubss2.github.io/radio-net/#/p/<code>?api=<server>&exp=<ms>`. The computer shows a countdown. The code expires in two minutes and works once. The phone uses that `api` value only when it is the Sydney origin or localhost. Any other host is ignored, so a rewritten link cannot collect the code. Redeeming it returns a two-hour data token for that visit. It does not return the computer's session token, and the phone cannot publish a microphone. Closing the phone dialog disconnects that visit, which drops the button.
 
-The phone page does not redeem the code until the person taps **Use this phone as the talk button**. Opening or forwarding the link is not enough. After that tap it shows the transmit channel, who is talking, channel buttons, and a large hold button. It asks for a screen wake lock and offers **Add to Home Screen** when the browser fires the install prompt. Holding the button sends a LiveKit data message. The computer unmutes the mic it already published. Letting go mutes it. If the phone stops repeating the hold (about 1.5 seconds), the computer releases.
+The phone page does not redeem the code until the person taps **Connect**. That button is the large primary action. **Hold to talk** stays grey and reads **Tap Connect first** until the phone has joined. Opening or forwarding the link is not enough. The same page shows the two-minute clock from `exp`. After Connect it shows the transmit channel, who is talking, channel buttons, and the hold button. A channel tuned on the computer after the QR was created still appears: the computer sends the radio again when the phone joins, and about once a second while the dialog is open. It asks for a screen wake lock on that Connect tap and offers **Add to Home Screen** when the browser fires the install prompt. Holding the button sends a LiveKit data message. The computer unmutes the mic it already published. Letting go mutes it. If the phone stops repeating the hold (about 1.5 seconds), the computer releases.
 
 The voice rooms still have data publishing off. Phone control uses a separate room, `g<community>.phone.<session>`.
 
@@ -15,7 +15,7 @@ cd spike/server && npm start
 cd spike/client && VITE_API_URL=http://127.0.0.1:8787 npm run web
 ```
 
-Open the radio, choose **Use phone**, and scan the QR (or open the link on the phone). The dev invite for the seeded community is `DEVN-ET01`. The voice server has to be running or the page says the code is ready and push-to-talk starts when that server is reachable.
+Open the radio, choose **Set up push to talk**, then the phone option, and scan the QR (or open the link on the phone). On the phone, tap **Connect**. The dev invite for the seeded community is `DEVN-ET01`. The voice server has to be running or the page says the code is ready and push-to-talk starts when that server is reachable.
 
 ## What Sydney needs
 

@@ -31,7 +31,7 @@ export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBr
               </button>
               <button className="talk-choice" type="button" onClick={() => { close(); onPhone(); }}>
                 <strong>For the security conscious</strong>
-                <span>Use your phone as push-to-talk. Open a link or scan a QR code. Press and hold the phone screen to talk.</span>
+                <span>Use your phone as push-to-talk. Scan the code, tap Connect, then press and hold the phone screen. The code lasts two minutes.</span>
               </button>
               <div className="talk-choice">
                 <strong>Small open-source helper</strong>
