@@ -4,6 +4,27 @@ import { signCanonical, type HeldDevice } from './deviceKey';
 import { isPreview } from './previewMode';
 
 const NOT_ENROLLED = 'This device is not enrolled.';
+const ALREADY_ENROLLED = 'already_enrolled';
+
+async function signChallenge(api: Api, communityId: string, device: HeldDevice, callsign: string): Promise<JoinResult> {
+  const challenge = await api.challenge(communityId, device.deviceId);
+  const signature = await signCanonical(
+    device.privateKey,
+    canonicalJoin(challenge.challengeId, challenge.nonce, communityId, device.deviceId),
+  );
+  return api.joinSigned(communityId, {
+    challengeId: challenge.challengeId,
+    deviceId: device.deviceId,
+    signature,
+    callsign,
+  });
+}
+
+/** Community id from a refusal that means "prove this key", or null when the error is something else. */
+function enrolledCommunity(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.code !== ALREADY_ENROLLED || !err.communityId) return null;
+  return err.communityId;
+}
 
 export async function openSession(api: Api, input: {
   callsign: string;
@@ -17,17 +38,7 @@ export async function openSession(api: Api, input: {
 
   if (input.communityId) {
     try {
-      const challenge = await api.challenge(input.communityId, device.deviceId);
-      const signature = await signCanonical(
-        device.privateKey,
-        canonicalJoin(challenge.challengeId, challenge.nonce, input.communityId, device.deviceId),
-      );
-      return await api.joinSigned(input.communityId, {
-        challengeId: challenge.challengeId,
-        deviceId: device.deviceId,
-        signature,
-        callsign: input.callsign,
-      });
+      return await signChallenge(api, input.communityId, device, input.callsign);
     } catch (err) {
       if (!canTryInvite(err)) throw err;
     }
@@ -43,7 +54,10 @@ export async function openSession(api: Api, input: {
         callsign: input.callsign,
       });
     } catch (err) {
-      if (!canTryInvite(err) && !(err instanceof ApiError && (err.status === 401 || err.status === 403))) throw err;
+      const communityId = enrolledCommunity(err);
+      if (communityId) return signChallenge(api, communityId, device, input.callsign);
+      const migrateUsed = err instanceof ApiError && err.code === 'migrate_used';
+      if (!canTryInvite(err) && !(err instanceof ApiError && (err.status === 401 || err.status === 403)) && !migrateUsed) throw err;
     }
   }
 
@@ -57,6 +71,8 @@ export async function openSession(api: Api, input: {
       });
     } catch (err) {
       if (err instanceof ApiError && err.routeMissing) return api.join(input.inviteCode, input.callsign);
+      const communityId = enrolledCommunity(err);
+      if (communityId) return signChallenge(api, communityId, device, input.callsign);
       throw err;
     }
   }
