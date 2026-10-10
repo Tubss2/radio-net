@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Room, RoomEvent } from 'livekit-client';
-import { decodePhone, encodePhone, formatCodeClock, phoneHostStatus, phonePageUrl, type PhoneState } from '../../shared/phonePage';
+import { decodePhone, encodePhone, formatCodeClock, PHONE_SYNC_ID, phoneHostStatus, phonePageUrl, type PhoneState } from '../../shared/phonePage';
 import type { Api } from './lib/api';
 import { resolveLivekitUrl } from './lib/livekitUrl';
 import type { RadioControl } from './lib/radioEngine';
@@ -37,6 +37,7 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
 
   const snapshot = (): PhoneState => {
     const radio = engineRef.current;
+    radio.ensureTx();
     return {
       t: 'state',
       tx: radio.txId,
@@ -57,8 +58,7 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
     if (!held.current) return;
     held.current = false;
     externalDown.current = false;
-    void engineRef.current.ptt(false);
-    publish();
+    void engineRef.current.ptt(false).finally(() => publish());
   };
 
   useEffect(() => {
@@ -75,16 +75,25 @@ export function PhoneLink({ api, cid, apiBase, electron, engine, externalDown, s
       const message = decodePhone(payload);
       if (!message || message.t === 'state') return;
       setLinked(true);
-      if (message.t === 'tx') { engineRef.current.setTx(message.id); publish(); return; }
+      if (message.t === 'tx') {
+        // rn-sync is the phone asking for this snapshot. It is not a channel change.
+        if (message.id !== PHONE_SYNC_ID) engineRef.current.setTx(message.id);
+        publish();
+        return;
+      }
       if (message.down) {
         lastDown.current = Date.now();
         if (!held.current) {
           held.current = true;
           externalDown.current = true;
-          void engineRef.current.unlock().then(() => engineRef.current.ptt(true));
-        }
-      } else releaseHold();
-      publish();
+          void engineRef.current.unlock()
+            .then(() => engineRef.current.ptt(true))
+            .finally(() => publish());
+        } else publish();
+        return;
+      }
+      if (held.current) releaseHold();
+      else publish();
     };
     room.on(RoomEvent.DataReceived, onData);
     room.on(RoomEvent.ParticipantConnected, (participant) => {

@@ -3,9 +3,13 @@ import { Room, RoomEvent } from 'livekit-client';
 import { API_URL, Api } from './lib/api';
 import { resolveLivekitUrl } from './lib/livekitUrl';
 import {
-  decodePhone, encodePhone, formatCodeClock, phoneChannelNote, phoneExpiryNote, phoneHold, phoneRedeemError,
+  decodePhone, encodePhone, formatCodeClock, phoneChannelNote, phoneExpiryNote, phoneHold, phoneRedeemError, PHONE_SYNC_ID,
   type PhonePhase, type PhoneState,
 } from '../../shared/phonePage';
+
+function buzz(pattern: number | number[]) {
+  try { navigator.vibrate?.(pattern); } catch { /* this browser has no vibration */ }
+}
 
 /** The page a paired phone opens. It sends hold and channel changes. It does not publish a microphone. */
 export function PhoneRemote({ code, apiBase, expiresAt }: { code: string; apiBase: string | null; expiresAt: number | null }) {
@@ -14,10 +18,13 @@ export function PhoneRemote({ code, apiBase, expiresAt }: { code: string; apiBas
   const [attempt, setAttempt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [state, setState] = useState<PhoneState>({ t: 'state', tx: null, channels: [], on: false });
+  const [heard, setHeard] = useState(false);
   const [install, setInstall] = useState<(() => void) | null>(null);
   const roomRef = useRef<Room | null>(null);
   const held = useRef(false);
+  const heardRef = useRef(false);
   const repeat = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wasOn = useRef(false);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
@@ -81,11 +88,16 @@ export function PhoneRemote({ code, apiBase, expiresAt }: { code: string; apiBas
   useEffect(() => {
     if (attempt === 0) return;
     let dead = false;
+    let pulse = 0;
+    setHeard(false);
     const room = new Room();
     roomRef.current = room;
     room.on(RoomEvent.DataReceived, (payload) => {
       const message = decodePhone(payload);
-      if (message?.t === 'state') setState(message);
+      if (message?.t !== 'state') return;
+      heardRef.current = true;
+      setHeard(true);
+      setState(message);
     });
     room.on(RoomEvent.Disconnected, () => { if (!dead && phaseRef.current === 'live') setStatus('Link closed'); });
     const run = async () => {
@@ -99,6 +111,16 @@ export function PhoneRemote({ code, apiBase, expiresAt }: { code: string; apiBas
         if (dead) return;
         setPhase('live');
         setStatus(who || 'Connected');
+        const ask = () => {
+          if (dead || heardRef.current || held.current) {
+            window.clearInterval(pulse);
+            return;
+          }
+          if (room.state !== 'connected') return;
+          void room.localParticipant.publishData(encodePhone({ t: 'tx', id: PHONE_SYNC_ID }), { reliable: true, topic: 'rn' });
+        };
+        ask();
+        pulse = window.setInterval(ask, 1000);
       } catch (err) {
         if (dead) return;
         setPhase('error');
@@ -106,12 +128,19 @@ export function PhoneRemote({ code, apiBase, expiresAt }: { code: string; apiBas
       }
     };
     void run();
-    return () => { dead = true; roomRef.current = null; hold(false); void room.disconnect(); };
+    return () => { dead = true; window.clearInterval(pulse); heardRef.current = false; roomRef.current = null; hold(false); void room.disconnect(); };
   }, [attempt, code, apiBase]);
 
-  const tx = state.channels.find((row) => row.id === state.tx);
-  const holdButton = phoneHold(phase, state.on);
-  const channelNote = phoneChannelNote(phase, state.channels.length);
+  const tx = state.channels.find((row) => row.id === state.tx) ?? state.channels[0];
+  const holdButton = phoneHold(phase, state.on, tx?.freq);
+  const channelNote = phase === 'live' && !heard
+    ? 'Asking the computer for the radio…'
+    : phoneChannelNote(phase, state.channels.length);
+
+  useEffect(() => {
+    if (state.on && !wasOn.current) buzz([30, 40, 30]);
+    wasOn.current = state.on;
+  }, [state.on]);
   const expiry = phoneExpiryNote(expiresAt == null ? null : expiresAt - now, phase);
   const clock = expiresAt == null || phase === 'live' || phase === 'connecting' ? null : Math.max(0, expiresAt - now);
 
@@ -124,7 +153,7 @@ export function PhoneRemote({ code, apiBase, expiresAt }: { code: string; apiBas
         <button className="btn primary phone-connect" type="button" onClick={connect}>Connect</button>
       )}
       <div className="web-bar">
-        <strong>{phase === 'live' ? (tx ? `${tx.freq} ${tx.name}` : 'No transmit channel') : 'Not connected yet'}</strong>
+        <strong>{phase === 'live' ? (state.channels.length ? `${tx?.freq ?? ''} ${tx?.name ?? ''}`.trim() : 'No transmit channel') : 'Not connected yet'}</strong>
         <span className="sub">{status}</span>
         {install && <button className="btn sm" type="button" onClick={install}>Add to Home Screen</button>}
       </div>
@@ -153,6 +182,7 @@ export function PhoneRemote({ code, apiBase, expiresAt }: { code: string; apiBas
         onPointerDown={(e) => {
           if (!holdButton.enabled) return;
           e.preventDefault();
+          buzz(20);
           try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* iOS can reject capture */ }
           hold(true);
         }}

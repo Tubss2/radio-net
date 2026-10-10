@@ -739,7 +739,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
 
   if (isWeb) {
     return (
-      <div className="web-main">
+      <div className={`web-main${keyed ? ' on-air' : ''}`}>
+        <OnAirBanner engine={engine} />
         <section className="invite-card">
           <div>
             <div className="lbl">Invite code</div>
@@ -844,7 +845,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
 
   if (inElectron && simpleOn) {
     return (
-      <div className="simple-screen">
+      <div className={`simple-screen${keyed ? ' on-air' : ''}`}>
+        <OnAirBanner engine={engine} />
         <div className="web-bar">
           <strong>{server.name}</strong>
           <button className="btn sm" onClick={() => { setSimpleOn(false); patchProfile({ simpleOn: false }); }}>Full radio</button>
@@ -901,10 +903,11 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
         </div>
       </aside>
 
-      <main className="radio">
+      <main className={`radio${keyed ? ' on-air' : ''}`}>
+        <OnAirBanner engine={engine} />
         <div className={`txbar ${keyed ? 'keyed' : ''}`}>
           <div>
-            <div className="lbl">{keyed ? <span className="onair">On air</span> : 'Transmit on'}</div>
+            <div className="lbl">{keyed ? <span className="onair">Transmitting</span> : 'Transmit on'}</div>
             <div className="big">{tx ? tx.channel.freq : '—'}</div>
           </div>
           <div className="nm">{tx?.channel.name ?? 'Tune a channel to talk'}</div>
@@ -929,6 +932,19 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       }} />}
       {wheelPortal}
     </>
+  );
+}
+
+function OnAirBanner({ engine }: { engine: RadioControl }) {
+  const id = engine.transmittingOn;
+  if (!id) return null;
+  const row = engine.tuned.find((t) => t.channel.id === id);
+  return (
+    <div className="onair-banner" role="status">
+      <span className="onair">Transmitting</span>
+      <strong className="freq">{row?.channel.freq ?? '—'}</strong>
+      <span>{row?.channel.name ?? ''}</span>
+    </div>
   );
 }
 

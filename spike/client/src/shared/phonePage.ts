@@ -75,9 +75,15 @@ export function phoneHostStatus(input: {
 
 export type PhonePhase = 'idle' | 'connecting' | 'live' | 'error';
 
-/** Hold stays off until the phone has joined the computer. */
-export function phoneHold(phase: PhonePhase, onAir: boolean): { label: string; enabled: boolean } {
-  if (phase === 'live' && onAir) return { label: 'ON AIR', enabled: true };
+/**
+ * Not a channel. The phone sends this as a tx id so the computer replies with its radio.
+ * The installed desktop app already answers any tx message by sending the snapshot.
+ */
+export const PHONE_SYNC_ID = 'rn-sync';
+
+/** Hold stays off until the phone has joined the computer. The transmitting label is the desktop's ack. */
+export function phoneHold(phase: PhonePhase, onAir: boolean, freq?: string | null): { label: string; enabled: boolean } {
+  if (phase === 'live' && onAir) return { label: freq ? `TRANSMITTING on ${freq}` : 'TRANSMITTING', enabled: true };
   if (phase === 'live') return { label: 'Hold to talk', enabled: true };
   if (phase === 'connecting') return { label: 'Connecting…', enabled: false };
   return { label: 'Tap Connect first', enabled: false };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   decodePhone, encodePhone, formatCodeClock, parsePhoneHash, phoneChannelNote, phoneExpiryNote,
-  phoneHold, phoneHostStatus, phonePageUrl, phoneRedeemError,
+  phoneHold, phoneHostStatus, phonePageUrl, phoneRedeemError, PHONE_SYNC_ID,
 } from './phonePage';
 
 describe('phone page link', () => {
@@ -60,7 +60,9 @@ describe('phone page link', () => {
     expect(phoneHold('idle', false)).toEqual({ label: 'Tap Connect first', enabled: false });
     expect(phoneHold('connecting', false)).toEqual({ label: 'Connecting…', enabled: false });
     expect(phoneHold('live', false)).toEqual({ label: 'Hold to talk', enabled: true });
-    expect(phoneHold('live', true)).toEqual({ label: 'ON AIR', enabled: true });
+    expect(phoneHold('live', true, '60.0')).toEqual({ label: 'TRANSMITTING on 60.0', enabled: true });
+    expect(phoneHold('live', true, null)).toEqual({ label: 'TRANSMITTING', enabled: true });
+    expect(PHONE_SYNC_ID).toBe('rn-sync');
     expect(phoneChannelNote('idle', 0)).toBeNull();
     expect(phoneChannelNote('live', 0)).toBe('Connected. Tune a channel on the computer.');
     expect(phoneChannelNote('live', 1)).toBeNull();
