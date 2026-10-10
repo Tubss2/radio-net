@@ -1,3 +1,4 @@
+import { clampHangMs, DEFAULT_HANG_MS } from './roger';
 import { clampSoundVolume, DEFAULT_SOUND_VOLUME } from './sounds';
 import type { Keybinds } from './types';
 
@@ -43,6 +44,12 @@ export interface Profile {
   soundPtt: boolean;
   /** Tone when the transmit channel changes. */
   soundTx: boolean;
+  /** Roger beep mixed into the transmission for listeners. */
+  soundRoger: boolean;
+  /** Roger beep on this machine's speakers. */
+  soundRogerLocal: boolean;
+  /** Mic stays open this long after release, before the roger beep. */
+  hangMs: number;
   /** Master level for those cues, 0 to 1. */
   soundVolume: number;
   /** In-page push-to-talk key (`KeyboardEvent.code`). The desktop app uses the global bind. */
@@ -64,7 +71,7 @@ export interface Profile {
 export function emptyProfile(): Profile {
   return {
     callsign: '', servers: [], keybinds: null, keybindsVersion: 0, overlayOn: true, wheelOn: true,
-    soundsOn: true, soundPtt: false, soundTx: true, soundVolume: DEFAULT_SOUND_VOLUME,
+    soundsOn: true, soundPtt: false, soundTx: true, soundRoger: true, soundRogerLocal: false, hangMs: DEFAULT_HANG_MS, soundVolume: DEFAULT_SOUND_VOLUME,
     talkKey: 'Space', talkMode: 'hold', voiceSensitivity: 0.45, voiceReleaseMs: 300, simpleOn: false, simpleOnTop: false, radios: {},
     privacyAccepted: false, hotkeysEnabled: true,
   };
@@ -112,6 +119,9 @@ export function normaliseProfile(raw: unknown): Profile {
     soundsOn: p.soundsOn !== false,
     soundPtt: p.soundPtt === true,
     soundTx: p.soundTx !== false,
+    soundRoger: p.soundRoger !== false,
+    soundRogerLocal: p.soundRogerLocal === true,
+    hangMs: clampHangMs(p.hangMs),
     soundVolume: clampSoundVolume(p.soundVolume),
     talkKey: typeof p.talkKey === 'string' && p.talkKey ? p.talkKey : 'Space',
     talkMode: p.talkMode === 'voice' ? 'voice' : 'hold',

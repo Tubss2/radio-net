@@ -15,6 +15,9 @@ export interface DiagnosticsInput {
   soundsOn: boolean;
   soundPtt: boolean;
   soundTx: boolean;
+  soundRoger: boolean;
+  soundRogerLocal: boolean;
+  hangMs: number;
   simpleOn: boolean;
   serverCount: number;
   binds: Keybinds;
@@ -33,6 +36,9 @@ export function diagnosticsText(input: DiagnosticsInput): string {
     `Add-channel sound ${input.soundsOn ? 'on' : 'off'}`,
     `Push-to-talk sound ${input.soundPtt ? 'on' : 'off'}`,
     `Transmit-change sound ${input.soundTx ? 'on' : 'off'}`,
+    `Roger beep ${input.soundRoger ? 'on' : 'off'}`,
+    `Own roger beep ${input.soundRogerLocal ? 'on' : 'off'}`,
+    `Release delay ${input.hangMs} ms`,
     `Simple mode ${input.simpleOn ? 'on' : 'off'}`,
     `Communities saved ${input.serverCount}`,
     `Talk ${bindLabel(input.binds.ptt)}`,

@@ -21,6 +21,9 @@ describe('UI sound level', () => {
     expect(older.soundsOn).toBe(true);
     expect(older.soundPtt).toBe(false);
     expect(older.soundTx).toBe(true);
+    expect(older.soundRoger).toBe(true);
+    expect(older.soundRogerLocal).toBe(false);
+    expect(older.hangMs).toBe(200);
     expect(older.soundVolume).toBe(DEFAULT_SOUND_VOLUME);
     const saved = normaliseProfile({ ...older, soundsOn: false, soundVolume: 0.15 });
     expect(saved.soundsOn).toBe(false);
@@ -31,8 +34,8 @@ describe('UI sound level', () => {
   });
 
   it('keeps an explicit push-to-talk cue and a silenced channel-change cue', () => {
-    const prefs = soundPrefsFrom(normaliseProfile({ soundPtt: true, soundTx: false, soundVolume: 0.2 }));
-    expect(prefs).toEqual({ addChannel: true, ptt: true, txChange: false, volume: 0.2 });
+    const prefs = soundPrefsFrom(normaliseProfile({ soundPtt: true, soundTx: false, soundRoger: false, soundRogerLocal: true, hangMs: 150, soundVolume: 0.2 }));
+    expect(prefs).toEqual({ addChannel: true, ptt: true, txChange: false, roger: false, rogerLocal: true, hangMs: 150, volume: 0.2 });
     expect(playsAddSquelch('add')).toBe(true);
     expect(playsAddSquelch('create')).toBe(false);
   });
