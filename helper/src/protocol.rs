@@ -280,9 +280,17 @@ fn vk_label(vk: u16) -> String {
 }
 
 /// Browser `Origin` values the helper will upgrade. Anything else is refused.
+/// Loopback is for `cargo build` while developing. A release build allows only the Pages origin.
 pub fn origin_allowed(origin: &str) -> bool {
+    origin_allowed_with(origin, cfg!(debug_assertions))
+}
+
+pub fn origin_allowed_with(origin: &str, allow_loopback: bool) -> bool {
     if origin == PAGES_ORIGIN {
         return true;
+    }
+    if !allow_loopback {
+        return false;
     }
     let Some(rest) = origin.strip_prefix("http://") else {
         return false;
@@ -552,6 +560,10 @@ mod tests {
         assert!(!origin_allowed("https://evil.example"));
         assert!(!origin_allowed("http://127.0.0.1.evil.com"));
         assert!(!origin_allowed(""));
+        assert!(origin_allowed_with("https://tubss2.github.io", false));
+        assert!(!origin_allowed_with("http://127.0.0.1:5175", false));
+        assert!(!origin_allowed_with("http://localhost:5175", false));
+        assert!(!origin_allowed_with("http://127.0.0.1.evil.com", false));
     }
 
     #[test]

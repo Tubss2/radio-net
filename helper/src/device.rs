@@ -315,7 +315,9 @@ pub fn load_device(path: &Path) -> DeviceState {
         Ok(bytes) => bytes,
         Err(_) => return DeviceState::default(),
     };
-    let plain = unseal(&bytes);
+    let Some(plain) = unseal(&bytes) else {
+        return DeviceState::default();
+    };
     let text = String::from_utf8(plain).unwrap_or_default();
     decode_state(&text).unwrap_or_default()
 }
@@ -358,14 +360,16 @@ fn seal(plain: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-fn unseal(bytes: &[u8]) -> Vec<u8> {
+fn unseal(bytes: &[u8]) -> Option<Vec<u8>> {
     #[cfg(windows)]
     {
-        if let Ok(plain) = unseal_dpapi(bytes) {
-            return plain;
-        }
+        // Fail closed. A plaintext file planted beside the sealed one is ignored.
+        return unseal_dpapi(bytes).ok();
     }
-    bytes.to_vec()
+    #[cfg(not(windows))]
+    {
+        Some(bytes.to_vec())
+    }
 }
 
 #[cfg(windows)]
