@@ -62,7 +62,7 @@ If your phone doesn't turn red, people can't hear you yet. The phone may vibrate
 
 A small window that lets you talk with a key while the game is in front. It has no tray icon, doesn't start with Windows, and quits when you close its window. Minimising it is fine; it keeps working.
 
-1. Download [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-4/RadioNetHelper.exe).
+1. Download [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe).
 2. Open it. Windows will show a blue "Windows protected your PC" box because it isn't signed yet. Click **More info**, then **Run anyway**.
 3. The window is a short wide bar. It says **Disconnected**, shows the pairing code, and has **Copy** next to the code.
 4. On the site, click **Set up push to talk**, then **Helper app**. Copy the code from the helper (or select it) and paste it in.
