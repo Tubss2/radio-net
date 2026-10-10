@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TokenVerifier } from 'livekit-server-sdk';
@@ -10,12 +10,18 @@ import { isAllowedApiOrigin } from '../src/cors.js';
 import { PhonePairs, phoneIdentity, phoneRoomName } from '../src/phone.js';
 import { formatFrequency, parseFrequency, validateFrequency } from '../src/freq.js';
 import { assertProductionConfig } from '../src/production.js';
-import { FileChannelStore, MemoryChannelStore } from '../src/store.js';
+import { dropCommunityRooms, roomsToClose } from '../src/rooms.js';
+import { loadStore } from '../src/boot.js';
+import { FileChannelStore, MemoryChannelStore, roomNameFor } from '../src/store.js';
 
 const cfg = { livekitUrl: 'ws://x', livekitHttpUrl: 'http://127.0.0.1:1', apiKey: 'devkey', apiSecret: 'secret-secret-secret-secret-secret' };
 
 async function setup(extra: Partial<Parameters<typeof buildApp>[1]> = {}) {
-  const app = buildApp(new MemoryChannelStore(), { ...cfg, ...extra });
+  const app = buildApp(new MemoryChannelStore(), {
+    ...cfg,
+    roomAdmin: { listRooms: async () => [], deleteRoom: async () => {} },
+    ...extra,
+  });
   const created = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'War Dogs NZ', setupCode: extra.communitySetupCode } });
   const body = created.json();
   const community = body.community;
@@ -340,11 +346,11 @@ describe('phone push-to-talk pairing', () => {
   it('forgets an expired code and will not redeem it twice', () => {
     let now = 1_000_000;
     const pairs = new PhonePairs(() => now);
-    const issued = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby' }, 1000);
+    const issued = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby', epoch: 0 }, 1000);
     expect(Buffer.from(issued.code, 'base64url')).toHaveLength(32);
     expect(pairs.take(issued.code)).toMatchObject({ sid: 'sid-1' });
     expect(pairs.take(issued.code)).toBeNull();
-    const again = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby' }, 1000);
+    const again = pairs.issue({ cid: 'dev', sid: 'sid-1', name: 'Toby', epoch: 0 }, 1000);
     now += 1001;
     expect(pairs.take(again.code)).toBeNull();
     expect(phoneRoomName('dev', 'sid-1')).toBe('gdev.phone.sid-1');
@@ -426,6 +432,87 @@ describe('hardening', () => {
     const joined = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: rotated.json().inviteCode, callsign: 'late' } });
     expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${joined.json().token}` } })).statusCode).toBe(200);
     expect(rotated.json().inviteCode).not.toBe(community.inviteCode);
+  });
+
+  it('closes this community\'s voice and phone rooms before the invite changes', async () => {
+    const deleted: string[] = [];
+    const seen = { cid: '' };
+    const { app, admin, member, cid, community } = await setup({
+      roomAdmin: {
+        listRooms: async () => [
+          { name: `g${seen.cid}.phone.visit` },
+          { name: 'gother.phone.leave' },
+        ],
+        deleteRoom: async (name: string) => { deleted.push(name); },
+      },
+    });
+    seen.cid = cid;
+    const created = await app.inject({
+      method: 'POST', url: `/api/communities/${cid}/channels`, headers: admin,
+      payload: { freq: '59.5', name: 'Command' },
+    });
+    const channelId = created.json().channel.id as string;
+    const paired = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-pair`, headers: member });
+    const code = paired.json().code as string;
+    const rotated = await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: admin });
+    expect(rotated.statusCode).toBe(200);
+    expect(deleted).toContain(roomNameFor({ communityId: cid, id: channelId }));
+    expect(deleted).toContain(`g${cid}.phone.visit`);
+    expect(deleted).not.toContain('gother.phone.leave');
+    expect((await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } })).statusCode).toBe(404);
+    expect((await app.inject({
+      method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'late' },
+    })).statusCode).toBe(404);
+  });
+
+  it('does not rotate the invite when voice rooms cannot be closed', async () => {
+    const { app, admin, cid, community } = await setup({
+      roomAdmin: {
+        listRooms: async () => { throw new Error('livekit down'); },
+        deleteRoom: async () => {},
+      },
+    });
+    const rotated = await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: admin });
+    expect(rotated.statusCode).toBe(503);
+    expect(rotated.json().error).toBe('Could not remove people from voice. Try again.');
+    expect((await app.inject({
+      method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'still' },
+    })).statusCode).toBe(200);
+  });
+
+  it('treats an already-empty room as closed', () => {
+    expect(roomsToClose('dev', [{ name: 'gdev.phone.a' }, { name: 'gdev2.phone.b' }, { name: 'gother.ch1' }], ['gdev.ch1']))
+      .toEqual(['gdev.ch1', 'gdev.phone.a']);
+    return expect(dropCommunityRooms({
+      listRooms: async () => [],
+      deleteRoom: async () => { throw Object.assign(new Error('missing'), { status: 404, code: 'not_found' }); },
+    }, 'dev', ['gdev.ch1'])).resolves.toBeUndefined();
+  });
+
+  it('rejects a store file with no mac when a key is set', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rn-mac-')), 'store.json');
+    const store = new FileChannelStore(file, 'mac-key');
+    store.upsertCommunity({
+      id: 'c1', name: 'Unit', band: { minKHz: 30000, maxKHz: 87500, stepKHz: 500 },
+      inviteCode: 'ABCD-EF23', adminKeyHash: 'ab'.repeat(32), createdAt: new Date().toISOString(),
+    });
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { mac?: string };
+    delete raw.mac;
+    writeFileSync(file, JSON.stringify(raw));
+    expect(() => new FileChannelStore(file, 'mac-key')).toThrow(/integrity/);
+  });
+
+  it('does not write the dev community when production refuses to boot', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'rn-boot-')), 'store.json');
+    expect(() => loadStore({
+      NODE_ENV: 'production',
+      SEED_DEV: '1',
+      RN_DATA_FILE: file,
+      LIVEKIT_API_KEY: 'k',
+      LIVEKIT_API_SECRET: 'x'.repeat(20),
+      COMMUNITY_SETUP_CODE: 'ok',
+    })).toThrow(/SEED_DEV/);
+    expect(existsSync(file)).toBe(false);
   });
 
   it('rejects a tampered store and keeps the file private', () => {

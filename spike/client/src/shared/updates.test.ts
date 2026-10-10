@@ -50,19 +50,31 @@ describe('GitHub Releases updates', () => {
     expect(setup).not.toContain('publish-update');
   });
 
-  it('publishes the installer from a version tag with the Actions token', () => {
+  it('publishes the installer from a version tag without giving npm a write token', () => {
     const yml = readFileSync(join(repoRoot, '.github/workflows/windows-installer.yml'), 'utf8');
-    expect(yml).toContain('contents: write');
-    expect(yml).toContain('secrets.GITHUB_TOKEN');
-    expect(yml).toContain('npm run dist:win');
-    expect(yml).toContain('--publish always');
+    const publishAt = yml.indexOf('\n  publish:\n');
+    expect(publishAt).toBeGreaterThan(0);
+    const build = yml.slice(0, publishAt);
+    const publish = yml.slice(publishAt);
+    expect(build).toContain('contents: read');
+    expect(build).not.toContain('contents: write');
+    expect(build).toContain('persist-credentials: false');
+    expect(build).toContain('npm ci');
+    expect(build).toContain('npm run dist:win');
+    expect(build).not.toContain('secrets.GITHUB_TOKEN');
+    expect(build).not.toContain('--publish always');
+    expect(publish).toContain('contents: write');
+    expect(publish).toContain('environment: release');
+    expect(publish).toContain('secrets.GITHUB_TOKEN');
+    expect(publish).toContain('gh release upload');
+    expect(publish).toContain('gh release edit');
+    expect(publish).toContain('--latest');
+    expect(publish).toContain('--target');
+    expect(publish).not.toContain('npm');
+    expect(publish).not.toContain('npx');
+    expect(publish).not.toContain('--publish always');
     expect(yml).toContain('latest.yml');
     expect(yml).toContain('SHA256SUMS.txt');
-    expect(yml).toContain('continue-on-error: true');
-    expect(yml).toContain('!cancelled()');
-    expect(yml).toContain('gh release edit');
-    expect(yml).toContain('--latest');
-    expect(yml.lastIndexOf('Get-FileHash')).toBeGreaterThan(yml.indexOf('continue-on-error: true'));
     expect(yml).toContain('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1');
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'spike/client/package.json'), 'utf8')) as {
       scripts: { 'dist:win': string };
@@ -79,6 +91,8 @@ describe('GitHub Releases updates', () => {
     expect(yml).toContain('spike/client/preview-dist');
     expect(yml).toContain('spike/client/web-dist');
     expect(yml).toContain('name: web-site');
+    expect(yml).toContain("github.ref == 'refs/heads/main'");
+    expect(yml).not.toContain('local-callsign-keybinds');
   });
 
   it('publishes a new helper tag only when approved and leaves the desktop updater alone', () => {
