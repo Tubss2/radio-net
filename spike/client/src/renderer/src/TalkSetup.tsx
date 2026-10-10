@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { HELPER_DOWNLOAD_URL, HELPER_SOURCE_URL } from '../../shared/helperLink';
-import { DESKTOP_RELEASE_URL, PTT_CHOOSER_INTRO, pttChoices } from '../../shared/pttChooser';
+import { DESKTOP_RELEASE_URL, PTT_CHOOSER_INTRO, helperSetupStatus, helperSetupSteps, pttChoices } from '../../shared/pttChooser';
 import { describePttMode } from '../../shared/pttMode';
 
 /** One button that leads into the browser, phone, or helper setup that already exists. */
@@ -47,11 +47,19 @@ export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBr
                 <div className="talk-choice-body">
                   <strong>{helper.title}</strong>
                   <span>{helper.body}</span>
+                  <ol className="helper-steps">
+                    <li><a href={HELPER_DOWNLOAD_URL}>{helperSetupSteps[0].replace(/\.$/, '')}</a></li>
+                    <li>{helperSetupSteps[1]}</li>
+                    <li>
+                      {helperSetupSteps[2]}
+                      {' '}
+                      <button className="btn sm" type="button" onClick={() => { close(); onHelper(); }}>Enter code</button>
+                    </li>
+                  </ol>
                   <span className="talk-links">
-                    <a href={HELPER_DOWNLOAD_URL}>Download RadioNetHelper.exe</a>
                     <a href={HELPER_SOURCE_URL} target="_blank" rel="noreferrer">Source on GitHub</a>
                   </span>
-                  <button className="btn sm" type="button" onClick={() => { close(); onHelper(); }}>Set up helper</button>
+                  <p className={`helper-status${helperLinked ? ' live' : ''}`}>{helperSetupStatus(helperLinked)}</p>
                 </div>
               </div>
               <div className="talk-choice">

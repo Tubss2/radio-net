@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DESKTOP_RELEASE_URL, PTT_CHOOSER_INTRO, pttChoices } from './pttChooser';
+import { DESKTOP_RELEASE_URL, PTT_CHOOSER_INTRO, helperSetupStatus, helperSetupSteps, pttChoices } from './pttChooser';
 
 describe('push-to-talk chooser', () => {
   it('ranks four options from safest to least safe', () => {
@@ -14,6 +14,13 @@ describe('push-to-talk chooser', () => {
     expect(pttChoices[0].body).toContain('alt-tabbing');
     expect(pttChoices[1].body).toContain('No downloads');
     expect(pttChoices[2].body).toContain('while its window is open');
+    expect(helperSetupSteps).toEqual([
+      'Download RadioNetHelper.exe.',
+      'Open it. It only runs while its window is open.',
+      'Enter the code from the helper window.',
+    ]);
+    expect(helperSetupStatus(false)).toBe('Not linked yet.');
+    expect(helperSetupStatus(true)).toBe('Helper linked.');
     expect(pttChoices[3].body).toContain('trust the developer personally');
   });
 

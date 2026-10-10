@@ -7,6 +7,17 @@ export const PTT_CHOOSER_INTRO = 'There are 4 options for setting up push to tal
  */
 export const DESKTOP_RELEASE_URL = 'https://github.com/Tubss2/radio-net/releases/tag/v0.4.4';
 
+/** Setup inside the helper card. The link dialog still takes the code. */
+export const helperSetupSteps = [
+  'Download RadioNetHelper.exe.',
+  'Open it. It only runs while its window is open.',
+  'Enter the code from the helper window.',
+] as const;
+
+export function helperSetupStatus(linked: boolean): string {
+  return linked ? 'Helper linked.' : 'Not linked yet.';
+}
+
 export const pttChoices = [
   {
     rank: 1,

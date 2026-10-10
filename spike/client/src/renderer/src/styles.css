@@ -175,6 +175,11 @@ button.talk-choice:hover { border-color: var(--accent); }
 .talk-choice-body strong { font-size: 15px; color: var(--text); }
 .talk-choice span { color: var(--muted); font-size: 13px; font-weight: 400; }
 .talk-choice span.talk-rank { color: var(--text); font-size: 16px; font-weight: 700; }
+.helper-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+.helper-steps a { color: var(--accent); font-weight: 600; }
+.helper-steps .btn { align-self: flex-start; }
+.helper-status { margin: 0; font-weight: 700; color: var(--muted); }
+.helper-status.live { color: var(--live); }
 .talk-links { display: flex; gap: 12px; flex-wrap: wrap; }
 .talk-links a { color: var(--accent); font-weight: 600; }
 .web-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
