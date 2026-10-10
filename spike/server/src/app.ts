@@ -11,6 +11,7 @@ import { isAllowedApiOrigin } from './cors.js';
 import { DEFAULT_BAND, formatFrequency } from './freq.js';
 import { type Channel, ChannelError, type ChannelStore, type Community, roomNameFor } from './store.js';
 import { mintPhoneToken, phoneIdentity, phoneRoomName, PhonePairs } from './phone.js';
+import { dropCommunityRooms, type RoomAdmin } from './rooms.js';
 import { type RadioUser, mintChannelGrants } from './tokens.js';
 
 export interface AppConfig {
@@ -30,6 +31,8 @@ export interface AppConfig {
   trustProxy?: boolean;
   /** One line per request: method, path, status, latency. Must not include tokens. */
   log?: (line: string) => void;
+  /** LiveKit room admin. Tests pass a fake. Production uses the Room Service client. */
+  roomAdmin?: RoomAdmin;
 }
 
 const publicChannel = (c: Channel) => ({
@@ -70,7 +73,7 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     allowedHeaders: ['authorization', 'content-type', 'x-admin-key'],
     credentials: false,
   });
-  const rooms = new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
+  const rooms: RoomAdmin = cfg.roomAdmin ?? new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
 
   const write = cfg.log ?? ((line: string) => console.log(line));
   app.addHook('onSend', async (_req, reply) => {
@@ -226,6 +229,12 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
 
   app.post<{ Params: { cid: string } }>('/api/communities/:cid/invite/rotate', async (req) => {
     const community = requireAdmin(req, req.params.cid);
+    const channelRooms = store.list(community.id).map(roomNameFor);
+    try {
+      await dropCommunityRooms(rooms, community.id, channelRooms);
+    } catch {
+      throw new HttpError(503, 'Could not remove people from voice. Try again.');
+    }
     community.inviteCode = newInviteCode();
     community.sessionEpoch = (community.sessionEpoch ?? 0) + 1;
     store.upsertCommunity(community);
@@ -289,9 +298,11 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
 
   /** One-time code for the QR. It expires in two minutes and works once. */
   app.post<{ Params: { cid: string } }>('/api/communities/:cid/radio/phone-pair', async (req) => {
-    const { user } = member(req, req.params.cid);
+    const { user, community } = member(req, req.params.cid);
     rateLimit(req);
-    return phonePairs.issue({ cid: req.params.cid, sid: user.id, name: user.displayName });
+    return phonePairs.issue({
+      cid: req.params.cid, sid: user.id, name: user.displayName, epoch: community.sessionEpoch ?? 0,
+    });
   });
 
   /** The phone trades the code for a data-only token. It does not receive the computer's session. */
@@ -300,7 +311,9 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     const body = z.object({ code: z.string().min(8).max(80) }).parse(req.body);
     const subject = phonePairs.take(body.code);
     const community = subject ? store.getCommunity(subject.cid) : undefined;
-    if (!subject || !community) throw new HttpError(404, 'That pairing code is not valid');
+    if (!subject || !community || (subject.epoch ?? 0) !== (community.sessionEpoch ?? 0)) {
+      throw new HttpError(404, 'That pairing code is not valid');
+    }
     const room = phoneRoomName(subject.cid, subject.sid);
     const token = await mintPhoneToken({
       apiKey: cfg.apiKey, apiSecret: cfg.apiSecret, room,
