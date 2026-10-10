@@ -29,11 +29,164 @@ impl Role {
 
 /// Labels on the helper window. The talk row is "Talk", not a watched-key list.
 pub const TALK_ROW: &str = "Talk";
+/// Spelled-out names. The compact row shows [`PREV_COMPACT`] and [`NEXT_COMPACT`].
+#[allow(dead_code)]
 pub const PREV_ROW: &str = "Previous channel";
+#[allow(dead_code)]
 pub const NEXT_ROW: &str = "Next channel";
+
+/// Short names for the single compact row. The full names stay above for older notes.
+pub const PREV_COMPACT: &str = "Prev";
+pub const NEXT_COMPACT: &str = "Next";
 
 /// Shown while Set is waiting. A mouse button still binds if one is pressed. The window does not mention that.
 pub const CAPTURE_HINT: &str = "Press a key.";
+
+/// One short line while the helper is waiting for a code. The window does not open the website.
+pub const PAIR_HINT: &str = "Enter this code in Radio Net: Set up push to talk, then Helper app.";
+
+pub const COPY_BUTTON: &str = "Copy";
+pub const LINKED_LABEL: &str = "Linked";
+pub const STATUS_CONNECTED: &str = "Connected";
+pub const STATUS_DISCONNECTED: &str = "Disconnected";
+
+/// Outer window size. Width is five times the height: one status, the code, and three binds.
+pub const HELPER_WINDOW_W: i32 = 900;
+pub const HELPER_WINDOW_H: i32 = 180;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+pub struct HelperBar {
+    pub hint: Rect,
+    pub dot: Rect,
+    pub status: Rect,
+    pub code: Rect,
+    pub copy: Rect,
+    pub linked: Rect,
+    pub unlink: Rect,
+    pub talk: Rect,
+    pub talk_light: Rect,
+    pub talk_set: Rect,
+    pub prev: Rect,
+    pub prev_light: Rect,
+    pub prev_set: Rect,
+    pub next: Rect,
+    pub next_light: Rect,
+    pub next_set: Rect,
+}
+
+pub fn status_line(linked: bool) -> &'static str {
+    if linked {
+        STATUS_CONNECTED
+    } else {
+        STATUS_DISCONNECTED
+    }
+}
+
+/// The single instruction line. Capturing wins, so Set still says to press a key.
+pub fn hint_line(linked: bool, capturing: bool, origin: &str) -> String {
+    if capturing {
+        return CAPTURE_HINT.to_string();
+    }
+    if linked {
+        if origin.is_empty() {
+            return String::new();
+        }
+        return format!("Connected to {origin}");
+    }
+    PAIR_HINT.to_string()
+}
+
+pub fn bind_caption(title: &str, key_name: &str, capturing: bool) -> String {
+    if capturing {
+        title.to_string()
+    } else {
+        format!("{title} {key_name}")
+    }
+}
+
+/// One horizontal row. `client_w` and `client_h` are the inside of the window, under the title bar.
+pub fn helper_bar(client_w: i32, client_h: i32) -> HelperBar {
+    let margin = 10;
+    let hint_h = 18;
+    let row_h = 28;
+    let gap_y = 6;
+    let block = hint_h + gap_y + row_h;
+    let top = ((client_h - block) / 2).max(4);
+    let row_y = top + hint_h + gap_y;
+    let hint = Rect { x: margin, y: top, w: (client_w - margin * 2).max(0), h: hint_h };
+
+    let dot_s = 12;
+    let status_w = 112;
+    let code_w = 168;
+    let copy_w = 58;
+    let light_s = 16;
+    let set_w = 54;
+    let gap = 6;
+    let section = 16;
+    // Everything in the row except the three bind labels, inside the side margins.
+    let chrome = dot_s + gap + status_w + section + code_w + gap + copy_w + section
+        + 3 * (gap + light_s + gap + set_w)
+        + 2 * gap;
+    let label_w = ((client_w - margin * 2 - chrome).max(0)) / 3;
+
+    let mut x = margin;
+    let dot = Rect { x, y: row_y + (row_h - dot_s) / 2, w: dot_s, h: dot_s };
+    x += dot_s + gap;
+    let status = Rect { x, y: row_y, w: status_w, h: row_h };
+    x += status_w + section;
+    let code = Rect { x, y: row_y, w: code_w, h: row_h };
+    let linked = Rect { x, y: row_y, w: 72, h: row_h };
+    let unlink = Rect { x: x + 78, y: row_y, w: 76, h: row_h };
+    x += code_w + gap;
+    let copy = Rect { x, y: row_y, w: copy_w, h: row_h };
+    x += copy_w + section;
+
+    let talk = Rect { x, y: row_y, w: label_w, h: row_h };
+    x += label_w + gap;
+    let talk_light = Rect { x, y: row_y + (row_h - light_s) / 2, w: light_s, h: light_s };
+    x += light_s + gap;
+    let talk_set = Rect { x, y: row_y, w: set_w, h: row_h };
+    x += set_w + gap;
+
+    let prev = Rect { x, y: row_y, w: label_w, h: row_h };
+    x += label_w + gap;
+    let prev_light = Rect { x, y: row_y + (row_h - light_s) / 2, w: light_s, h: light_s };
+    x += light_s + gap;
+    let prev_set = Rect { x, y: row_y, w: set_w, h: row_h };
+    x += set_w + gap;
+
+    let next = Rect { x, y: row_y, w: label_w, h: row_h };
+    x += label_w + gap;
+    let next_light = Rect { x, y: row_y + (row_h - light_s) / 2, w: light_s, h: light_s };
+    x += light_s + gap;
+    let next_set = Rect { x, y: row_y, w: set_w, h: row_h };
+
+    HelperBar {
+        hint,
+        dot,
+        status,
+        code,
+        copy,
+        linked,
+        unlink,
+        talk,
+        talk_light,
+        talk_set,
+        prev,
+        prev_light,
+        prev_set,
+        next,
+        next_light,
+        next_set,
+    }
+}
 
 /// What the helper tells the page. These names are actions, not key codes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -441,6 +594,53 @@ mod tests {
         assert_eq!(event_message(OutEvent::Tx(false)), r#"{"t":"tx","v":"prev"}"#);
         assert!(!event_message(OutEvent::Ptt(true)).contains("vk"));
         assert_eq!(dom_code_to_vk(&dom_code_for_vk(0x20).unwrap()), Some(0x20));
+    }
+
+    #[test]
+    fn the_window_is_one_compact_row() {
+        assert_eq!(HELPER_WINDOW_W, HELPER_WINDOW_H * 5);
+        assert_eq!(COPY_BUTTON, "Copy");
+        assert_eq!(LINKED_LABEL, "Linked");
+        assert_eq!(status_line(false), "Disconnected");
+        assert_eq!(status_line(true), "Connected");
+        assert!(!status_line(true).contains("http"));
+        let hint = hint_line(false, false, "");
+        assert_eq!(hint, PAIR_HINT);
+        assert!(hint.contains("Set up push to talk"));
+        assert!(!hint.contains("Open Radio Net"));
+        assert!(!hint.to_ascii_lowercase().contains("mouse"));
+        assert_eq!(hint_line(false, true, ""), CAPTURE_HINT);
+        assert_eq!(hint_line(true, true, "https://tubss2.github.io"), CAPTURE_HINT);
+        assert_eq!(hint_line(true, false, "https://tubss2.github.io"), "Connected to https://tubss2.github.io");
+        assert_eq!(hint_line(true, false, ""), "");
+        assert_eq!(bind_caption(TALK_ROW, "F1", false), "Talk F1");
+        assert_eq!(bind_caption(PREV_COMPACT, "F3", false), "Prev F3");
+        assert_eq!(bind_caption(NEXT_COMPACT, "F4", false), "Next F4");
+        assert_eq!(bind_caption(TALK_ROW, "F1", true), "Talk");
+
+        let bar = helper_bar(860, 120);
+        let disconnected = [
+            bar.hint, bar.dot, bar.status, bar.code, bar.copy, bar.talk, bar.talk_light, bar.talk_set, bar.prev,
+            bar.prev_light, bar.prev_set, bar.next, bar.next_light, bar.next_set,
+        ];
+        let connected = [
+            bar.hint, bar.dot, bar.status, bar.linked, bar.unlink, bar.talk, bar.talk_light, bar.talk_set, bar.prev,
+            bar.prev_light, bar.prev_set, bar.next, bar.next_light, bar.next_set,
+        ];
+        for rect in disconnected.into_iter().chain(connected) {
+            assert!(rect.w > 0 && rect.h > 0, "{rect:?}");
+            assert!(rect.x >= 0 && rect.y >= 0, "{rect:?}");
+            assert!(rect.x + rect.w <= 860, "{rect:?}");
+            assert!(rect.y + rect.h <= 120, "{rect:?}");
+        }
+        assert!(bar.talk.w >= 60, "bind label {}", bar.talk.w);
+        assert_eq!(bar.copy.x, bar.code.x + bar.code.w + 6);
+        assert!(bar.unlink.x >= bar.linked.x + bar.linked.w);
+        assert!(bar.unlink.x + bar.unlink.w <= bar.copy.x + bar.copy.w);
+        assert!(bar.talk.x >= bar.copy.x + bar.copy.w);
+        assert!(bar.prev.x >= bar.talk_set.x + bar.talk_set.w);
+        assert!(bar.next.x >= bar.prev_set.x + bar.prev_set.w);
+        assert_eq!(bar.dot.y + bar.dot.h / 2, bar.status.y + bar.status.h / 2);
     }
 
     #[test]

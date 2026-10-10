@@ -23,7 +23,7 @@ export function isHelperCode(code: string): boolean {
 }
 
 /**
- * The helper's Open Radio Net button puts the one-time code in the URL fragment.
+ * A one-time code in the URL fragment fills the helper code box.
  * Fragments are not sent to the server. The page reads it once and then removes it.
  */
 export function helperCodeFromHash(hash: string): string | null {
