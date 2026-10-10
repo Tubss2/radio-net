@@ -26,7 +26,8 @@ The full notes are in [`docs/PRIVACY.md`](docs/PRIVACY.md). An outside-style ass
 | [`docs/discord-setup.md`](docs/discord-setup.md) | Discord login setup, backlog only |
 | [`docs/radio-net-feasibility.md`](docs/radio-net-feasibility.md) | Feasibility study that led to this project |
 | [`docs/anticheat-and-contacts.md`](docs/anticheat-and-contacts.md) | Anti-cheat notes, who to contact, and lower-risk input designs |
-| [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md) | Outside review: what would worry someone installing the app |
+| [`docs/SECURITY-AUDIT-v0.4.5.md`](docs/SECURITY-AUDIT-v0.4.5.md) | Current audit of main at v0.4.5: open gaps, planned work, and what each download asks of a user |
+| [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md) | Outside review of the v0.4.3 installer: what would worry someone installing the app |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model: assets, attackers, trust boundaries |
 | [`docs/PRIVACY.md`](docs/PRIVACY.md) | What the app reads, what leaves the PC, and what stays |
 | [`spike/`](spike/README.md) | M1 spike: API server, Electron client, LiveKit dev runner, tests, screenshots |
