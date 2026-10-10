@@ -18,15 +18,15 @@ export function Overlay({ talkersOnly = false }: { talkersOnly?: boolean }) {
               const opacity = p.opacity ?? 1;
               const fading = opacity < 1;
               return (
-                <div
-                  className={`sp ${fading ? 'last' : ''}`}
-                  key={`${p.name}\0${p.freq}\0${p.channel}`}
-                  style={{ opacity }}
-                >
-                  <span className="dot" />
-                  <span>{p.name}</span>
-                  <span className="on">{p.freq} {p.channel}</span>
-                  {fading && <span className="fadebar" style={{ transform: `scaleX(${opacity})` }} />}
+                <div className={`sp ${fading ? 'last' : ''}`} key={`${p.name}\0${p.freq}\0${p.channel}`}>
+                  <span className="dot" style={{ opacity }} />
+                  <span className="fade-name" style={{ opacity }}>{p.name}</span>
+                  <span className="on" style={{ opacity }}>{p.freq} {p.channel}</span>
+                  {fading && (
+                    <span className="fade-track">
+                      <span className="fadebar" style={{ transform: `scaleX(${opacity})` }} />
+                    </span>
+                  )}
                 </div>
               );
             })}

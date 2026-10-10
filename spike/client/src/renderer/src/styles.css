@@ -84,7 +84,8 @@ kbd { font: 600 12px var(--mono); padding: 3px 8px; border-radius: 7px; backgrou
 .speaker-chips { display: inline-flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .speaker-chip { position: relative; display: inline-flex; flex-direction: column; align-items: stretch; min-width: 0; }
 .speaker-chip.talking, .speaker-chip.last { color: var(--live); font-weight: 600; }
-.speaker-chip .fadebar { display: block; height: 2px; margin-top: 2px; background: var(--live); transform-origin: left center; border-radius: 1px; }
+.fade-track { display: block; height: 3px; margin-top: 3px; background: var(--live-dim); border-radius: 2px; overflow: hidden; }
+.fade-track .fadebar { display: block; height: 100%; width: 100%; background: var(--live); transform-origin: left center; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row .k { width: 18px; color: var(--faint); font-size: 12px; }
 input[type=range] { -webkit-appearance: none; flex: 1; height: 4px; border-radius: 4px; background: var(--line); outline: 0; }
@@ -139,10 +140,10 @@ html.overlay-root, html.overlay-root body, html.overlay-root #root { background:
 .ov .tx.keyed { border-color: var(--tx); background: rgba(58,29,31,.85); }
 .ov .tx .f { font: 600 15px var(--mono); }
 .ov .sp { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px 5px 6px; border-radius: 999px; background: rgba(14,16,20,.7); width: fit-content; }
-.ov .sp.last { padding-bottom: 7px; }
+.ov .sp.last { padding-bottom: 8px; }
 .ov .sp .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); }
 .ov .sp .on { color: var(--muted); font: 12px var(--mono); }
-.ov .sp .fadebar { position: absolute; left: 8px; right: 8px; bottom: 3px; height: 2px; background: var(--live); transform-origin: left center; border-radius: 1px; }
+.ov .sp .fade-track { position: absolute; left: 8px; right: 8px; bottom: 3px; margin: 0; }
 
 /* channel wheel */
 .wheel-screen { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 30; background: transparent; }
