@@ -73,6 +73,10 @@ describe('GitHub Releases updates', () => {
     expect(publish).toContain('gh release edit');
     expect(publish).toContain('--latest');
     expect(publish).toContain('--target');
+    expect(publish).toContain('GITHUB_REPOSITORY');
+    const ghLines = publish.split('\n').filter((line) => line.includes('gh release'));
+    expect(ghLines.length).toBe(4);
+    for (const line of ghLines) expect(line).toContain('--repo');
     expect(publish).not.toContain('npm');
     expect(publish).not.toContain('npx');
     expect(publish).not.toContain('--publish always');
