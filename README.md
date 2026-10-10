@@ -1,8 +1,8 @@
 # Radio Net
 
-Group voice radio for WARDOGS. The primary product is the web app at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/), talking to the Sydney API and LiveKit. The Windows desktop app stays for the overlay and for push-to-talk while a game is in front. There are no accounts: the first launch stores a callsign in the browser or on that PC, then the user joins a community with its invite code (the app remembers servers and rejoins in one click). Creating a community returns an admin key, kept locally, which is what create/delete channel and invite rotation require. Channels are a frequency plus a name (for example `59.5 Command`). Frequencies are 0.5 MHz steps from 30.0 to 87.5, always shown to one decimal (`50.0`, `50.5`), and stored as integer kHz. Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with a keybind settings screen (keys and mouse buttons, including Mouse 4 and Mouse 5) and a click-through overlay. The web app uses the same screens.
+Group voice radio for WARDOGS. The primary product is the web app at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/), talking to the Sydney API and LiveKit. The Windows desktop app stays for the overlay and for push-to-talk while a game is in front. There are no accounts: the first launch stores a callsign in the browser or on that PC, then the user joins a community with its invite code (the app remembers servers and rejoins in one click). Creating a community returns an admin key, kept locally, which is what create/delete channel and invite rotation require. Channels are a frequency plus a name (for example `59.5 Command`). Frequencies are 0.5 MHz steps from 30.0 to 87.5, always shown to one decimal (`50.0`, `50.5`), and stored as integer kHz. Each player tunes any number of channels to listen, and transmits on one. Voice runs on a self-hosted LiveKit server. The desktop client is Electron, React, and TypeScript, with a keybind settings screen and a click-through overlay. Desktop defaults are Space to talk, F2 to open the channel wheel, and F10 to hide or show the overlay. The web app uses the same screens.
 
-This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. The spike is a working local proof of the core, not the finished app.
+This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. The spike is a working local proof of the core, not the finished app. Testers start with [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Privacy
 
@@ -10,7 +10,7 @@ Radio Net has no account and no telemetry. A callsign, the servers you join, key
 
 A global keyboard and mouse hook runs so push-to-talk works while the game is in front. The hook can see other keys. This version keeps only the keys and mouse buttons you bind, plus Escape, digits, and the scroll wheel while the channel wheel is open. Those other keystrokes are not written to the log and are not sent to the server. Quit the app when you are done; the hook stops with the process.
 
-The Windows installer is unsigned. The app checks public GitHub Releases for Tubss2/radio-net and will install a downloaded build after you click Restart. Signature verification is off until the installer is code-signed. Treat a GitHub account compromise as a compromise of the app.
+The Windows installer is unsigned. The desktop app checks public GitHub Releases for Tubss2/radio-net and asks before it downloads an update. That download installs when you click **Restart now**. Signature verification is off until the installer is code-signed. Treat a GitHub account compromise as a compromise of the app.
 
 The full notes are in [`docs/PRIVACY.md`](docs/PRIVACY.md). An outside-style assessment of the v0.4.3 installer is in [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md).
 
@@ -18,6 +18,7 @@ The full notes are in [`docs/PRIVACY.md`](docs/PRIVACY.md). An outside-style ass
 
 | Path | What it is |
 |---|---|
+| [`docs/TESTING.md`](docs/TESTING.md) | Tester guide: web app, phone, helper, and desktop |
 | [`docs/PLAN.md`](docs/PLAN.md) | Scope and plan (v0.2) |
 | [`docs/UI.md`](docs/UI.md), [`docs/mockup.html`](docs/mockup.html), [`docs/mockup.png`](docs/mockup.png) | UI direction and static mockup |
 | [`docs/providers.md`](docs/providers.md) | Voice-provider comparison |
@@ -73,7 +74,7 @@ VITE_API_URL=http://127.0.0.1:8787 npm run web
 
 That serves the real radio on port 5175 (the API defaults to the Sydney host when `VITE_API_URL` is unset). Callsign, server history, and settings stay in `localStorage`. The join session stays in `sessionStorage` for this tab. Space or the large button holds push-to-talk, and both release when the tab is hidden. `npm run web:build` writes `spike/client/web-dist`.
 
-**Use phone** shows a QR code for a one-time link. The phone page holds the button; this computer's mic goes live. **Helper app** connects to the Windows helper window on `127.0.0.1:47321` when that exe is open. Details: [`docs/PHONE-PTT.md`](docs/PHONE-PTT.md) and [`docs/PTT-HELPER.md`](docs/PTT-HELPER.md). The public API needs those phone routes deployed before the QR works against Sydney. The helper needs no server change.
+**Set up push to talk**, then **Phone activation**, shows a QR code for a one-time link. The phone page holds the button; this computer's mic goes live. **Helper app** links this page to a small Windows window on `127.0.0.1:47321`. The window has no tray icon. Closing it quits the helper. While it is open, F1 talks, F3 selects the previous channel, and F4 selects the next. Details: [`docs/PHONE-PTT.md`](docs/PHONE-PTT.md) and [`docs/PTT-HELPER.md`](docs/PTT-HELPER.md). The public API needs those phone routes deployed before the QR works against Sydney. The helper needs no server change.
 
 The **Web app** GitHub Action builds the web app and this mock on every push and uploads them as the `web-site` artifact. Pushes to `main` and `cursor/local-callsign-keybinds-3d59` deploy GitHub Pages at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/) when **Settings → Pages → Source** is **GitHub Actions**. The Actions token cannot create that site. If the configure step fails, the job prints that Settings path and skips the upload. The mock is [https://tubss2.github.io/radio-net/preview/](https://tubss2.github.io/radio-net/preview/).
 
@@ -90,7 +91,7 @@ The **Windows installer** workflow builds an unsigned NSIS installer on `windows
 
 The current client version is **0.4.4**. The release is `RadioNet-Setup-0.4.4.exe` on the public GitHub Release `v0.4.4` (Actions artifact name `RadioNet-Setup-0.4.4`, which also holds `latest.yml` and the blockmap). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
 
-The installed app checks that public release on startup and every four hours, downloads in the background, and shows **Update ready** with **Restart now** and **Later**. Signature checks are off until the installer is code-signed. Anyone who can publish a GitHub Release on this repo can ship a build the client will install. The installer workflow also writes `SHA256SUMS.txt` (SHA-256 of the exe) into the Actions artifact and, when it publishes, attaches that file to the GitHub Release. That checksum matches the file. It does not prove who built it.
+The installed app checks that public release on startup and every four hours. It asks before downloading: **Download** fetches the update, and **Later** leaves the current version in place. **Restart now** installs the download. Signature checks are off until the installer is code-signed. Anyone who can publish a GitHub Release on this repo can ship a build the client will install. The installer workflow also writes `SHA256SUMS.txt` (SHA-256 of the exe) into the Actions artifact and, when it publishes, attaches that file to the GitHub Release. That checksum matches the file. It does not prove who built it.
 
 ### Bumping the version
 
