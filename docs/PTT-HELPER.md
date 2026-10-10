@@ -14,7 +14,7 @@ The **PTT helper** GitHub Action builds `RadioNetHelper.exe` on `windows-latest`
 
 ## Link it from the page
 
-In the web app, **Set up push to talk**, then **Link helper**, type the code from the helper window once, and choose the talk key or a side button. The next time you open the radio, the page reconnects by itself if the window is still open. Change the key in that dialog while it is linked, or with **Set key** in the window. **Unlink** forgets the browser. If the socket does not open, the page says: the helper is not running, or this browser blocked the localhost link. Use the phone button, or the desktop app, for in-game push-to-talk.
+In the web app, **Set up push to talk**, then **Helper app**, then **Enter code**, type the code from the helper window once, and choose the talk key or a side button. The next time you open the radio, the page reconnects by itself if the window is still open. Change the key in that dialog while it is linked, or with **Set key** in the window. **Unlink** forgets the browser. If the socket does not open, the page says: the helper is not running, or this browser blocked the localhost link. Use the phone button, or the desktop app, for in-game push-to-talk.
 
 Chromium allows `ws://127.0.0.1` from the GitHub Pages origin. If another browser blocks it, use the phone.
 
