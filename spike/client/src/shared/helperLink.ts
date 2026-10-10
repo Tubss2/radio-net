@@ -2,10 +2,11 @@
 export const HELPER_URL = 'ws://127.0.0.1:47321';
 
 /**
- * Stable download. The helper workflow attaches this file to the `helper-3` release.
- * It is not listed in `latest.yml`, so the desktop updater does not treat it as an app update.
+ * Stable download. The helper workflow attaches this file to the `helper-4` release
+ * only after that commit is on main. It is not listed in `latest.yml`, so the desktop
+ * updater does not treat it as an app update.
  */
-export const HELPER_DOWNLOAD_URL = 'https://github.com/Tubss2/radio-net/releases/download/helper-3/RadioNetHelper.exe';
+export const HELPER_DOWNLOAD_URL = 'https://github.com/Tubss2/radio-net/releases/download/helper-4/RadioNetHelper.exe';
 
 /** Open-source helper window. */
 export const HELPER_SOURCE_URL = 'https://github.com/Tubss2/radio-net/tree/main/helper';
@@ -15,6 +16,11 @@ export const HELPER_FALLBACK = "The helper isn't running. Download it, open the 
 const STORAGE_KEY = 'rn.helper';
 const CODE_ALPHABET = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{12}$/;
 
+/** The helper shows a 12-character code. Anything shorter is not sent. */
+export function isHelperCode(code: string): boolean {
+  return CODE_ALPHABET.test(code.trim().toUpperCase());
+}
+
 /**
  * The helper's Open Radio Net button puts the one-time code in the URL fragment.
  * Fragments are not sent to the server. The page reads it once and then removes it.
@@ -22,7 +28,7 @@ const CODE_ALPHABET = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{12}$/;
 export function helperCodeFromHash(hash: string): string | null {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash;
   const code = new URLSearchParams(raw).get('h')?.trim().toUpperCase() ?? '';
-  return CODE_ALPHABET.test(code) ? code : null;
+  return isHelperCode(code) ? code : null;
 }
 
 /** The pairing message is the code only. The page does not name a key. */

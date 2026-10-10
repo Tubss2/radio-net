@@ -1,7 +1,7 @@
 //! Long-lived device token. The plaintext token is sent to the page once.
 //! This file stores only its SHA-256, plus the keys the window is watching.
 
-use crate::protocol::{parse_hello, parse_linked, Hello, LinkedCommand, Role, Watch};
+use crate::protocol::{parse_hello, parse_linked, Hello, LinkedCommand, OutEvent, Role, Watch};
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -50,6 +50,59 @@ impl Binds {
             Role::Next => self.next = Some(watch),
         }
     }
+}
+
+/// One Raw Input edge after the window has already dropped every other button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Key { vk: u16, down: bool },
+    Mouse { button: u8, down: bool },
+}
+
+/// Apply one edge to the three binds.
+/// Talk reports on and off. Previous and next report once on the press.
+/// The held flags are the red test lights. An unbound key changes nothing and sends nothing.
+pub fn apply_edge(binds: &Binds, mut held: [bool; 3], edge: Edge) -> ([bool; 3], Option<OutEvent>) {
+    let Some((role, down)) = match_role(binds, &edge) else {
+        return (held, None);
+    };
+    let index = role.index();
+    match role {
+        Role::Ptt => {
+            if held[index] == down {
+                return (held, None);
+            }
+            held[index] = down;
+            (held, Some(OutEvent::Ptt(down)))
+        }
+        Role::Prev | Role::Next => {
+            if down {
+                if held[index] {
+                    return (held, None);
+                }
+                held[index] = true;
+                (held, Some(OutEvent::Tx(role == Role::Next)))
+            } else {
+                held[index] = false;
+                (held, None)
+            }
+        }
+    }
+}
+
+fn match_role(binds: &Binds, edge: &Edge) -> Option<(Role, bool)> {
+    for role in [Role::Ptt, Role::Prev, Role::Next] {
+        let Some(watch) = binds.get(role) else { continue };
+        let down = match (watch, edge) {
+            (Watch::Key { vk }, Edge::Key { vk: got, down }) if vk == got => Some(*down),
+            (Watch::Mouse { button }, Edge::Mouse { button: got, down }) if button == got => Some(*down),
+            _ => None,
+        };
+        if let Some(down) = down {
+            return Some((role, down));
+        }
+    }
+    None
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -361,7 +414,7 @@ pub const AUTOSTART_VALUE: &str = "RadioNetHelper";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Role, Watch};
+    use crate::protocol::{event_message, Role, Watch};
 
     #[test]
     fn token_is_32_bytes_and_the_file_keeps_only_the_hash() {
@@ -441,5 +494,64 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(default_device_path().ends_with("helper-device.bin"));
         assert_eq!(AUTOSTART_VALUE, "RadioNetHelper");
+    }
+
+    #[test]
+    fn talk_is_f1_previous_is_f3_next_is_f4_and_other_keys_stay_dark() {
+        let binds = Binds::default();
+        assert_eq!(binds.ptt, Some(Watch::Key { vk: 0x70 }));
+        assert_eq!(binds.prev, Some(Watch::Key { vk: 0x72 }));
+        assert_eq!(binds.next, Some(Watch::Key { vk: 0x73 }));
+
+        let (held, event) = apply_edge(&binds, [false; 3], Edge::Key { vk: 0x70, down: true });
+        assert_eq!(held, [true, false, false]);
+        assert_eq!(event, Some(OutEvent::Ptt(true)));
+        assert_eq!(event_message(event.unwrap()), r#"{"t":"ptt","v":"down"}"#);
+        assert!(!event_message(event.unwrap()).contains("F1"));
+
+        let (held, event) = apply_edge(&binds, held, Edge::Key { vk: 0x70, down: true });
+        assert_eq!(event, None);
+        assert_eq!(held[0], true);
+
+        let (held, event) = apply_edge(&binds, held, Edge::Key { vk: 0x70, down: false });
+        assert_eq!(held, [false, false, false]);
+        assert_eq!(event, Some(OutEvent::Ptt(false)));
+
+        let (held, event) = apply_edge(&binds, [false; 3], Edge::Key { vk: 0x72, down: true });
+        assert_eq!(held, [false, true, false]);
+        assert_eq!(event_message(event.unwrap()), r#"{"t":"tx","v":"prev"}"#);
+        let (held, event) = apply_edge(&binds, held, Edge::Key { vk: 0x72, down: false });
+        assert_eq!(held[1], false);
+        assert_eq!(event, None);
+
+        let (held, event) = apply_edge(&binds, [false; 3], Edge::Key { vk: 0x73, down: true });
+        assert_eq!(held, [false, false, true]);
+        assert_eq!(event_message(event.unwrap()), r#"{"t":"tx","v":"next"}"#);
+        let (_, again) = apply_edge(&binds, held, Edge::Key { vk: 0x73, down: true });
+        assert_eq!(again, None);
+
+        // F2 is the desktop channel wheel. F10 hides the overlay. Neither is a helper bind.
+        for vk in [0x71u16, 0x79] {
+            let (held, event) = apply_edge(&binds, [false; 3], Edge::Key { vk, down: true });
+            assert_eq!(held, [false; 3]);
+            assert_eq!(event, None);
+        }
+        let (held, event) = apply_edge(&binds, [false; 3], Edge::Key { vk: b'A' as u16, down: true });
+        assert_eq!(event, None);
+        assert_eq!(held, [false; 3]);
+        let (held, event) = apply_edge(&binds, [false; 3], Edge::Mouse { button: 1, down: true });
+        assert_eq!(event, None);
+        assert_eq!(held, [false; 3]);
+
+        let mut custom = binds;
+        custom.set(Role::Ptt, Watch::Mouse { button: 5 });
+        let (held, event) = apply_edge(&custom, [false; 3], Edge::Key { vk: 0x70, down: true });
+        assert_eq!(event, None);
+        assert_eq!(held, [false; 3]);
+        let (held, event) = apply_edge(&custom, [false; 3], Edge::Mouse { button: 5, down: true });
+        assert_eq!(held[0], true);
+        assert_eq!(event, Some(OutEvent::Ptt(true)));
+        assert_eq!(custom.prev, Some(Watch::Key { vk: 0x72 }));
+        assert_eq!(custom.next, Some(Watch::Key { vk: 0x73 }));
     }
 }

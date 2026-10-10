@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   HELPER_URL, forgetHelperDevice, helperCodeFromHash, helperForgetMessage, helperPairMessage,
-  helperResumeMessage, parseHelperEvent, readHelperDevice, writeHelperDevice, type StoredHelper,
+  helperResumeMessage, isHelperCode, parseHelperEvent, readHelperDevice, writeHelperDevice, type StoredHelper,
 } from '../../shared/helperLink';
 import { helperSetupStatus, type HelperPhase } from '../../shared/pttChooser';
 import type { RadioControl } from './lib/radioEngine';
@@ -185,13 +185,13 @@ export function HelperLink({ engine, externalDown, slot, onLinked }: {
 
   const link = () => {
     const trimmed = codeRef.current.trim().toUpperCase();
-    if (trimmed.length < 4) { setError('Type the pairing code from the helper window.'); return; }
+    if (!isHelperCode(trimmed)) { setError('Type the pairing code from the helper window.'); return; }
     connect(helperPairMessage(trimmed));
   };
 
   useEffect(() => {
     if (phase !== 'found' || !prefilled.current || autoSent.current) return;
-    if (code.trim().length < 12) return;
+    if (!isHelperCode(code)) return;
     autoSent.current = true;
     link();
   }, [phase, code]);

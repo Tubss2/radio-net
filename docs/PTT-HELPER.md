@@ -1,6 +1,6 @@
 # Windows push-to-talk helper
 
-`helper/` is a small always-visible window for the web app. It is not the Electron client, and it is not a tray icon. The Windows build is attached to the [helper-3 release](https://github.com/Tubss2/radio-net/releases/download/helper-3/RadioNetHelper.exe). That release is separate from the desktop installer, so it is not an app update. `helper-1` was the tray build. `helper-2` was the first window build, with one key.
+`helper/` is a small always-visible window for the web app. It is not the Electron client, and it is not a tray icon. The Windows build is attached to the [helper-4 release](https://github.com/Tubss2/radio-net/releases/download/helper-4/RadioNetHelper.exe). That release is separate from the desktop installer, so it is not an app update. `helper-1` was the tray build. `helper-2` was the first window build, with one key. `helper-3` was the first three-key window; its talk row was labeled PTT and the test lights were static-control colors.
 
 It listens on `127.0.0.1:47321` only. A page may connect when its `Origin` is exactly `https://tubss2.github.io`, or `http://127.0.0.1` / `http://localhost` with any port, and its `Host` is `127.0.0.1` or `localhost`. Anything else gets HTTP 403 before the socket upgrades. A Private Network Access preflight gets `Access-Control-Allow-Private-Network` only for that same allowlist.
 
@@ -10,13 +10,13 @@ The page sends that code once. A successful code link burns the code. The helper
 
 After the link the helper sends actions only: `{"t":"ptt","v":"down"}`, `{"t":"ptt","v":"up"}`, `{"t":"tx","v":"next"}`, and `{"t":"tx","v":"prev"}`. It does not send key codes. The page turns those into push-to-talk and into the next or previous transmit channel. The sound for a channel change stays in the web app.
 
-The three keys start as **F1** (push to talk), **F3** (previous channel), and **F4** (next channel). F2 and F10 are left for the desktop app. **Set** on a row waits for one keyboard key or mouse side button (`Mouse 4` or `Mouse 5`) and saves it in the same file. A key can belong to only one row. Each row has a red light while that key is held, including before the page is linked, so you can test the bind. **Unlink** revokes the browser token and leaves the keys in place. Closing the window exits the process: Raw Input is unregistered and the socket closes. Minimising to the taskbar leaves it running. It does not start with Windows. If an older build added a Run key, this build removes it.
+The three rows are **Talk** (default **F1**), **Previous channel** (default **F3**), and **Next channel** (default **F4**). F2 and F10 are left for the desktop app. **Set** on a row waits for one keyboard key or mouse side button (`Mouse 4` or `Mouse 5`) and saves it in the same file. A key can belong to only one row. Each row has a red light that lights while that key is held, including before the page is linked, so you can test the bind. The light is painted by the window, not by a themed static control. **Unlink** revokes the browser token and leaves the keys in place. Closing the window exits the process: Raw Input is unregistered and the socket closes. Minimising to the taskbar leaves it running. It does not start with Windows. If an older build added a Run key, this build removes it.
 
 A script on `https://tubss2.github.io` can read `localStorage` and hold those three actions while the helper is running. Unlink revokes that. The helper file is not enough to connect, because it does not contain the token. The fragment code is the same kind of one-time secret as typing it: anyone who sees it before it is used can link once.
 
 On Windows it uses Raw Input (`RegisterRawInputDevices` with `RIDEV_INPUTSINK`) for keyboard or mouse, and drops every event that is not one of those three binds. It does not install a low-level hook. While **Set** is waiting, the next key or side button is the one that gets saved. Other keys are not written to the socket or to a log.
 
-The **PTT helper** GitHub Action builds `RadioNetHelper.exe` on `windows-latest`, uploads the `RadioNetHelper` artifact, and on `main` attaches the exe to the `helper-3` release. Download: https://github.com/Tubss2/radio-net/releases/download/helper-3/RadioNetHelper.exe
+The **PTT helper** GitHub Action builds `RadioNetHelper.exe` on `windows-latest` and uploads the `RadioNetHelper` artifact. It attaches that exe to the `helper-4` release only when the workflow runs on `main`. A branch push does not publish a release. Download, after that publish: https://github.com/Tubss2/radio-net/releases/download/helper-4/RadioNetHelper.exe
 
 ## Link it from the page
 

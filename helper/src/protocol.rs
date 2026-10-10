@@ -18,7 +18,6 @@ pub enum Role {
 }
 
 impl Role {
-    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn index(self) -> usize {
         match self {
             Role::Ptt => 0,
@@ -27,6 +26,11 @@ impl Role {
         }
     }
 }
+
+/// Labels on the helper window. The talk row is "Talk", not a watched-key list.
+pub const TALK_ROW: &str = "Talk";
+pub const PREV_ROW: &str = "Previous channel";
+pub const NEXT_ROW: &str = "Next channel";
 
 /// What the helper tells the page. These names are actions, not key codes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -417,6 +421,11 @@ mod tests {
         assert_eq!(dom_code_to_vk("F3"), Some(0x72));
         assert_eq!(dom_code_to_vk("F4"), Some(0x73));
         assert_eq!(watch_label(&Watch::Key { vk: 0x70 }), "F1");
+        assert_eq!(watch_label(&Watch::Key { vk: 0x72 }), "F3");
+        assert_eq!(watch_label(&Watch::Key { vk: 0x73 }), "F4");
+        assert_eq!(TALK_ROW, "Talk");
+        assert_eq!(PREV_ROW, "Previous channel");
+        assert_eq!(NEXT_ROW, "Next channel");
         assert_eq!(watch_label(&Watch::Key { vk: 0x20 }), "Space");
         assert_eq!(watch_label(&Watch::Mouse { button: 5 }), "Mouse 5");
         assert_eq!(event_message(OutEvent::Ptt(true)), r#"{"t":"ptt","v":"down"}"#);
