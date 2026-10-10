@@ -23,7 +23,7 @@ describe('GitHub Releases updates', () => {
         win: { verifyUpdateCodeSignature?: boolean };
       };
     };
-    expect(pkg.version).toBe('0.4.5');
+    expect(pkg.version).toBe('0.4.6');
     expect(pkg.build.publish).toEqual({
       provider: 'github',
       owner: UPDATE_OWNER,

@@ -29,7 +29,7 @@ describe('push-to-talk chooser', () => {
   });
 
   it('points the full app at the desktop release, not the helper release', () => {
-    expect(DESKTOP_RELEASE_URL).toBe('https://github.com/Tubss2/radio-net/releases/tag/v0.4.5');
+    expect(DESKTOP_RELEASE_URL).toBe('https://github.com/Tubss2/radio-net/releases/tag/v0.4.6');
     expect(DESKTOP_RELEASE_URL).not.toContain('helper-');
   });
 });
