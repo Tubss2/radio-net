@@ -38,10 +38,25 @@ export function rendererWebPreferences(preload: string, opts: RendererPreference
   };
 }
 
-/** file:// pages we ship, or the electron-vite dev server. Nothing else. */
-export function isAllowedAppUrl(url: string, devServer?: string): boolean {
+/** Decoded pathname of a file URL, or null. Used to match the packaged renderer files exactly. */
+export function filePathname(url: string): string | null {
+  try {
+    const page = new URL(url);
+    if (page.protocol !== 'file:') return null;
+    return decodeURIComponent(page.pathname);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The electron-vite dev server, or a packaged file whose pathname is one we loaded.
+ * A file URL is refused unless the caller passes those pathnames.
+ */
+export function isAllowedAppUrl(url: string, devServer?: string, allowedFilePathnames: readonly string[] = []): boolean {
   if (url.startsWith('file:')) {
-    return url.includes('index.html') || url.includes('overlay.html');
+    const path = filePathname(url);
+    return path !== null && allowedFilePathnames.includes(path);
   }
   if (!devServer) return false;
   try {
