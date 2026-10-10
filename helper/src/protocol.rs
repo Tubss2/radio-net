@@ -32,6 +32,9 @@ pub const TALK_ROW: &str = "Talk";
 pub const PREV_ROW: &str = "Previous channel";
 pub const NEXT_ROW: &str = "Next channel";
 
+/// Shown while Set is waiting. A mouse button still binds if one is pressed. The window does not mention that.
+pub const CAPTURE_HINT: &str = "Press a key.";
+
 /// What the helper tells the page. These names are actions, not key codes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutEvent {
@@ -426,6 +429,10 @@ mod tests {
         assert_eq!(TALK_ROW, "Talk");
         assert_eq!(PREV_ROW, "Previous channel");
         assert_eq!(NEXT_ROW, "Next channel");
+        assert_eq!(CAPTURE_HINT, "Press a key.");
+        assert!(!CAPTURE_HINT.to_ascii_lowercase().contains("mouse"));
+        assert!(!CAPTURE_HINT.to_ascii_lowercase().contains("side"));
+        assert!(!CAPTURE_HINT.to_ascii_lowercase().contains("button"));
         assert_eq!(watch_label(&Watch::Key { vk: 0x20 }), "Space");
         assert_eq!(watch_label(&Watch::Mouse { button: 5 }), "Mouse 5");
         assert_eq!(event_message(OutEvent::Ptt(true)), r#"{"t":"ptt","v":"down"}"#);
