@@ -94,7 +94,7 @@ We haven't had confirmation yet from WARDOGS' anti-cheat team (Bulkhead) that th
 
 The site labels this "Still heavily WIP". It adds an in-game overlay and the channel wheel. Only use it if you know and trust the developer personally.
 
-1. Go to the [v0.4.5 release page](https://github.com/Tubss2/radio-net/releases/tag/v0.4.5) and download `RadioNet-Setup-0.4.5.exe`. That release is the desktop app. The helper is a different file: [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe).
+1. Go to the [v0.4.6 release page](https://github.com/Tubss2/radio-net/releases/tag/v0.4.6) and download `RadioNet-Setup-0.4.6.exe`. That release is the desktop app. The helper is a different file: [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe).
 2. Run it. On the blue SmartScreen box, click **More info**, then **Run anyway**.
 3. Enter your callsign, then the invite code.
 4. Accept the privacy note. The keyboard listener stays off until you do.
