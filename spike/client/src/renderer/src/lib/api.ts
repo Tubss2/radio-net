@@ -21,7 +21,13 @@ const apiFallback = import.meta.env.MODE === 'web' ? 'https://radio-149-28-170-2
 export const API_URL = bakedApi && bakedApi.length > 0 ? bakedApi : apiFallback;
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly routeMissing = false) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly routeMissing = false,
+    readonly code?: string,
+    readonly communityId?: string,
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -58,7 +64,7 @@ export class Api {
           },
         });
         if (res.status === 204) return undefined as T;
-        const body = await res.json().catch(() => ({} as { error?: string; message?: string }));
+        const body = await res.json().catch(() => ({} as { error?: string; message?: string; code?: string; communityId?: string }));
         if (!res.ok) {
           const routeMissing = isRouteMissing(res.status, body);
           const retryable = res.status === 502 || res.status === 503 || res.status === 504;
@@ -69,7 +75,7 @@ export class Api {
           }
           note(`${method} ${path} ${res.status}`);
           const message = routeMissing ? 'This server cannot delete a community' : (body.error ?? `Request failed (${res.status})`);
-          throw new ApiError(message, res.status, routeMissing);
+          throw new ApiError(message, res.status, routeMissing, body.code, typeof body.communityId === 'string' ? body.communityId : undefined);
         }
         return body as T;
       } catch (err) {
