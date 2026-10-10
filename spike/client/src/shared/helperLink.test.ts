@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   HELPER_DOWNLOAD_URL, HELPER_SOURCE_URL, HELPER_URL, forgetHelperDevice, helperCodeFromHash,
-  helperForgetMessage, helperPairMessage, helperResumeMessage, parseHelperEvent, readHelperDevice,
+  helperForgetMessage, helperPairMessage, helperResumeMessage, isHelperCode, parseHelperEvent, readHelperDevice,
   writeHelperDevice,
 } from './helperLink';
 
@@ -10,7 +10,7 @@ const TOKEN = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ';
 describe('push-to-talk helper link', () => {
   it('pairs with the window code and does not send a key', () => {
     expect(HELPER_URL).toBe('ws://127.0.0.1:47321');
-    expect(HELPER_DOWNLOAD_URL).toBe('https://github.com/Tubss2/radio-net/releases/download/helper-3/RadioNetHelper.exe');
+    expect(HELPER_DOWNLOAD_URL).toBe('https://github.com/Tubss2/radio-net/releases/download/helper-4/RadioNetHelper.exe');
     expect(HELPER_SOURCE_URL).toBe('https://github.com/Tubss2/radio-net/tree/main/helper');
     const key = helperPairMessage('K7QM2P');
     expect(JSON.parse(key)).toEqual({ t: 'pair', code: 'K7QM2P' });
@@ -25,6 +25,10 @@ describe('push-to-talk helper link', () => {
     expect(helperCodeFromHash('#h=k7qm2p4xr9na')).toBe('K7QM2P4XR9NA');
     expect(helperCodeFromHash('#code=K7QM2P4XR9NA')).toBeNull();
     expect(helperCodeFromHash('')).toBeNull();
+    expect(isHelperCode('K7QM2P4XR9NA')).toBe(true);
+    expect(isHelperCode('k7qm2p4xr9na')).toBe(true);
+    expect(isHelperCode('K7QM')).toBe(false);
+    expect(isHelperCode('K7QM2PI4XR9N')).toBe(false);
   });
 
   it('remembers a device token and still resumes an older save that named a key', () => {

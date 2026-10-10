@@ -2,17 +2,17 @@
 //! Closing the window stops Raw Input, closes the socket, and exits the process.
 
 use super::{finish_stream, is_shutdown, pump, PORT, SHUTDOWN};
-use crate::device::{self, Binds, DeviceState};
-use crate::protocol::{watch_label, LinkedCommand, OutEvent, Role, Watch};
+use crate::device::{self, Binds, DeviceState, Edge};
+use crate::protocol::{watch_label, LinkedCommand, OutEvent, Role, Watch, NEXT_ROW, PREV_ROW, TALK_ROW};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::Duration;
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontW, CreateSolidBrush, GetStockObject, GetSysColorBrush, InvalidateRect, SetBkColor, SetTextColor,
-    COLOR_WINDOW, DEFAULT_GUI_FONT, FW_BOLD, HDC,
+    BeginPaint, CreateFontW, CreateSolidBrush, EndPaint, FillRect, GetStockObject, GetSysColorBrush, InvalidateRect,
+    UpdateWindow, COLOR_WINDOW, DEFAULT_GUI_FONT, FW_BOLD, HBRUSH, PAINTSTRUCT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{
@@ -24,12 +24,13 @@ use windows::Win32::UI::Input::{
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, IsIconic, LoadIconW,
-    MessageBoxW, MoveWindow, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetWindowPos, SetWindowTextW,
-    ShowWindow, TranslateMessage, BS_PUSHBUTTON, CW_USEDEFAULT, HMENU, IDI_APPLICATION, MB_ICONINFORMATION, MB_OK, MSG,
-    SW_HIDE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE,
-    WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_INPUT, WM_SETFONT, WM_USER, WNDCLASSW, WS_CAPTION, WS_CHILD,
-    WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect, GetDlgCtrlID, GetMessageW, IsIconic,
+    LoadIconW, MessageBoxW, MoveWindow, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetWindowPos,
+    SetWindowTextW, ShowWindow, TranslateMessage, BS_PUSHBUTTON, CW_USEDEFAULT, HMENU, IDI_APPLICATION,
+    MB_ICONINFORMATION, MB_OK, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_ERASEBKGND, WM_INPUT, WM_PAINT, WM_SETFONT,
+    WM_USER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
+    WS_VISIBLE,
 };
 
 const WM_APP_REFRESH: u32 = WM_USER + 20;
@@ -299,6 +300,15 @@ fn message_loop() {
             ..Default::default()
         };
         RegisterClassW(&wc);
+        let light_class = w!("RadioNetHelperLight");
+        let light_wc = WNDCLASSW {
+            lpfnWndProc: Some(light_proc),
+            hInstance: instance.into(),
+            lpszClassName: light_class,
+            hbrBackground: HBRUSH::default(),
+            ..Default::default()
+        };
+        RegisterClassW(&light_wc);
         let hwnd = match CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class_name,
@@ -324,9 +334,9 @@ fn message_loop() {
             code: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE | style_bits(SS_CENTER), 16, 112, 412, 48, hwnd, ID_CODE).0 as isize,
             open: child(w!("BUTTON"), "Open Radio Net", button, 16, 168, 200, 32, hwnd, ID_OPEN).0 as isize,
             unlink: child(w!("BUTTON"), "Unlink", button, 228, 168, 140, 32, hwnd, ID_UNLINK).0 as isize,
-            ptt: row(hwnd, "PTT", ID_PTT_LABEL, ID_PTT_LIGHT, ID_PTT_SET, 220),
-            prev: row(hwnd, "Previous channel", ID_PREV_LABEL, ID_PREV_LIGHT, ID_PREV_SET, 260),
-            next: row(hwnd, "Next channel", ID_NEXT_LABEL, ID_NEXT_LIGHT, ID_NEXT_SET, 300),
+            ptt: row(hwnd, TALK_ROW, ID_PTT_LABEL, ID_PTT_LIGHT, ID_PTT_SET, 220),
+            prev: row(hwnd, PREV_ROW, ID_PREV_LABEL, ID_PREV_LIGHT, ID_PREV_SET, 260),
+            next: row(hwnd, NEXT_ROW, ID_NEXT_LABEL, ID_NEXT_LIGHT, ID_NEXT_SET, 300),
         };
         let font = GetStockObject(DEFAULT_GUI_FONT);
         let code_font = CreateFontW(-32, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, 0, 0, 0, 0, 0, w!("Segoe UI"));
@@ -359,7 +369,7 @@ fn row(parent: HWND, title: &str, label: usize, light: usize, set: usize, y: i32
     let button = WS_CHILD | WS_VISIBLE | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32);
     Row {
         label: child(w!("STATIC"), title, WS_CHILD | WS_VISIBLE, 16, y, 280, 24, parent, label).0 as isize,
-        light: child(w!("STATIC"), " ", WS_CHILD | WS_VISIBLE, 304, y + 3, 18, 18, parent, light).0 as isize,
+        light: child(w!("RadioNetHelperLight"), "", WS_CHILD | style_bits(WS_BORDER.0), 304, y + 2, 20, 20, parent, light).0 as isize,
         set: child(w!("BUTTON"), "Set", button, 332, y - 4, 96, 28, parent, set).0 as isize,
     }
 }
@@ -445,9 +455,9 @@ fn apply_status(relayout: bool) {
     };
     set_text(hwnd_of(controls.hint), hint);
     set_text(hwnd_of(controls.code), &status.code);
-    paint_row(&controls.ptt, "PTT", Role::Ptt, &status);
-    paint_row(&controls.prev, "Previous channel", Role::Prev, &status);
-    paint_row(&controls.next, "Next channel", Role::Next, &status);
+    paint_row(&controls.ptt, TALK_ROW, Role::Ptt, &status);
+    paint_row(&controls.prev, PREV_ROW, Role::Prev, &status);
+    paint_row(&controls.next, NEXT_ROW, Role::Next, &status);
     if relayout {
         let show_hint = !hint.is_empty();
         place(controls.hint, 16, 44, 412, 64, show_hint);
@@ -460,10 +470,12 @@ fn apply_status(relayout: bool) {
         place(controls.unlink, 16, rows_y + 128, 140, 32, true);
         resize_window(if show_pair { 520 } else if show_hint { 400 } else { 300 });
     }
-    unsafe {
-        let _ = InvalidateRect(hwnd_of(controls.ptt.light), None, true);
-        let _ = InvalidateRect(hwnd_of(controls.prev.light), None, true);
-        let _ = InvalidateRect(hwnd_of(controls.next.light), None, true);
+    for light in [controls.ptt.light, controls.prev.light, controls.next.light] {
+        let hwnd = hwnd_of(light);
+        unsafe {
+            let _ = InvalidateRect(hwnd, None, true);
+            let _ = UpdateWindow(hwnd);
+        }
     }
     if relayout {
         let raw = HWND_SLOT.load(Ordering::SeqCst);
@@ -498,7 +510,7 @@ fn place(raw: isize, x: i32, y: i32, w: i32, h: i32, show: bool) {
 
 fn place_row(row: &Row, y: i32) {
     place(row.label, 16, y, 280, 24, true);
-    place(row.light, 304, y + 3, 18, 18, true);
+    place(row.light, 304, y + 2, 20, 20, true);
     place(row.set, 332, y - 4, 96, 28, true);
 }
 
@@ -593,15 +605,6 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
         handle_input(HRAWINPUT(lparam.0 as *mut core::ffi::c_void));
         return LRESULT(0);
     }
-    if msg == WM_CTLCOLORSTATIC {
-        if let Some(brush) = light_brush(HWND(lparam.0 as *mut core::ffi::c_void)) {
-            let hdc = HDC(wparam.0 as *mut core::ffi::c_void);
-            let color = COLORREF(if brush == PAINT.lock().unwrap().red { 0x000000FF } else { 0x00B0B0B0 });
-            let _ = SetBkColor(hdc, color);
-            let _ = SetTextColor(hdc, color);
-            return LRESULT(brush);
-        }
-    }
     if msg == WM_APP_REFRESH {
         apply_status(true);
         return LRESULT(0);
@@ -632,15 +635,45 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-fn light_brush(hwnd: HWND) -> Option<isize> {
-    let controls = (*CONTROLS.lock().unwrap())?;
-    let lights = [controls.ptt.light, controls.prev.light, controls.next.light];
-    let index = lights.iter().position(|raw| *raw == hwnd.0 as isize)?;
-    let held = STATUS.lock().unwrap().held[index];
-    let paint = PAINT.lock().unwrap();
-    Some(if held { paint.red } else { paint.dim })
+fn light_index(hwnd: HWND) -> Option<usize> {
+    match unsafe { GetDlgCtrlID(hwnd) } as usize {
+        ID_PTT_LIGHT => Some(0),
+        ID_PREV_LIGHT => Some(1),
+        ID_NEXT_LIGHT => Some(2),
+        _ => None,
+    }
 }
 
+unsafe extern "system" fn light_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if msg == WM_ERASEBKGND {
+        return LRESULT(1);
+    }
+    if msg == WM_PAINT {
+        paint_light(hwnd);
+        return LRESULT(0);
+    }
+    DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+unsafe fn paint_light(hwnd: HWND) {
+    let mut ps = PAINTSTRUCT::default();
+    let hdc = BeginPaint(hwnd, &mut ps);
+    if !hdc.0.is_null() {
+        let mut rect = RECT::default();
+        let _ = GetClientRect(hwnd, &mut rect);
+        let held = light_index(hwnd).is_some_and(|index| STATUS.lock().unwrap().held[index]);
+        let paint = PAINT.lock().unwrap();
+        let brush = HBRUSH((if held { paint.red } else { paint.dim }) as *mut core::ffi::c_void);
+        if !brush.0.is_null() {
+            let _ = FillRect(hdc, &rect, brush);
+        }
+    }
+    let _ = EndPaint(hwnd, &ps);
+}
+
+/// Raw Input has no per-key registration. The keyboard or mouse device is registered only
+/// while a bind uses it (or while Set is waiting). `apply_edge` drops every other key
+/// before a light changes or a socket write.
 fn register(hwnd: HWND, binds: &Binds, capturing: bool) {
     let mouse = capturing || slot_is_mouse(&binds.ptt) || slot_is_mouse(&binds.prev) || slot_is_mouse(&binds.next);
     let keyboard = capturing || slot_is_key(&binds.ptt) || slot_is_key(&binds.prev) || slot_is_key(&binds.next);
@@ -702,33 +735,23 @@ unsafe fn handle_input(handle: HRAWINPUT) {
     if suppressed(&edge) {
         return;
     }
-    let binds = STATUS.lock().unwrap().binds.clone();
-    let Some((role, down)) = match_role(&binds, &edge) else { return };
-    let index = role.index();
-    let mut send = None;
-    {
+    let physical = match edge {
+        RawEdge::Key { vk, down } => Edge::Key { vk, down },
+        RawEdge::Mouse { button, down } => Edge::Mouse { button, down },
+    };
+    let (held, event) = {
+        let status = STATUS.lock().unwrap();
+        device::apply_edge(&status.binds, status.held, physical)
+    };
+    let send = {
         let mut status = STATUS.lock().unwrap();
-        match role {
-            Role::Ptt => {
-                if status.held[index] == down {
-                    return;
-                }
-                status.held[index] = down;
-                send = Some(OutEvent::Ptt(down));
-            }
-            Role::Prev | Role::Next => {
-                if down {
-                    if status.held[index] {
-                        return;
-                    }
-                    status.held[index] = true;
-                    send = Some(OutEvent::Tx(role == Role::Next));
-                } else {
-                    status.held[index] = false;
-                }
-            }
+        if status.held == held && event.is_none() {
+            return;
         }
-    }
+        status.held = held;
+        event
+    };
+    // The light updates even when nothing is linked. The socket only gets the abstract action.
     if let Some(event) = send {
         if let Some(tx) = EVENTS.lock().unwrap().as_ref() {
             let _ = tx.send(event);
@@ -753,18 +776,6 @@ fn suppressed(edge: &RawEdge) -> bool {
         }
         None => false,
     }
-}
-
-fn match_role(binds: &Binds, edge: &RawEdge) -> Option<(Role, bool)> {
-    for role in [Role::Ptt, Role::Prev, Role::Next] {
-        let Some(watch) = binds.get(role) else { continue };
-        match (watch, edge) {
-            (Watch::Key { vk }, RawEdge::Key { vk: got, down }) if vk == got => return Some((role, *down)),
-            (Watch::Mouse { button }, RawEdge::Mouse { button: got, down }) if button == got => return Some((role, *down)),
-            _ => {}
-        }
-    }
-    None
 }
 
 unsafe fn read_edge(handle: HRAWINPUT) -> Option<RawEdge> {

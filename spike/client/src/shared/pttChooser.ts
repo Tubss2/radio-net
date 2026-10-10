@@ -39,7 +39,7 @@ export const pttChoices = [
   {
     rank: 3,
     title: 'Helper app',
-    body: 'Small open-source app that links to this browser. Push to talk is F1, previous channel is F3, and next channel is F4. You can change those keys in the helper window. Works while in game. Only runs while its window is open.',
+    body: 'Small open-source app that links to this browser. Talk is F1, previous channel is F3, and next channel is F4. You can change those keys in the helper window. Each key lights red while held. Works while in game. Only runs while its window is open.',
   },
   {
     rank: 4,
