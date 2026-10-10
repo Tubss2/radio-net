@@ -10,6 +10,8 @@ export interface PhoneSubject {
   cid: string;
   sid: string;
   name: string;
+  /** Invite epoch when the code was issued. Redeem rejects a code from before a rotation. */
+  epoch: number;
 }
 
 interface PairRow extends PhoneSubject {
@@ -39,7 +41,7 @@ export class PhonePairs {
     if (!row) return null;
     this.rows.delete(hash);
     if (row.exp <= this.now()) return null;
-    return { cid: row.cid, sid: row.sid, name: row.name };
+    return { cid: row.cid, sid: row.sid, name: row.name, epoch: row.epoch };
   }
 }
 
@@ -76,6 +78,7 @@ export async function mintPhoneToken(opts: {
   at.addGrant({
     room: opts.room,
     roomJoin: true,
+    roomCreate: false,
     canSubscribe: true,
     canPublish: false,
     canPublishSources: [],
