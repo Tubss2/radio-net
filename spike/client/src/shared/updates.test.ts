@@ -32,6 +32,16 @@ describe('GitHub Releases updates', () => {
       private: false,
     });
     expect(pkg.build.win.verifyUpdateCodeSignature).toBe(false);
+    const fuses = JSON.parse(readFileSync(join(repoRoot, 'spike/client/package.json'), 'utf8')) as {
+      build: { electronFuses: Record<string, boolean> };
+    };
+    expect(fuses.build.electronFuses).toEqual({
+      runAsNode: false,
+      enableNodeOptionsEnvironmentVariable: false,
+      enableNodeCliInspectArguments: false,
+      enableEmbeddedAsarIntegrityValidation: true,
+      onlyLoadAppFromAsar: true,
+    });
   });
 
   it('does not serve updates from the API host', () => {
