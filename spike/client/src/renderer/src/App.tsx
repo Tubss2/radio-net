@@ -434,6 +434,10 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const [helperSlot, setHelperSlot] = useState<HTMLDivElement | null>(null);
   const [phoneLinked, setPhoneLinked] = useState(false);
   const [helperLinked, setHelperLinked] = useState(false);
+  const phoneDisconnect = useRef<(() => void) | null>(null);
+  const helperDisconnect = useRef<(() => void) | null>(null);
+  const bindPhoneDisconnect = useCallback((fn: (() => void) | null) => { phoneDisconnect.current = fn; }, []);
+  const bindHelperDisconnect = useCallback((fn: (() => void) | null) => { helperDisconnect.current = fn; }, []);
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [arming, setArming] = useState(false);
   const [simpleOn, setSimpleOn] = useState(boot.simpleOn);
@@ -777,6 +781,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           onBrowser={() => setTalkOpen(true)}
           onPhone={() => setPhoneOpen(true)}
           onHelperSlot={setHelperSlot}
+          onDisconnectPhone={() => phoneDisconnect.current?.()}
+          onDisconnectHelper={() => helperDisconnect.current?.()}
         />
         <p className="notice">Use a phone, the Windows helper, or the desktop app for in-game push-to-talk. This page transmits only while the tab is in front. The microphone opens when you tune a channel and stays muted until you hold the button.</p>
         <div className="web-bar">
@@ -796,6 +802,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
               opened={phoneOpen}
               onOpenedChange={setPhoneOpen}
               onLinked={setPhoneLinked}
+              onDisconnectReady={bindPhoneDisconnect}
             />
           )}
           {!isPreview && (
@@ -804,6 +811,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
               externalDown={externalDown}
               slot={helperSlot}
               onLinked={setHelperLinked}
+              onDisconnectReady={bindHelperDisconnect}
             />
           )}
         </div>

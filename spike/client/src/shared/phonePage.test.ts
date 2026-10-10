@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  decodePhone, encodePhone, formatCodeClock, parsePhoneHash, phoneChannelNote, phoneExpiryNote,
+  decodePhone, encodePhone, formatCodeClock, nextPhoneHostSession, parsePhoneHash, phoneChannelNote, phoneExpiryNote,
   phoneHold, phoneHostStatus, phonePageUrl, phoneRedeemError, PHONE_SYNC_ID,
 } from './phonePage';
 
@@ -84,5 +84,18 @@ describe('phone page link', () => {
     expect(decodePhone(encodePhone({ t: 'ptt', down: true }))).toEqual({ t: 'ptt', down: true });
     expect(decodePhone(encodePhone({ t: 'tx', id: 'arty' }))).toEqual({ t: 'tx', id: 'arty' });
     expect(decodePhone(new TextEncoder().encode('{"t":"nope"}'))).toBeNull();
+  });
+
+  it('keeps the phone host when the QR dialog closes, until Disconnect or the page closes', () => {
+    expect(nextPhoneHostSession('idle', 'open')).toBe('hosting');
+    expect(nextPhoneHostSession('hosting', 'close')).toBe('hosting');
+    expect(nextPhoneHostSession('hosting', 'joined')).toBe('linked');
+    expect(nextPhoneHostSession('linked', 'close')).toBe('linked');
+    expect(nextPhoneHostSession('linked', 'open')).toBe('linked');
+    expect(nextPhoneHostSession('linked', 'disconnect')).toBe('idle');
+    expect(nextPhoneHostSession('linked', 'left')).toBe('idle');
+    expect(nextPhoneHostSession('hosting', 'left')).toBe('hosting');
+    expect(nextPhoneHostSession('linked', 'page-close')).toBe('idle');
+    expect(nextPhoneHostSession('hosting', 'page-close')).toBe('idle');
   });
 });

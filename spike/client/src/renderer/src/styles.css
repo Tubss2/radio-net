@@ -162,8 +162,14 @@ html.web .titlebar { display: none; }
 .invite-code { font-family: var(--mono); font-size: 28px; letter-spacing: .08em; font-weight: 700; user-select: text; }
 .invite-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .ptt-setup-block { display: flex; flex-direction: column; gap: 6px; }
-.ptt-setup { width: 100%; min-height: 64px; font-size: 18px; }
+.ptt-setup-row { display: flex; align-items: stretch; gap: 8px; }
+.ptt-setup { flex: 1; min-height: 64px; font-size: 18px; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; }
+.ptt-kicker { font-size: 12px; font-weight: 600; opacity: .8; }
+.ptt-mode { font-size: 18px; font-weight: 700; }
+.ptt-mode.live { color: #fff; }
+.ptt-disconnect { align-self: stretch; padding-inline: 14px; }
 .ptt-current { margin: 0; }
+.phone-chip { display: inline-flex; align-items: center; gap: 6px; }
 .modal-bg:has(.talk-setup-modal) { align-items: start; overflow: auto; padding: 24px 16px; }
 .talk-setup-modal { width: min(560px, calc(100vw - 32px)); max-height: none; margin: 0 auto; }
 .talk-chooser { display: flex; flex-direction: column; gap: 10px; }
