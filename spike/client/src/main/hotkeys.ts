@@ -3,6 +3,7 @@ import { shouldObserveInput } from '../shared/inputWatch';
 import { cloneBinds, DEFAULT_BINDS } from '../shared/keybinds';
 import { digitFromKeycode, hookShouldEmitScroll, scrollSteps } from '../shared/radialWheel';
 import type { Bind, HotkeyEvent, Keybinds } from '../shared/types';
+import { BIND_RECORD_MS } from '../shared/bindRecord';
 import { clientLog } from './clientLog';
 
 /**
@@ -14,6 +15,7 @@ export class Hotkeys {
   private binds: Keybinds = cloneBinds();
   private held = new Set<string>(); // de-dupe OS key-repeat
   private recording: ((b: Bind | null) => void) | null = null;
+  private recordTimer: ReturnType<typeof setTimeout> | null = null;
   private wheelDownAt: number | null = null;
   /** Latched or held. Scroll keeps working after the wheel key (default F2) is released. */
   private wheelOpen = false;
@@ -59,9 +61,25 @@ export class Hotkeys {
   /**
    * Next key or mouse press becomes a bind. Left, right and middle click are ignored so the
    * click that opened the recorder does not bind itself. Escape cancels and resolves null.
+   * A new call cancels the previous one. The wait ends on its own after BIND_RECORD_MS.
    */
-  record(): Promise<Bind | null> {
-    return new Promise((resolve) => { this.recording = resolve; });
+  record(timeoutMs = BIND_RECORD_MS): Promise<Bind | null> {
+    this.cancelRecord();
+    return new Promise((resolve) => {
+      const finish = (value: Bind | null) => {
+        if (this.recording !== finish) return;
+        this.recording = null;
+        if (this.recordTimer) clearTimeout(this.recordTimer);
+        this.recordTimer = null;
+        resolve(value);
+      };
+      this.recording = finish;
+      this.recordTimer = setTimeout(() => finish(null), timeoutMs);
+    });
+  }
+
+  cancelRecord() {
+    this.recording?.(null);
   }
 
   private handle(input: Bind, down: boolean) {
@@ -76,10 +94,10 @@ export class Hotkeys {
     const id = bindId(input);
     if (down && this.recording) {
       if (input.kind === 'key' && input.keycode === UiohookKey.Escape) {
-        const r = this.recording; this.recording = null; r(null); return;
+        this.recording(null); return;
       }
       if (input.kind === 'mouse' && input.button <= 2) return;
-      const r = this.recording; this.recording = null; r(input); return;
+      this.recording(input); return;
     }
     if (down) { if (this.held.has(id)) return; this.held.add(id); } else this.held.delete(id);
     const is = (b: Bind | null) => b !== null && bindId(b) === id;
