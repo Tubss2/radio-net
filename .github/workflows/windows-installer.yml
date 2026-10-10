@@ -149,9 +149,12 @@ jobs:
         run: |
           $version = "${{ steps.installer.outputs.version }}"
           $file = "${{ steps.installer.outputs.file }}"
-          foreach ($path in @("release\$file", "release\$file.blockmap", 'release\latest.yml', 'release\SHA256SUMS.txt')) {
+          foreach ($path in @("release\$file", "release\$file.blockmap", 'release\latest.yml')) {
             if (-not (Test-Path $path)) { throw "Missing $path" }
           }
+          # The publish step rebuilds the installer, so hash the file that is about to be uploaded.
+          $hash = (Get-FileHash "release\$file" -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Encoding ascii "release\SHA256SUMS.txt" "$hash  $file"
           # electron-builder uploads the blockmap and the exe at the same time, and the exe
           # can be dropped when both try to create the release. Upload the finished files after.
           gh release view "v$version" --json tagName *> $null
