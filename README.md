@@ -64,7 +64,7 @@ npm i
 npm run preview
 ```
 
-That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `F2` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the whole 30.0–87.5 grid (a frequency another slice already has is skipped), Shift+scroll for volume, and `+` to pick a channel that is not tuned yet (an admin can enter a frequency to create one). Tuning a channel plays a short squelch; settings can turn UI sounds off or change their volume. Hold Space to talk. `F5` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
+That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on their own so the corner overlay (display name plus channel) can be seen on the game backdrop. Press `F2` for the channel wheel: hover a slice, left-click to transmit there, right-click to mute, scroll to step the whole 30.0–87.5 grid (a frequency another slice already has is skipped), Shift+scroll for volume, and `+` to pick a channel that is not tuned yet (an admin can enter a frequency to create one). Adding a channel plays a short static. Settings can turn that off, turn on a push-to-talk press and release sound, and change the volume. Hold Space to talk. `F5` hides the overlay. The bar along the bottom forces those states (one talker, two talkers, you talking, a deleted channel).
 
 `npm run preview:build` writes that mock to `spike/client/preview-dist` with relative asset paths. The product site is a different build:
 

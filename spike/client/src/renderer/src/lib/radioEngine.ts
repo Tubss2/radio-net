@@ -6,7 +6,7 @@ import { pickTransmitId } from '../../../shared/transmit';
 import { isReconnectError, type Api, type ChannelInfo } from './api';
 import { clientLog } from './clientLog';
 import { resolveLivekitUrl } from './livekitUrl';
-import { playSquelch } from './uiSounds';
+import { playPttEdge, playTxChange } from './uiSounds';
 
 /**
  * The radio: one LiveKit Room per tuned channel.
@@ -241,7 +241,13 @@ export class RadioEngine implements RadioControl {
   setPan(id: string, p: number) { const s = this.slots.get(id); if (!s) return; s.info.pan = p; s.panner.pan.value = p; this.changed(); }
   private applyGain(s: Slot) { s.gain.gain.value = s.info.muted ? 0 : s.info.volume; this.changed(); }
 
-  setTx(id: string) { if (this.slots.get(id)?.info.canTransmit) { this.txId = id; this.blip(880); this.changed(); } }
+  setTx(id: string) {
+    if (!this.slots.get(id)?.info.canTransmit) return;
+    const changed = this.txId !== id;
+    this.txId = id;
+    if (changed) playTxChange();
+    this.changed();
+  }
 
   ensureTx() {
     const next = pickTransmitId(this.txId, this.tuned.map((row) => ({
@@ -282,32 +288,17 @@ export class RadioEngine implements RadioControl {
         return false;
       }
       this.transmittingOn = id;
-      if (!already) {
-        this.blip(1200);
-        playSquelch();
-      }
+      if (!already) playPttEdge('down');
       this.changed();
       return true;
     }
     if (this.transmittingOn === id) {
       if (slot?.mic) await slot.mic.mute().catch(() => undefined);
       this.transmittingOn = null;
-      this.blip(700);
-      playSquelch();
+      playPttEdge('up');
       this.changed();
     }
     return false;
-  }
-
-  /** Short confirmation tone (not a radio effect). */
-  private blip(hz: number) {
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.frequency.value = hz;
-    g.gain.setValueAtTime(0.06, this.ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + 0.07);
-    o.connect(g).connect(this.ctx.destination);
-    o.start(); o.stop(this.ctx.currentTime + 0.08);
   }
 
   async dispose() { await Promise.all([...this.slots.keys()].map((id) => this.untune(id))); this.micTrack?.stop(); await this.ctx.close(); }
