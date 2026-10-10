@@ -213,7 +213,7 @@ export class FileChannelStore extends MemoryChannelStore {
     if (existsSync(file)) {
       const parsed = JSON.parse(readFileSync(file, 'utf8')) as { mac?: unknown };
       const snap = validateSnapshot(parsed);
-      if (macKey && typeof parsed.mac === 'string' && !secretMacEqual(parsed.mac, storeMac(snap, macKey))) {
+      if (macKey && (typeof parsed.mac !== 'string' || !secretMacEqual(parsed.mac, storeMac(snap, macKey)))) {
         throw new Error('store.json failed its integrity check');
       }
       this.restore(snap);
