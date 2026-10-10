@@ -1,13 +1,13 @@
-/** Local tray helper. It watches one key and sends press and release. It does not see the microphone. */
+/** Local helper window. It watches one key and sends press and release. It does not see the microphone. */
 export const HELPER_URL = 'ws://127.0.0.1:47321';
 
 /**
- * Stable download. The helper workflow attaches this file to the `helper-1` release.
+ * Stable download. The helper workflow attaches this file to the `helper-2` release.
  * It is not listed in `latest.yml`, so the desktop updater does not treat it as an app update.
  */
-export const HELPER_DOWNLOAD_URL = 'https://github.com/Tubss2/radio-net/releases/download/helper-1/RadioNetHelper.exe';
+export const HELPER_DOWNLOAD_URL = 'https://github.com/Tubss2/radio-net/releases/download/helper-2/RadioNetHelper.exe';
 
-/** Open-source tray program. */
+/** Open-source helper window. */
 export const HELPER_SOURCE_URL = 'https://github.com/Tubss2/radio-net/tree/main/helper';
 
 export const HELPER_FALLBACK =
@@ -75,7 +75,8 @@ export type HelperEvent =
   | { t: 'ok'; token: string | null }
   | { t: 'down' }
   | { t: 'up' }
-  | { t: 'denied' };
+  | { t: 'denied' }
+  | { t: 'watch'; watch: HelperWatch };
 
 export function parseHelperEvent(text: string): HelperEvent | null {
   let row: unknown;
@@ -89,6 +90,10 @@ export function parseHelperEvent(text: string): HelperEvent | null {
     const token = (row as { token?: unknown }).token;
     const kept = typeof token === 'string' && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
     return { t: 'ok', token: kept };
+  }
+  if (kind === 'watch') {
+    const watch = watchFrom((row as { watch?: unknown }).watch);
+    return watch ? { t: 'watch', watch } : null;
   }
   return null;
 }

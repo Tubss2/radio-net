@@ -8,9 +8,9 @@ import {
 const TOKEN = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ';
 
 describe('push-to-talk helper link', () => {
-  it('pairs the tray code with the page talk key or a side button', () => {
+  it('pairs the window code with the page talk key or a side button', () => {
     expect(HELPER_URL).toBe('ws://127.0.0.1:47321');
-    expect(HELPER_DOWNLOAD_URL).toBe('https://github.com/Tubss2/radio-net/releases/download/helper-1/RadioNetHelper.exe');
+    expect(HELPER_DOWNLOAD_URL).toBe('https://github.com/Tubss2/radio-net/releases/download/helper-2/RadioNetHelper.exe');
     expect(HELPER_SOURCE_URL).toBe('https://github.com/Tubss2/radio-net/tree/main/helper');
     const key = helperPairMessage('K7QM2P', { kind: 'key', code: 'KeyK' });
     expect(JSON.parse(key)).toEqual({ t: 'pair', code: 'K7QM2P', watch: { kind: 'key', code: 'KeyK' } });
@@ -43,6 +43,8 @@ describe('push-to-talk helper link', () => {
     expect(parseHelperEvent('{"t":"down"}')).toEqual({ t: 'down' });
     expect(parseHelperEvent('{"t":"up"}')).toEqual({ t: 'up' });
     expect(parseHelperEvent('{"t":"denied"}')).toEqual({ t: 'denied' });
+    expect(parseHelperEvent('{"t":"watch","watch":{"kind":"key","code":"KeyK"}}')).toEqual({ t: 'watch', watch: { kind: 'key', code: 'KeyK' } });
+    expect(parseHelperEvent('{"t":"watch","watch":{"kind":"mouse","button":1}}')).toBeNull();
     expect(parseHelperEvent('{"t":"pair"}')).toBeNull();
     expect(parseHelperEvent('nope')).toBeNull();
   });

@@ -1,7 +1,7 @@
 name: PTT helper
 
-# Builds the Windows tray exe, keeps the Actions artifact, and attaches
-# RadioNetHelper.exe to the helper-1 release. That tag does not start with v,
+# Builds the Windows helper window, keeps the Actions artifact, and attaches
+# RadioNetHelper.exe to the helper-2 release. That tag does not start with v,
 # and this job does not publish the desktop installer, so installed clients
 # do not treat the helper as an app update.
 
@@ -28,13 +28,13 @@ jobs:
       - name: Build RadioNetHelper.exe
         working-directory: helper
         run: cargo build --release
-      - name: Upload the tray exe
+      - name: Upload the helper exe
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: RadioNetHelper
           path: helper/target/release/RadioNetHelper.exe
           if-no-files-found: error
-      - name: Attach RadioNetHelper.exe to the helper-1 release
+      - name: Attach RadioNetHelper.exe to the helper-2 release
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -43,8 +43,8 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           $exe = "helper/target/release/RadioNetHelper.exe"
           if (-not (Test-Path $exe)) { throw "Missing $exe" }
-          $tag = "helper-1"
-          $notes = "Windows tray helper for the web app. It watches only the key or mouse button you assign. It does not see the microphone. Source: https://github.com/Tubss2/radio-net/tree/main/helper"
+          $tag = "helper-2"
+          $notes = "Windows helper window for the web app. It stays on screen, watches only the key or mouse button you assign, and exits when you close it. It does not see the microphone. Source: https://github.com/Tubss2/radio-net/tree/main/helper"
           gh release view $tag --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $exe --clobber

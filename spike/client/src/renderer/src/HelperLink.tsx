@@ -31,7 +31,7 @@ function forgetStored(): void {
   try { forgetHelperDevice((key) => localStorage.removeItem(key)); } catch { /* private mode */ }
 }
 
-/** Link this browser to the Windows tray helper. Electron already has its own global key. */
+/** Link this browser to the Windows helper window. Electron already has its own global key. */
 export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButton = true, opened = false, onOpenedChange, onLinked }: {
   engine: RadioControl;
   externalDown: { current: boolean };
@@ -116,6 +116,12 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButto
         ws.close();
         return;
       }
+      if (message.t === 'watch') {
+        const device = storedDevice();
+        if (device) remember({ token: device.token, watch: message.watch });
+        if (message.watch.kind === 'mouse') setWhich(message.watch.button === 5 ? '5' : '4');
+        return;
+      }
       if (message.t === 'down') {
         if (held.current) return;
         held.current = true;
@@ -143,8 +149,12 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButto
     return () => { alive.current = false; release(); closeSocket(); };
   }, []);
 
+  const sawLink = useRef(false);
   useEffect(() => {
-    if (!linked || which !== 'key') return;
+    if (!linked) { sawLink.current = false; return; }
+    const justLinked = !sawLink.current;
+    sawLink.current = true;
+    if (justLinked || which !== 'key') return;
     const watch = watchFor('key', talkKey);
     const ws = socket.current;
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(helperWatchMessage(watch));
@@ -154,7 +164,7 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButto
 
   const link = () => {
     const trimmed = code.trim();
-    if (trimmed.length < 4) { setError('Type the pairing code from the tray.'); return; }
+    if (trimmed.length < 4) { setError('Type the pairing code from the helper window.'); return; }
     const watch = watchFor(whichRef.current, talkKeyRef.current);
     connect(helperPairMessage(trimmed, watch), { resume: false, watch });
   };
@@ -173,7 +183,7 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButto
     try { drop = new WebSocket(HELPER_URL); } catch { return; }
     const timer = window.setTimeout(() => {
       drop.close();
-      if (alive.current) setError('This browser forgot the helper. If the tray icon is still linked, use Unlink this browser there.');
+      if (alive.current) setError('This browser forgot the helper. If the helper window is still open, use Unlink there.');
     }, 1500);
     drop.onopen = () => { drop.send(helperResumeMessage(token)); };
     drop.onmessage = (event) => {
@@ -212,8 +222,8 @@ export function HelperLink({ engine, externalDown, talkKey, talkLabel, showButto
             <h3 style={{ margin: 0 }}>Windows helper</h3>
             <p className="sub" style={{ margin: 0 }}>
               {remembered
-                ? 'This browser reconnects without the pairing code. Unlink on this page or in the tray menu to revoke it.'
-                : 'Start RadioNetHelper.exe. Type the code from its tray balloon. It watches only the key you pick here, on this computer.'}
+                ? 'This browser reconnects without the pairing code. Unlink on this page or with Unlink in the helper window.'
+                : 'Open RadioNetHelper.exe. The window shows a pairing code and stays on screen. Closing it exits the helper. It watches only the key you pick here, or with Set key in that window.'}
             </p>
             <p className="talk-links">
               <a href={HELPER_DOWNLOAD_URL}>Download RadioNetHelper.exe</a>

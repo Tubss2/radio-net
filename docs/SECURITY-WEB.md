@@ -91,5 +91,5 @@ The Pages CSP has to list `ws://127.0.0.1:47321` and `http://127.0.0.1:47321` (t
 | Mock at `/preview/` with `connect-src 'none'` | Workflow is on the product branch. The CSP meta tag is [#23](https://github.com/Tubss2/radio-net/pull/23). | None for the path. |
 | API CORS allowlist | [#19](https://github.com/Tubss2/radio-net/pull/19), merged | Not deployed to Sydney. |
 | Phone code, fragment, single use, data-only LiveKit grant, tap before redeem | Product branch, with the length, API host, and tap in [#23](https://github.com/Tubss2/radio-net/pull/23) | No session epoch. Redeem is a hash-map lookup. At 32 bytes that is not a practical guess. |
-| Helper origin, Host, Private Network Access, one-time code, bind `127.0.0.1:47321` | Product branch plus [#23](https://github.com/Tubss2/radio-net/pull/23) | The exe is unsigned. The workflow also attaches it to the `helper-1` release, which is not the desktop update feed. |
+| Helper origin, Host, Private Network Access, one-time code, bind `127.0.0.1:47321` | Product branch plus [#23](https://github.com/Tubss2/radio-net/pull/23) | The exe is unsigned. The workflow attaches it to the `helper-2` release, which is not the desktop update feed. |
 | Raw Input inside the Electron app, replacing `uiohook-napi` | Not started | The desktop hook is unchanged. The Rust helper is a separate process for the website. |

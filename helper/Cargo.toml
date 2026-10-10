@@ -2,7 +2,7 @@
 name = "radionet-helper"
 version = "0.1.0"
 edition = "2021"
-description = "Tiny Windows tray helper that forwards one push-to-talk key to the Radio Net page."
+description = "Tiny Windows window that forwards one push-to-talk key to the Radio Net page."
 publish = false
 
 [[bin]]
@@ -23,7 +23,6 @@ windows = { version = "0.58.0", features = [
   "Win32_System_Memory",
   "Win32_System_Registry",
   "Win32_UI_Input",
-  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
 
