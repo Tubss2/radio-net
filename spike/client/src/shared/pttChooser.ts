@@ -2,10 +2,10 @@
 export const PTT_CHOOSER_INTRO = 'There are 4 options for setting up push to talk, ranked safest to least safe.';
 
 /**
- * Desktop installer release. GitHub's /releases/latest currently redirects to the
- * helper release (the window helper), so this link names the desktop tag.
+ * Desktop installer release. This names the desktop tag so the full-app
+ * download stays on the installer.
  */
-export const DESKTOP_RELEASE_URL = 'https://github.com/Tubss2/radio-net/releases/tag/v0.4.4';
+export const DESKTOP_RELEASE_URL = 'https://github.com/Tubss2/radio-net/releases/tag/v0.4.5';
 
 /** Setup inside the helper card. The code field sits on the third step. */
 export const helperSetupSteps = [

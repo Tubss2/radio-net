@@ -131,13 +131,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not push $tag" }
       - name: Publish the installer to GitHub Releases
         if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+        # The exe and the blockmap publish at the same time. One of them can lose the
+        # race to create the release (422 already_exists) and fail this step. The next
+        # step uploads the finished files either way.
+        continue-on-error: true
         working-directory: spike/client
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: npx electron-builder --prepackaged release/win-unpacked --win nsis --publish always
       - name: Attach the installer, update feed, and checksum
-        if: (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+        if: ${{ !cancelled() && ((github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')) }}
         working-directory: spike/client
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -145,12 +149,25 @@ jobs:
         run: |
           $version = "${{ steps.installer.outputs.version }}"
           $file = "${{ steps.installer.outputs.file }}"
-          foreach ($path in @("release\$file", "release\$file.blockmap", 'release\latest.yml', 'release\SHA256SUMS.txt')) {
+          foreach ($path in @("release\$file", "release\$file.blockmap", 'release\latest.yml')) {
             if (-not (Test-Path $path)) { throw "Missing $path" }
           }
+          # The publish step rebuilds the installer, so hash the file that is about to be uploaded.
+          $hash = (Get-FileHash "release\$file" -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Encoding ascii "release\SHA256SUMS.txt" "$hash  $file"
           # electron-builder uploads the blockmap and the exe at the same time, and the exe
           # can be dropped when both try to create the release. Upload the finished files after.
+          gh release view "v$version" --json tagName *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "v$version" --title $version --notes-file release-notes.md --latest
+            if ($LASTEXITCODE -ne 0) { throw "Could not create the v$version release" }
+          }
           gh release upload "v$version" "release\$file" "release\$file.blockmap" release/latest.yml release/SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Could not upload the v$version installer assets" }
+          # electron-updater reads GitHub's Latest release for latest.yml. The helper
+          # release must not stay Latest. This does not replace helper-4 files.
+          gh release edit "v$version" --latest
+          if ($LASTEXITCODE -ne 0) { throw "Could not mark v$version as the latest release" }
       - name: Upload the installer, blockmap, and latest.yml
         if: always() && steps.installer.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

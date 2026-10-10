@@ -93,13 +93,13 @@ We haven't had confirmation yet from WARDOGS' anti-cheat team (Bulkhead) that th
 
 The site labels this "Still heavily WIP". It adds an in-game overlay and the channel wheel. Only use it if you know and trust the developer personally.
 
-1. Go to the [v0.4.4 release page](https://github.com/Tubss2/radio-net/releases/tag/v0.4.4) and download `RadioNet-Setup-0.4.4.exe`. (Don't use the "latest release" link on GitHub; it currently points at the helper, not the desktop app.)
+1. Go to the [v0.4.5 release page](https://github.com/Tubss2/radio-net/releases/tag/v0.4.5) and download `RadioNet-Setup-0.4.5.exe`. That release is the desktop app. The helper is a different file: [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe).
 2. Run it. On the blue SmartScreen box, click **More info**, then **Run anyway**.
 3. Enter your callsign, then the invite code.
 4. Accept the privacy note. The keyboard listener stays off until you do.
 5. Check or change your keys in keybind settings.
 
-Default keys (the same talk and channel keys as the helper, plus the wheel and the overlay). The published 0.4.4 installer is an older build and does not use this table yet:
+Default keys (the same talk and channel keys as the helper, plus the wheel and the overlay):
 
 | Key | Does |
 |---|---|
@@ -113,7 +113,7 @@ If you already changed your keys, those stay. If you never changed the keys that
 
 - On the wheel: hold or press F2. Hover a channel and left-click to transmit there, right-click to mute it, scroll to change frequency, Shift+scroll for volume, and **+** to add a channel you haven't tuned yet. Hold F2 and press 1–9 if the game keeps keyboard focus.
 - Updates: the app asks before it downloads an update. Then click **Restart now** or **Later**.
-- Version 0.4.4 doesn't have the new **Set up push to talk** chooser or the red on-air banner yet. Those are web-only for now.
+- **Set up push to talk** (the four choices) is on the website. This installer does not include that chooser. While you are talking, the app shows a red transmitting banner with the channel.
 - Quit the app when you're done playing. Its keyboard listener stops when the app closes.
 
 ## Known issues
