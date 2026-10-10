@@ -5,7 +5,7 @@ export const PTT_CHOOSER_INTRO = 'There are 4 options for setting up push to tal
  * Desktop installer release. This names the desktop tag so the full-app
  * download stays on the installer.
  */
-export const DESKTOP_RELEASE_URL = 'https://github.com/Tubss2/radio-net/releases/tag/v0.4.6';
+export const DESKTOP_RELEASE_URL = 'https://github.com/Tubss2/radio-net/releases/tag/v0.4.7';
 
 /** Setup inside the helper card. The code field sits on the third step. */
 export const helperSetupSteps = [
