@@ -14,6 +14,16 @@ set -euo pipefail
 LIVEKIT_VERSION="${LIVEKIT_VERSION:-1.13.9}"
 CADDY_VERSION="${CADDY_VERSION:-2.11.7}"
 NODE_VERSION="${NODE_VERSION:-24.21.0}"
+# SHA-256 of the linux/amd64 archives for the versions above. Change the hash when the version changes.
+NODE_SHA256="${NODE_SHA256:-fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6}"
+LIVEKIT_SHA256="${LIVEKIT_SHA256:-0b7fa208b662d09cfdeae8c06cf4c481aead0556086558b48250501e2e2d6e20}"
+CADDY_SHA256="${CADDY_SHA256:-727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b}"
+
+fetch_verified() {
+  local url="$1" sha="$2" archive="$3"
+  curl -fsSL "$url" -o "$archive"
+  echo "${sha}  ${archive}" | sha256sum -c -
+}
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # contains deploy/ and server/
 APP_DIR=/opt/radionet
@@ -108,6 +118,7 @@ ${ACME_EMAIL:+	email ${ACME_EMAIL}}
 
 ${API_HOST} {
 	encode gzip
+	header Strict-Transport-Security "max-age=31536000"
 
 	# Browser UI preview: static, fully mocked build (no API or LiveKit calls; CSP blocks any fetch/WebSocket).
 	redir /preview /preview/ 308
@@ -168,17 +179,26 @@ chmod 750 "$ETC_DIR"; chgrp radionet "$ETC_DIR"; chmod 640 "$SECRETS_FILE"; chgr
 log "Node.js v$NODE_VERSION"
 if [[ "$("$APP_DIR/node/bin/node" -v 2>/dev/null || true)" != "v$NODE_VERSION" ]]; then
   rm -rf "$APP_DIR/node" && mkdir -p "$APP_DIR/node"
-  curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" | tar xJ -C "$APP_DIR/node" --strip-components=1
+  archive="$(mktemp)"
+  fetch_verified "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" "$NODE_SHA256" "$archive"
+  tar xJ -C "$APP_DIR/node" --strip-components=1 -f "$archive"
+  rm -f "$archive"
 fi
 
 log "LiveKit v$LIVEKIT_VERSION"
 if ! "$APP_DIR/bin/livekit-server" --version 2>/dev/null | grep -q "$LIVEKIT_VERSION"; then
-  curl -fsSL "https://github.com/livekit/livekit/releases/download/v${LIVEKIT_VERSION}/livekit_${LIVEKIT_VERSION}_linux_amd64.tar.gz" | tar xz -C "$APP_DIR/bin" livekit-server
+  archive="$(mktemp)"
+  fetch_verified "https://github.com/livekit/livekit/releases/download/v${LIVEKIT_VERSION}/livekit_${LIVEKIT_VERSION}_linux_amd64.tar.gz" "$LIVEKIT_SHA256" "$archive"
+  tar xz -C "$APP_DIR/bin" -f "$archive" livekit-server
+  rm -f "$archive"
 fi
 
 log "Caddy v$CADDY_VERSION"
 if ! "$APP_DIR/bin/caddy" version 2>/dev/null | grep -q "v$CADDY_VERSION"; then
-  curl -fsSL "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz" | tar xz -C "$APP_DIR/bin" caddy
+  archive="$(mktemp)"
+  fetch_verified "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz" "$CADDY_SHA256" "$archive"
+  tar xz -C "$APP_DIR/bin" -f "$archive" caddy
+  rm -f "$archive"
 fi
 setcap 'cap_net_bind_service=+ep' "$APP_DIR/bin/caddy"
 
