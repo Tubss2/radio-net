@@ -2,6 +2,8 @@
 export interface RoomAdmin {
   listRooms(): Promise<Array<{ name?: string }>>;
   deleteRoom(name: string): Promise<unknown>;
+  /** Best-effort kick. Missing on older fakes; a LiveKit error must not undo a revoke. */
+  removeParticipant?(room: string, identity: string): Promise<unknown>;
 }
 
 /** Channel rooms we know about, plus phone rooms LiveKit still has for this community. */
