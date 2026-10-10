@@ -73,6 +73,8 @@ describe('GitHub Releases updates', () => {
 
   it('publishes a new helper tag only when approved and leaves the desktop updater alone', () => {
     const yml = readFileSync(join(repoRoot, '.github/workflows/ptt-helper.yml'), 'utf8');
+    expect(yml).toContain('cargo build --release --locked');
+    expect(yml).toContain('SHA256SUMS.txt');
     expect(yml).toContain('RadioNetHelper.exe');
     expect(yml).toContain('name: RadioNetHelper');
     expect(yml).toContain('contents: read');

@@ -38,7 +38,7 @@ jobs:
           toolchain: stable
       - name: Build RadioNetHelper.exe
         working-directory: helper
-        run: cargo build --release
+        run: cargo build --release --locked
       - name: Upload the helper exe
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -83,10 +83,13 @@ jobs:
           if ($max -lt 1) { throw "No helper-N tag found. Refusing to guess a first release." }
           $tag = "helper-$($max + 1)"
           if ($tag -notmatch '^helper-\d+$') { throw "Refusing tag $tag" }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $sums = "helper-dist/SHA256SUMS.txt"
+          Set-Content -Encoding ascii $sums "$hash  RadioNetHelper.exe"
           gh release view $tag --repo $repo --json tagName *> $null
           if ($LASTEXITCODE -eq 0) { throw "$tag already exists. Refusing to replace a published exe." }
           $notes = "Windows helper window for the web app. Talk is F1, previous channel is F3, and next channel is F4. Each key has a red test light. The window stays on screen and the process exits when you close it. It does not see the microphone. This tag is left as published. A later helper build is a new tag. Source: https://github.com/$repo/tree/main/helper"
-          gh release create $tag $exe --repo $repo --target $env:HELPER_TARGET --latest=false --title "Radio Net helper $tag" --notes $notes
+          gh release create $tag $exe $sums --repo $repo --target $env:HELPER_TARGET --latest=false --title "Radio Net helper $tag" --notes $notes
           if ($LASTEXITCODE -ne 0) { throw "Could not create $tag" }
           $seen = gh release view $tag --repo $repo --json tagName --jq .tagName
           if ($LASTEXITCODE -ne 0) { throw "Could not read $tag after creating it" }
