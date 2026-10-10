@@ -42,7 +42,8 @@ export interface RadioControl {
   setTx(id: string): void;
   /** A tuned channel that can transmit becomes the talk channel when none is chosen. */
   ensureTx(): void;
-  cycle(): void;
+  /** Step the talk channel. Positive moves to the next tuned channel, negative to the previous. */
+  cycle(step?: 1 | -1): void;
   /** True only after this call left the microphone unmuted. */
   ptt(down: boolean, channelId?: string): Promise<boolean>;
   /** Resume audio and open the mic on a user gesture. The track stays published and muted until PTT. */
@@ -251,12 +252,13 @@ export class RadioEngine implements RadioControl {
     this.changed();
   }
 
-  /** Cycle key: move TX to the next tuned channel (by frequency). */
-  cycle() {
+  /** Move TX to the next or previous tuned channel (by frequency). */
+  cycle(step: 1 | -1 = 1) {
     const ids = this.tuned.filter((t) => t.canTransmit && t.status !== 'gone').map((t) => t.channel.id);
     if (!ids.length) { this.txId = null; this.changed(); return; }
-    const next = ids[(ids.indexOf(this.txId ?? '') + 1) % ids.length];
-    this.setTx(next);
+    const index = ids.indexOf(this.txId ?? '');
+    const from = index < 0 ? (step > 0 ? -1 : 0) : index;
+    this.setTx(ids[(from + step + ids.length) % ids.length]);
   }
 
   /**

@@ -2,15 +2,18 @@
 //! Closing the window stops Raw Input, closes the socket, and exits the process.
 
 use super::{finish_stream, is_shutdown, pump, PORT, SHUTDOWN};
-use crate::device::{self, DeviceState};
-use crate::protocol::{watch_label, LinkedCommand, Watch};
+use crate::device::{self, Binds, DeviceState};
+use crate::protocol::{watch_label, LinkedCommand, OutEvent, Role, Watch};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::Duration;
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::{GetStockObject, GetSysColorBrush, COLOR_WINDOW, DEFAULT_GUI_FONT};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Graphics::Gdi::{
+    CreateFontW, CreateSolidBrush, GetStockObject, GetSysColorBrush, InvalidateRect, SetBkColor, SetTextColor,
+    COLOR_WINDOW, DEFAULT_GUI_FONT, FW_BOLD, HDC,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE,
@@ -19,63 +22,97 @@ use windows::Win32::UI::Input::{
     GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RIDEV_INPUTSINK,
     RIDEV_REMOVE, RID_INPUT, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE,
 };
+use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, LoadIconW, MessageBoxW,
-    PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetWindowTextW, ShowWindow, TranslateMessage,
-    BS_PUSHBUTTON, CW_USEDEFAULT, HMENU, IDI_APPLICATION, MB_ICONINFORMATION, MB_OK, MSG, SW_HIDE, SW_SHOW,
-    SW_SHOWNORMAL, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_INPUT, WM_SETFONT, WM_USER,
-    WNDCLASSW, WS_CAPTION, WS_CHILD, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, IsIconic, LoadIconW,
+    MessageBoxW, MoveWindow, PostMessageW, PostQuitMessage, RegisterClassW, SendMessageW, SetWindowPos, SetWindowTextW,
+    ShowWindow, TranslateMessage, BS_PUSHBUTTON, CW_USEDEFAULT, HMENU, IDI_APPLICATION, MB_ICONINFORMATION, MB_OK, MSG,
+    SW_HIDE, SW_SHOW, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE,
+    WM_COMMAND, WM_CTLCOLORSTATIC, WM_DESTROY, WM_INPUT, WM_SETFONT, WM_USER, WNDCLASSW, WS_CAPTION, WS_CHILD,
+    WS_MINIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 
 const WM_APP_REFRESH: u32 = WM_USER + 20;
 const ID_STATUS: usize = 101;
-const ID_CODE_LABEL: usize = 102;
+const ID_HINT: usize = 102;
 const ID_CODE: usize = 103;
-const ID_KEY: usize = 104;
-const ID_PRESS: usize = 105;
-const ID_SET: usize = 106;
-const ID_UNLINK: usize = 107;
+const ID_OPEN: usize = 104;
+const ID_UNLINK: usize = 105;
+const ID_PTT_LABEL: usize = 110;
+const ID_PTT_LIGHT: usize = 111;
+const ID_PTT_SET: usize = 112;
+const ID_PREV_LABEL: usize = 120;
+const ID_PREV_LIGHT: usize = 121;
+const ID_PREV_SET: usize = 122;
+const ID_NEXT_LABEL: usize = 130;
+const ID_NEXT_LIGHT: usize = 131;
+const ID_NEXT_SET: usize = 132;
+const SS_CENTER: u32 = 0x0001;
 
 static HWND_SLOT: AtomicIsize = AtomicIsize::new(0);
-static EVENTS: Mutex<Option<mpsc::Sender<bool>>> = Mutex::new(None);
-static WATCH: Mutex<Option<Watch>> = Mutex::new(None);
-static DEVICE: Mutex<DeviceState> = Mutex::new(DeviceState { token_hash: None, watch: None, autostart: false });
+static EVENTS: Mutex<Option<mpsc::Sender<OutEvent>>> = Mutex::new(None);
+static DEVICE: Mutex<DeviceState> = Mutex::new(DeviceState {
+    token_hash: None,
+    binds: Binds {
+        ptt: Some(Watch::Key { vk: 0x70 }),
+        prev: Some(Watch::Key { vk: 0x72 }),
+        next: Some(Watch::Key { vk: 0x73 }),
+    },
+    autostart: false,
+});
 static DEVICE_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
 static EXPECTED: Mutex<String> = Mutex::new(String::new());
 static DROP_LINK: AtomicBool = AtomicBool::new(false);
 static ACTIVE: Mutex<Option<TcpStream>> = Mutex::new(None);
-static REBIND: Mutex<Option<mpsc::Sender<Watch>>> = Mutex::new(None);
 static STATUS: Mutex<Status> = Mutex::new(Status {
     linked: false,
     origin: String::new(),
     code: String::new(),
-    watch: None,
-    pressed: false,
-    capturing: false,
-    suppress_held: false,
+    binds: Binds {
+        ptt: Some(Watch::Key { vk: 0x70 }),
+        prev: Some(Watch::Key { vk: 0x72 }),
+        next: Some(Watch::Key { vk: 0x73 }),
+    },
+    held: [false; 3],
+    capturing: None,
+    suppress: None,
 });
 static CONTROLS: Mutex<Option<Controls>> = Mutex::new(None);
+static PAINT: Mutex<Paint> = Mutex::new(Paint { red: 0, dim: 0 });
 
 struct Status {
     linked: bool,
     origin: String,
     code: String,
-    watch: Option<Watch>,
-    pressed: bool,
-    capturing: bool,
+    binds: Binds,
+    held: [bool; 3],
+    capturing: Option<Role>,
     /// The key used to bind is still physically down. Do not transmit until it is released.
-    suppress_held: bool,
+    suppress: Option<Watch>,
+}
+
+struct Paint {
+    red: isize,
+    dim: isize,
+}
+
+#[derive(Clone, Copy)]
+struct Row {
+    label: isize,
+    light: isize,
+    set: isize,
 }
 
 #[derive(Clone, Copy)]
 struct Controls {
     status: isize,
-    code_label: isize,
+    hint: isize,
     code: isize,
-    key: isize,
-    press: isize,
-    set_key: isize,
+    open: isize,
     unlink: isize,
+    ptt: Row,
+    prev: Row,
+    next: Row,
 }
 
 fn hwnd_of(raw: isize) -> HWND {
@@ -115,9 +152,8 @@ pub fn run(code: &str) {
     {
         let mut status = STATUS.lock().unwrap();
         status.code = code.to_string();
-        status.watch = loaded.watch.clone();
+        status.binds = loaded.binds.clone();
     }
-    *WATCH.lock().unwrap() = loaded.watch;
     let net = std::thread::spawn(move || net_loop(listener));
     message_loop();
     SHUTDOWN.store(true, Ordering::SeqCst);
@@ -151,36 +187,30 @@ fn net_loop(listener: TcpListener) {
         });
         match outcome {
             Ok(link) => {
-                *DEVICE.lock().unwrap() = device;
+                *DEVICE.lock().unwrap() = device.clone();
                 if link.fresh {
                     rotate_code();
                 }
                 let (tx, rx) = mpsc::channel();
                 {
-                    *WATCH.lock().unwrap() = Some(link.watch.clone());
                     let mut status = STATUS.lock().unwrap();
                     status.linked = true;
                     status.origin = link.origin;
-                    status.watch = Some(link.watch);
-                    status.pressed = false;
-                    status.capturing = false;
+                    status.binds = device.binds;
+                    status.held = [false; 3];
+                    status.capturing = None;
                 }
                 *EVENTS.lock().unwrap() = Some(tx);
-                let (rebind_tx, rebind_rx) = mpsc::channel();
-                *REBIND.lock().unwrap() = Some(rebind_tx);
                 post_refresh();
-                let ended = pump(link.stream, rx, &DROP_LINK, apply_command, || rebind_rx.try_recv().ok());
-                *REBIND.lock().unwrap() = None;
+                let ended = pump(link.stream, rx, &DROP_LINK, apply_command);
                 clear_active();
                 *EVENTS.lock().unwrap() = None;
-                let watch = DEVICE.lock().unwrap().watch.clone();
-                *WATCH.lock().unwrap() = watch.clone();
                 {
                     let mut status = STATUS.lock().unwrap();
                     status.linked = false;
                     status.origin.clear();
-                    status.pressed = false;
-                    status.watch = watch;
+                    status.held = [false; 3];
+                    status.binds = DEVICE.lock().unwrap().binds.clone();
                 }
                 if matches!(&ended, Err(err) if err == "forgotten") {
                     rotate_code();
@@ -194,27 +224,13 @@ fn net_loop(listener: TcpListener) {
 }
 
 fn apply_command(cmd: LinkedCommand) -> Result<(), String> {
-    let watch = {
-        let mut stored = DEVICE.lock().unwrap();
-        match cmd {
-            LinkedCommand::Watch(watch) => {
-                stored.watch = Some(watch.clone());
-                if let Some(path) = DEVICE_PATH.get() {
-                    device::save_device(path, &stored)?;
-                }
-                Some(watch)
-            }
-            LinkedCommand::Forget => {
-                stored.forget_link();
-                if let Some(path) = DEVICE_PATH.get() {
-                    let _ = device::save_device(path, &stored);
-                }
-                stored.watch.clone()
-            }
-        }
-    };
-    *WATCH.lock().unwrap() = watch.clone();
-    STATUS.lock().unwrap().watch = watch;
+    let LinkedCommand::Forget = cmd;
+    let mut stored = DEVICE.lock().unwrap();
+    stored.forget_link();
+    if let Some(path) = DEVICE_PATH.get() {
+        let _ = device::save_device(path, &stored);
+    }
+    drop(stored);
     post_refresh();
     Ok(())
 }
@@ -290,8 +306,8 @@ fn message_loop() {
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            440,
-            300,
+            460,
+            520,
             HWND::default(),
             HMENU::default(),
             instance,
@@ -301,18 +317,32 @@ fn message_loop() {
             Err(_) => return,
         };
         HWND_SLOT.store(hwnd.0 as isize, Ordering::SeqCst);
+        let button = WS_CHILD | WS_VISIBLE | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32);
         let controls = Controls {
-            status: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE, 16, 16, 392, 24, hwnd, ID_STATUS).0 as isize,
-            code_label: child(w!("STATIC"), "Pairing code", WS_CHILD | WS_VISIBLE, 16, 48, 392, 20, hwnd, ID_CODE_LABEL).0 as isize,
-            code: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE, 16, 70, 392, 28, hwnd, ID_CODE).0 as isize,
-            key: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE, 16, 112, 392, 24, hwnd, ID_KEY).0 as isize,
-            press: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE, 16, 140, 392, 24, hwnd, ID_PRESS).0 as isize,
-            set_key: child(w!("BUTTON"), "Set key", WS_CHILD | WS_VISIBLE | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32), 16, 180, 180, 32, hwnd, ID_SET).0 as isize,
-            unlink: child(w!("BUTTON"), "Unlink", WS_CHILD | WS_VISIBLE | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32), 212, 180, 180, 32, hwnd, ID_UNLINK).0 as isize,
+            status: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE, 16, 16, 412, 22, hwnd, ID_STATUS).0 as isize,
+            hint: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE, 16, 44, 412, 64, hwnd, ID_HINT).0 as isize,
+            code: child(w!("STATIC"), "", WS_CHILD | WS_VISIBLE | style_bits(SS_CENTER), 16, 112, 412, 48, hwnd, ID_CODE).0 as isize,
+            open: child(w!("BUTTON"), "Open Radio Net", button, 16, 168, 200, 32, hwnd, ID_OPEN).0 as isize,
+            unlink: child(w!("BUTTON"), "Unlink", button, 228, 168, 140, 32, hwnd, ID_UNLINK).0 as isize,
+            ptt: row(hwnd, "PTT", ID_PTT_LABEL, ID_PTT_LIGHT, ID_PTT_SET, 220),
+            prev: row(hwnd, "Previous channel", ID_PREV_LABEL, ID_PREV_LIGHT, ID_PREV_SET, 260),
+            next: row(hwnd, "Next channel", ID_NEXT_LABEL, ID_NEXT_LIGHT, ID_NEXT_SET, 300),
         };
         let font = GetStockObject(DEFAULT_GUI_FONT);
-        for control in [controls.status, controls.code_label, controls.code, controls.key, controls.press, controls.set_key, controls.unlink] {
+        let code_font = CreateFontW(-32, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, 0, 0, 0, 0, 0, w!("Segoe UI"));
+        let red = CreateSolidBrush(COLORREF(0x000000FF));
+        let dim = CreateSolidBrush(COLORREF(0x00B0B0B0));
+        *PAINT.lock().unwrap() = Paint { red: red.0 as isize, dim: dim.0 as isize };
+        let handles = [
+            controls.status, controls.hint, controls.code, controls.open, controls.unlink,
+            controls.ptt.label, controls.ptt.set, controls.prev.label, controls.prev.set,
+            controls.next.label, controls.next.set,
+        ];
+        for control in handles {
             let _ = SendMessageW(hwnd_of(control), WM_SETFONT, WPARAM(font.0 as usize), LPARAM(1));
+        }
+        if !code_font.0.is_null() {
+            let _ = SendMessageW(hwnd_of(controls.code), WM_SETFONT, WPARAM(code_font.0 as usize), LPARAM(1));
         }
         *CONTROLS.lock().unwrap() = Some(controls);
         apply_status(true);
@@ -322,6 +352,15 @@ fn message_loop() {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
+    }
+}
+
+fn row(parent: HWND, title: &str, label: usize, light: usize, set: usize, y: i32) -> Row {
+    let button = WS_CHILD | WS_VISIBLE | WS_TABSTOP | style_bits(BS_PUSHBUTTON as u32);
+    Row {
+        label: child(w!("STATIC"), title, WS_CHILD | WS_VISIBLE, 16, y, 280, 24, parent, label).0 as isize,
+        light: child(w!("STATIC"), " ", WS_CHILD | WS_VISIBLE, 304, y + 3, 18, 18, parent, light).0 as isize,
+        set: child(w!("BUTTON"), "Set", button, 332, y - 4, 96, 28, parent, set).0 as isize,
     }
 }
 
@@ -373,15 +412,14 @@ fn post_refresh() {
     }
 }
 
-fn apply_status(reregister: bool) {
+fn apply_status(relayout: bool) {
     let status = {
         let guard = STATUS.lock().unwrap();
         StatusCopy {
             linked: guard.linked,
             origin: guard.origin.clone(),
             code: guard.code.clone(),
-            watch: guard.watch.clone(),
-            pressed: guard.pressed,
+            binds: guard.binds.clone(),
             capturing: guard.capturing,
         }
     };
@@ -397,27 +435,84 @@ fn apply_status(reregister: bool) {
         "Disconnected".into()
     };
     set_text(hwnd_of(controls.status), &state);
-    let show_code = !status.linked && !status.capturing;
-    unsafe {
-        let _ = ShowWindow(hwnd_of(controls.code_label), if show_code { SW_SHOW } else { SW_HIDE });
-        let _ = ShowWindow(hwnd_of(controls.code), if show_code { SW_SHOW } else { SW_HIDE });
-    }
-    set_text(hwnd_of(controls.code), &status.code);
-    let key = if status.capturing {
-        "Press a key or a mouse side button".into()
-    } else if let Some(watch) = &status.watch {
-        format!("Watched key: {}", watch_label(watch))
+    let show_pair = !status.linked && status.capturing.is_none();
+    let hint = if status.capturing.is_some() {
+        "Press a key or a mouse side button."
+    } else if show_pair {
+        "In Radio Net on the website, click Set up push to talk, then Helper app, and enter this code."
     } else {
-        "Watched key: not set".into()
+        ""
     };
-    set_text(hwnd_of(controls.key), &key);
-    set_text(hwnd_of(controls.press), if status.pressed { "Pressed" } else { "" });
-    set_text(hwnd_of(controls.set_key), if status.capturing { "Cancel" } else { "Set key" });
-    if reregister {
+    set_text(hwnd_of(controls.hint), hint);
+    set_text(hwnd_of(controls.code), &status.code);
+    paint_row(&controls.ptt, "PTT", Role::Ptt, &status);
+    paint_row(&controls.prev, "Previous channel", Role::Prev, &status);
+    paint_row(&controls.next, "Next channel", Role::Next, &status);
+    if relayout {
+        let show_hint = !hint.is_empty();
+        place(controls.hint, 16, 44, 412, 64, show_hint);
+        place(controls.code, 16, 112, 412, 48, show_pair);
+        place(controls.open, 16, 168, 200, 32, show_pair);
+        let rows_y = if show_pair { 220 } else if show_hint { 120 } else { 48 };
+        place_row(&controls.ptt, rows_y);
+        place_row(&controls.prev, rows_y + 40);
+        place_row(&controls.next, rows_y + 80);
+        place(controls.unlink, 16, rows_y + 128, 140, 32, true);
+        resize_window(if show_pair { 520 } else if show_hint { 400 } else { 300 });
+    }
+    unsafe {
+        let _ = InvalidateRect(hwnd_of(controls.ptt.light), None, true);
+        let _ = InvalidateRect(hwnd_of(controls.prev.light), None, true);
+        let _ = InvalidateRect(hwnd_of(controls.next.light), None, true);
+    }
+    if relayout {
         let raw = HWND_SLOT.load(Ordering::SeqCst);
         if raw != 0 {
-            register(HWND(raw as *mut core::ffi::c_void), status.watch.as_ref(), status.capturing);
+            register(HWND(raw as *mut core::ffi::c_void), &status.binds, status.capturing.is_some());
         }
+    }
+}
+
+fn paint_row(row: &Row, title: &str, role: Role, status: &StatusCopy) {
+    let name = match status.binds.get(role) {
+        Some(watch) => watch_label(watch),
+        None => "not set".into(),
+    };
+    let text = if status.capturing == Some(role) {
+        format!("{title} — press a key")
+    } else {
+        format!("{title} — {name}")
+    };
+    set_text(hwnd_of(row.label), &text);
+    set_text(hwnd_of(row.set), if status.capturing == Some(role) { "Cancel" } else { "Set" });
+}
+
+fn place(raw: isize, x: i32, y: i32, w: i32, h: i32, show: bool) {
+    unsafe {
+        let _ = ShowWindow(hwnd_of(raw), if show { SW_SHOW } else { SW_HIDE });
+        if show {
+            let _ = MoveWindow(hwnd_of(raw), x, y, w, h, true);
+        }
+    }
+}
+
+fn place_row(row: &Row, y: i32) {
+    place(row.label, 16, y, 280, 24, true);
+    place(row.light, 304, y + 3, 18, 18, true);
+    place(row.set, 332, y - 4, 96, 28, true);
+}
+
+fn resize_window(height: i32) {
+    let raw = HWND_SLOT.load(Ordering::SeqCst);
+    if raw == 0 {
+        return;
+    }
+    let hwnd = hwnd_of(raw);
+    unsafe {
+        if IsIconic(hwnd).as_bool() {
+            return;
+        }
+        let _ = SetWindowPos(hwnd, HWND::default(), 0, 0, 460, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 }
 
@@ -425,38 +520,34 @@ struct StatusCopy {
     linked: bool,
     origin: String,
     code: String,
-    watch: Option<Watch>,
-    pressed: bool,
-    capturing: bool,
+    binds: Binds,
+    capturing: Option<Role>,
 }
 
-fn toggle_capture() {
+fn toggle_capture(role: Role) {
     {
         let mut status = STATUS.lock().unwrap();
-        status.capturing = !status.capturing;
-        if !status.capturing {
-            status.suppress_held = false;
+        status.capturing = if status.capturing == Some(role) { None } else { Some(role) };
+        if status.capturing.is_none() {
+            status.suppress = None;
         }
     }
     apply_status(true);
 }
 
 fn unlink_from_window() {
-    let watch = {
+    {
         let mut stored = DEVICE.lock().unwrap();
         stored.forget_link();
         if let Some(path) = DEVICE_PATH.get() {
             let _ = device::save_device(path, &stored);
         }
-        stored.watch.clone()
-    };
-    *WATCH.lock().unwrap() = watch.clone();
+    }
     let linked = {
         let mut status = STATUS.lock().unwrap();
-        status.capturing = false;
-        status.watch = watch;
-        status.pressed = false;
-        status.suppress_held = false;
+        status.capturing = None;
+        status.held = [false; 3];
+        status.suppress = None;
         status.linked
     };
     if linked {
@@ -467,26 +558,34 @@ fn unlink_from_window() {
     apply_status(true);
 }
 
-fn bind_watch(watch: Watch) {
+fn bind_watch(role: Role, watch: Watch) {
     {
         let mut stored = DEVICE.lock().unwrap();
-        stored.watch = Some(watch.clone());
+        stored.binds.set(role, watch.clone());
         if let Some(path) = DEVICE_PATH.get() {
             let _ = device::save_device(path, &stored);
         }
     }
-    *WATCH.lock().unwrap() = Some(watch.clone());
     {
         let mut status = STATUS.lock().unwrap();
-        status.watch = Some(watch.clone());
-        status.capturing = false;
-        status.suppress_held = true;
-        status.pressed = false;
-    }
-    if let Some(tx) = REBIND.lock().unwrap().as_ref() {
-        let _ = tx.send(watch);
+        status.binds = DEVICE.lock().unwrap().binds.clone();
+        status.capturing = None;
+        status.suppress = Some(watch);
+        status.held = [false; 3];
     }
     apply_status(true);
+}
+
+fn open_radio(code: &str) {
+    if code.len() != crate::protocol::PAIRING_LEN || !code.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+        return;
+    }
+    let url = format!("https://tubss2.github.io/radio-net/#h={code}");
+    let mut file: Vec<u16> = url.encode_utf16().collect();
+    file.push(0);
+    unsafe {
+        let _ = ShellExecuteW(HWND::default(), w!("open"), PCWSTR(file.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+    }
 }
 
 unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -494,14 +593,26 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
         handle_input(HRAWINPUT(lparam.0 as *mut core::ffi::c_void));
         return LRESULT(0);
     }
+    if msg == WM_CTLCOLORSTATIC {
+        if let Some(brush) = light_brush(HWND(lparam.0 as *mut core::ffi::c_void)) {
+            let hdc = HDC(wparam.0 as *mut core::ffi::c_void);
+            let color = COLORREF(if brush == PAINT.lock().unwrap().red { 0x000000FF } else { 0x00B0B0B0 });
+            let _ = SetBkColor(hdc, color);
+            let _ = SetTextColor(hdc, color);
+            return LRESULT(brush);
+        }
+    }
     if msg == WM_APP_REFRESH {
         apply_status(true);
         return LRESULT(0);
     }
     if msg == WM_COMMAND {
         match wparam.0 & 0xffff {
-            ID_SET => toggle_capture(),
+            ID_PTT_SET => toggle_capture(Role::Ptt),
+            ID_PREV_SET => toggle_capture(Role::Prev),
+            ID_NEXT_SET => toggle_capture(Role::Next),
             ID_UNLINK => unlink_from_window(),
+            ID_OPEN => open_radio(&STATUS.lock().unwrap().code),
             _ => {}
         }
         return LRESULT(0);
@@ -521,26 +632,41 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-fn register(hwnd: HWND, watch: Option<&Watch>, capturing: bool) {
+fn light_brush(hwnd: HWND) -> Option<isize> {
+    let controls = (*CONTROLS.lock().unwrap())?;
+    let lights = [controls.ptt.light, controls.prev.light, controls.next.light];
+    let index = lights.iter().position(|raw| *raw == hwnd.0 as isize)?;
+    let held = STATUS.lock().unwrap().held[index];
+    let paint = PAINT.lock().unwrap();
+    Some(if held { paint.red } else { paint.dim })
+}
+
+fn register(hwnd: HWND, binds: &Binds, capturing: bool) {
+    let mouse = capturing || slot_is_mouse(&binds.ptt) || slot_is_mouse(&binds.prev) || slot_is_mouse(&binds.next);
+    let keyboard = capturing || slot_is_key(&binds.ptt) || slot_is_key(&binds.prev) || slot_is_key(&binds.next);
     unsafe {
-        if capturing {
-            let keyboard = device(0x06, RIDEV_INPUTSINK, hwnd);
-            let mouse = device(0x02, RIDEV_INPUTSINK, hwnd);
-            let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
-            let _ = RegisterRawInputDevices(&[keyboard, mouse], size);
-            return;
+        let mut list = Vec::new();
+        if keyboard {
+            list.push(device(0x06, RIDEV_INPUTSINK, hwnd));
+        } else {
+            list.push(device(0x06, RIDEV_REMOVE, HWND::default()));
         }
-        match watch {
-            Some(watch) => {
-                let mouse = matches!(watch, Watch::Mouse { .. });
-                let keep = device(if mouse { 0x02 } else { 0x06 }, RIDEV_INPUTSINK, hwnd);
-                let drop_other = device(if mouse { 0x06 } else { 0x02 }, RIDEV_REMOVE, HWND::default());
-                let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
-                let _ = RegisterRawInputDevices(&[drop_other, keep], size);
-            }
-            None => clear_raw(),
+        if mouse {
+            list.push(device(0x02, RIDEV_INPUTSINK, hwnd));
+        } else {
+            list.push(device(0x02, RIDEV_REMOVE, HWND::default()));
         }
+        let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
+        let _ = RegisterRawInputDevices(&list, size);
     }
+}
+
+fn slot_is_mouse(slot: &Option<Watch>) -> bool {
+    matches!(slot, Some(Watch::Mouse { .. }))
+}
+
+fn slot_is_key(slot: &Option<Watch>) -> bool {
+    matches!(slot, Some(Watch::Key { .. }))
 }
 
 fn device(usage: u16, flags: windows::Win32::UI::Input::RAWINPUTDEVICE_FLAGS, hwnd: HWND) -> RAWINPUTDEVICE {
@@ -562,37 +688,83 @@ unsafe fn clear_raw() {
 unsafe fn handle_input(handle: HRAWINPUT) {
     let Some(edge) = read_edge(handle) else { return };
     let capturing = STATUS.lock().unwrap().capturing;
-    if capturing {
+    if let Some(role) = capturing {
         let bound = match edge {
             RawEdge::Key { vk, down: true } if (1..0xFF).contains(&vk) => Some(Watch::Key { vk }),
             RawEdge::Mouse { button, down: true } if button == 4 || button == 5 => Some(Watch::Mouse { button }),
             _ => None,
         };
         if let Some(watch) = bound {
-            bind_watch(watch);
+            bind_watch(role, watch);
         }
         return;
     }
-    let watch = match WATCH.lock().unwrap().clone() {
-        Some(watch) => watch,
-        None => return,
-    };
-    let down = match (&watch, edge) {
-        (Watch::Key { vk }, RawEdge::Key { vk: got, down }) if *vk == got => down,
-        (Watch::Mouse { button }, RawEdge::Mouse { button: got, down }) if *button == got => down,
-        _ => return,
-    };
-    if STATUS.lock().unwrap().suppress_held {
-        if !down {
-            STATUS.lock().unwrap().suppress_held = false;
-        }
+    if suppressed(&edge) {
         return;
     }
-    STATUS.lock().unwrap().pressed = down;
-    if let Some(tx) = EVENTS.lock().unwrap().as_ref() {
-        let _ = tx.send(down);
+    let binds = STATUS.lock().unwrap().binds.clone();
+    let Some((role, down)) = match_role(&binds, &edge) else { return };
+    let index = role.index();
+    let mut send = None;
+    {
+        let mut status = STATUS.lock().unwrap();
+        match role {
+            Role::Ptt => {
+                if status.held[index] == down {
+                    return;
+                }
+                status.held[index] = down;
+                send = Some(OutEvent::Ptt(down));
+            }
+            Role::Prev | Role::Next => {
+                if down {
+                    if status.held[index] {
+                        return;
+                    }
+                    status.held[index] = true;
+                    send = Some(OutEvent::Tx(role == Role::Next));
+                } else {
+                    status.held[index] = false;
+                }
+            }
+        }
+    }
+    if let Some(event) = send {
+        if let Some(tx) = EVENTS.lock().unwrap().as_ref() {
+            let _ = tx.send(event);
+        }
     }
     apply_status(false);
+}
+
+fn suppressed(edge: &RawEdge) -> bool {
+    let mut status = STATUS.lock().unwrap();
+    let Some(watch) = status.suppress.clone() else { return false };
+    let down = match (watch, edge) {
+        (Watch::Key { vk }, RawEdge::Key { vk: got, down }) if vk == *got => Some(*down),
+        (Watch::Mouse { button }, RawEdge::Mouse { button: got, down }) if button == *got => Some(*down),
+        _ => None,
+    };
+    match down {
+        Some(true) => true,
+        Some(false) => {
+            status.suppress = None;
+            true
+        }
+        None => false,
+    }
+}
+
+fn match_role(binds: &Binds, edge: &RawEdge) -> Option<(Role, bool)> {
+    for role in [Role::Ptt, Role::Prev, Role::Next] {
+        let Some(watch) = binds.get(role) else { continue };
+        match (watch, edge) {
+            (Watch::Key { vk }, RawEdge::Key { vk: got, down }) if vk == got => return Some((role, *down)),
+            (Watch::Mouse { button }, RawEdge::Mouse { button: got, down }) if button == got => return Some((role, *down)),
+            _ => {}
+        }
+    }
+    None
 }
 
 unsafe fn read_edge(handle: HRAWINPUT) -> Option<RawEdge> {

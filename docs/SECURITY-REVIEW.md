@@ -213,7 +213,7 @@ These rows are the product branch (`cursor/local-callsign-keybinds-3d59`), not t
 | H5 | Pairing code reused for the life of the helper | High | Fixed in [#23](https://github.com/Tubss2/radio-net/pull/23). One success burns the 12-character code. [#34](https://github.com/Tubss2/radio-net/pull/34) then issues a device token so the page does not ask for a code again. |
 | H6 | Helper listens on the LAN | High | Fixed on the product branch. Bind is `127.0.0.1:47321` only. |
 | H7 | Helper logs other keys | High | Fixed on the product branch. Raw Input drops every key that is not the watched one, before anything is written to the socket. The callback does not print key codes. |
-| H8 | Device token in Pages `localStorage` | Medium | Accepted. The helper file holds a DPAPI-sealed SHA-256, not the token. Unlink on the page or in the helper window revokes it. Any script on `https://tubss2.github.io` can still copy the token and hold that one key until then. |
+| H8 | Device token in Pages `localStorage` | Medium | Accepted. The helper file holds a DPAPI-sealed SHA-256, not the token. Unlink on the page or in the helper window revokes it. Any script on `https://tubss2.github.io` can still copy the token and hold the three bound actions until then. The socket does not carry key codes. |
 
 `npm audit` on the client production tree is clean. The high and critical counts are in dev tooling (the installer toolchain). Dependabot is the ongoing watch for those. The server tree is clean.
 

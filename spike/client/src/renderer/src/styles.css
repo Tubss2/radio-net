@@ -180,6 +180,8 @@ button.talk-choice:hover { border-color: var(--accent); }
 .helper-steps .btn { align-self: flex-start; }
 .helper-status { margin: 0; font-weight: 700; color: var(--muted); }
 .helper-status.live { color: var(--live); }
+.helper-panel { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 6px; }
+.helper-panel .helper-code { width: 100%; }
 .talk-links { display: flex; gap: 12px; flex-wrap: wrap; }
 .talk-links a { color: var(--accent); font-weight: 600; }
 .web-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

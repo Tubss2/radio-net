@@ -70,10 +70,12 @@ export class PreviewEngine implements RadioControl {
     this.changed();
   }
 
-  cycle() {
+  cycle(step: 1 | -1 = 1) {
     const ids = this.tuned.filter((t) => t.canTransmit && t.status !== 'gone').map((t) => t.channel.id);
     if (!ids.length) { this.txId = null; this.changed(); return; }
-    this.setTx(ids[(ids.indexOf(this.txId ?? '') + 1) % ids.length]);
+    const index = ids.indexOf(this.txId ?? '');
+    const from = index < 0 ? (step > 0 ? -1 : 0) : index;
+    this.setTx(ids[(from + step + ids.length) % ids.length]);
   }
 
   async ptt(down: boolean, channelId?: string): Promise<boolean> {
