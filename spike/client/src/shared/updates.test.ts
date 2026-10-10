@@ -38,6 +38,9 @@ describe('GitHub Releases updates', () => {
     const setup = readFileSync(join(repoRoot, 'deploy/setup.sh'), 'utf8');
     expect(setup).not.toContain('/updates/');
     expect(setup).not.toContain('publish-update');
+    expect(setup).toContain('sha256sum -c -');
+    expect(setup).toContain('Strict-Transport-Security "max-age=31536000"');
+    expect(setup).not.toMatch(/curl -fsSL[^\n]*\| tar/);
   });
 
   it('publishes the installer from a version tag with the Actions token', () => {
