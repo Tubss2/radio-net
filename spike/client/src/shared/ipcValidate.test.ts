@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_BINDS } from './keybinds';
+import { DEFAULT_BINDS, UIO_G } from './keybinds';
 import { parseKeybinds, parseLogEvent, parseOverlayState, parseWheelInput } from './ipcValidate';
 
 describe('IPC validation', () => {
   it('accepts the default binds and rejects a forged payload', () => {
     expect(parseKeybinds(DEFAULT_BINDS)?.ptt).toEqual(DEFAULT_BINDS.ptt);
     expect(parseKeybinds(DEFAULT_BINDS)?.prev).toEqual(DEFAULT_BINDS.prev);
+    expect(parseKeybinds(DEFAULT_BINDS)?.allCall).toBeNull();
+    expect(parseKeybinds({ allCall: { kind: 'key', keycode: UIO_G, label: 'G' } })?.allCall).toMatchObject({ keycode: UIO_G, label: 'G' });
+    expect(parseKeybinds({ allCall: { kind: 'key', keycode: -1, label: 'nope' } })).toBeNull();
     expect(parseKeybinds({
       ptt: { kind: 'key', keycode: 34, label: 'G' },
       cycle: { kind: 'mouse', button: 5, label: 'Mouse 5' },

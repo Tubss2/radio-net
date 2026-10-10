@@ -19,6 +19,8 @@ describe('input watch', () => {
     expect(shouldObserveInput({ kind: 'key', keycode: UIO_F5, label: 'F5' }, state)).toBe(true);
     expect(shouldObserveInput({ kind: 'mouse', button: 4, label: 'Mouse 4' }, state)).toBe(false);
     expect(shouldObserveInput({ kind: 'key', keycode: UIO_G, label: 'G' }, state)).toBe(false);
+    const allCall = { ...state, binds: { ...DEFAULT_BINDS, allCall: { kind: 'key' as const, keycode: UIO_G, label: 'G' } } };
+    expect(shouldObserveInput({ kind: 'key', keycode: UIO_G, label: 'G' }, allCall)).toBe(true);
     expect(shouldObserveInput({ kind: 'key', keycode: UIO_ESCAPE, label: 'Escape' }, state)).toBe(false);
     expect(shouldObserveInput({ kind: 'key', keycode: 2, label: '1' }, state)).toBe(false);
     expect(shouldObserveInput({ kind: 'mouse', button: 1, label: 'Mouse 1' }, state)).toBe(false);

@@ -10,6 +10,8 @@ export interface Keybinds {
   next: Bind | null; // next transmit channel (desktop default F4)
   overlay: Bind | null; // show/hide overlay (desktop default F5)
   wheel: Bind | null; // open the channel radial (desktop default F2)
+  /** Broadcast on every tuned channel. No default. Admins only; the server checks. */
+  allCall: Bind | null;
   /** Direct push-to-talk on a specific tuned channel (channel id -> bind). */
   direct: Record<string, Bind>;
   /** Press to make that channel the transmit channel (channel id -> bind). */
@@ -18,6 +20,7 @@ export interface Keybinds {
 
 export type HotkeyEvent =
   | { type: 'ptt'; down: boolean }
+  | { type: 'allcall'; down: boolean }
   | { type: 'cycle'; step?: 1 | -1 }
   | { type: 'overlay' }
   | { type: 'direct'; channelId: string; down: boolean }

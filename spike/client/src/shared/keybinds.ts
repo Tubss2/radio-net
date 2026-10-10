@@ -29,6 +29,7 @@ export const DEFAULT_BINDS: Keybinds = {
   next: { kind: 'key', keycode: UIO_F4, label: 'F4' },
   overlay: { kind: 'key', keycode: UIO_F5, label: 'F5' },
   wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
+  allCall: null,
   direct: {},
   select: {},
 };
@@ -61,6 +62,7 @@ export interface LooseKeybinds {
   cycle?: Bind | null;
   overlay?: Bind | null;
   wheel?: Bind | null;
+  allCall?: Bind | null;
   direct?: Record<string, Bind>;
   select?: Record<string, Bind>;
 }
@@ -96,6 +98,7 @@ export function cloneBinds(b: Keybinds = DEFAULT_BINDS): Keybinds {
     next: b.next ? { ...b.next } : null,
     overlay: b.overlay ? { ...b.overlay } : null,
     wheel: b.wheel ? { ...b.wheel } : null,
+    allCall: b.allCall ? { ...b.allCall } : null,
     direct: { ...b.direct },
     select: { ...b.select },
   };
@@ -110,6 +113,7 @@ export function withBindDefaults(b: LooseKeybinds | null | undefined): Keybinds 
     next: b.next ?? b.cycle ?? null,
     overlay: b.overlay ?? null,
     wheel: b.wheel ?? null,
+    allCall: b.allCall ?? null,
     direct: b.direct ?? {},
     select: b.select ?? {},
   };
@@ -136,6 +140,7 @@ function slotMatchesOrEmpty(saved: Bind | null | undefined, legacy: { kind: 'key
  * to be the old mouse button, so a custom talk key is not rewritten.
  */
 export function isLegacyDefaultKeybinds(raw: LooseKeybinds): boolean {
+  if (raw.allCall != null) return false;
   if (!emptyMap(raw.direct) || !emptyMap(raw.select)) return false;
   if (raw.prev != null) return false;
   if (raw.next != null && !sameSlot(raw.next, LEGACY_DEFAULT_BINDS.cycle)) return false;
@@ -157,6 +162,7 @@ export function isIncompleteLegacyKeybinds(raw: LooseKeybinds): boolean {
 
 /** True when the stored binds are still the unreleased version-2 defaults and nothing else was set. */
 export function isV2DefaultKeybinds(raw: LooseKeybinds): boolean {
+  if (raw.allCall != null) return false;
   if (!emptyMap(raw.direct) || !emptyMap(raw.select)) return false;
   if (raw.cycle != null) return false;
   return sameSlot(raw.ptt, V2_DEFAULT_BINDS.ptt)
@@ -209,6 +215,7 @@ export function pageKeybinds(stored: LooseKeybinds | null | undefined, preview: 
     next: null,
     overlay: { kind: 'key', keycode: UIO_F5, label: 'F5' },
     wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
+    allCall: null,
     direct: {},
     select: {},
   });
@@ -218,6 +225,7 @@ export function pageKeybinds(stored: LooseKeybinds | null | undefined, preview: 
 
 /** Page defaults from before the overlay moved from F10 to F5. */
 function isOldPageDefault(raw: LooseKeybinds): boolean {
+  if (raw.allCall != null) return false;
   if (!emptyMap(raw.direct) || !emptyMap(raw.select)) return false;
   if (raw.prev != null || raw.next != null || raw.cycle != null) return false;
   const talk = raw.ptt;
@@ -227,7 +235,7 @@ function isOldPageDefault(raw: LooseKeybinds): boolean {
     && sameSlot(raw.wheel, { kind: 'key', keycode: UIO_F2 });
 }
 
-const NAMED = ['ptt', 'prev', 'next', 'wheel', 'overlay'] as const;
+const NAMED = ['ptt', 'prev', 'next', 'wheel', 'overlay', 'allCall'] as const;
 
 export function setSlot(binds: Keybinds, slot: string, bind: Bind | null): Keybinds {
   const next = cloneBinds(binds);
@@ -260,6 +268,7 @@ export function occupied(binds: Keybinds, names: Record<string, string> = {}): O
   push('prev', 'Previous transmit channel', binds.prev);
   push('next', 'Next transmit channel', binds.next);
   push('wheel', 'Channel wheel', binds.wheel);
+  push('allCall', 'All call', binds.allCall);
   for (const [id, bind] of Object.entries(binds.direct)) push(`direct:${id}`, names[id] ?? id, bind);
   for (const [id, bind] of Object.entries(binds.select)) push(`select:${id}`, names[`select:${id}`] ?? `Quick select ${id}`, bind);
   return out;

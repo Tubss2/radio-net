@@ -83,4 +83,8 @@ export class PreviewApi extends Api {
   tokens() {
     return Promise.resolve({ livekitUrl: 'ws://preview.invalid', grants: [] });
   }
+
+  allCall() {
+    return Promise.resolve({ ok: true as const });
+  }
 }
