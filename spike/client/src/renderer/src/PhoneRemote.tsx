@@ -156,6 +156,19 @@ export function PhoneRemote({ code, apiBase, expiresAt }: { code: string; apiBas
         <strong>{phase === 'live' ? (state.channels.length ? `${tx?.freq ?? ''} ${tx?.name ?? ''}`.trim() : 'No transmit channel') : 'Not connected yet'}</strong>
         <span className="sub">{status}</span>
         {install && <button className="btn sm" type="button" onClick={install}>Add to Home Screen</button>}
+        {phase === 'live' && (
+          <button className="btn sm ghost" type="button" onClick={() => {
+            hold(false);
+            phaseRef.current = 'idle';
+            const room = roomRef.current;
+            roomRef.current = null;
+            void room?.disconnect();
+            setHeard(false);
+            setState({ t: 'state', tx: null, channels: [], on: false });
+            setPhase('idle');
+            setStatus('Disconnected');
+          }}>Disconnect</button>
+        )}
       </div>
       <ul className="simple-list">
         {phase === 'live' && state.channels.map((row) => (

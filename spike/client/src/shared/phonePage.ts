@@ -58,6 +58,21 @@ export function formatCodeClock(remainingMs: number): string {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+/** The computer's phone room. Closing the QR dialog is not one of these events. */
+export type PhoneHostSession = 'idle' | 'hosting' | 'linked';
+
+/**
+ * The host room stays up across dialog open and close.
+ * It ends when either side disconnects, when the phone leaves, or when this page closes.
+ */
+export function nextPhoneHostSession(session: PhoneHostSession, event: 'open' | 'close' | 'joined' | 'left' | 'disconnect' | 'page-close'): PhoneHostSession {
+  if (event === 'close') return session;
+  if (event === 'page-close' || event === 'disconnect') return 'idle';
+  if (event === 'left') return session === 'linked' ? 'idle' : session;
+  if (event === 'joined') return session === 'idle' ? 'idle' : 'linked';
+  return session === 'linked' ? 'linked' : 'hosting';
+}
+
 /** What the computer says while the QR is on screen. */
 export function phoneHostStatus(input: {
   linked: boolean;

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { HELPER_DOWNLOAD_URL, HELPER_SOURCE_URL, helperCodeFromHash } from '../../shared/helperLink';
 import { DESKTOP_RELEASE_URL, PTT_CHOOSER_INTRO, helperSetupSteps, pttChoices } from '../../shared/pttChooser';
-import { describePttMode } from '../../shared/pttMode';
+import { pttModeView } from '../../shared/pttMode';
 
 /** One button that leads into the browser, phone, or helper setup that already exists. */
-export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBrowser, onPhone, onHelperSlot }: {
+export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBrowser, onPhone, onHelperSlot, onDisconnectPhone, onDisconnectHelper }: {
   talkMode: 'hold' | 'voice';
   talkLabel: string;
   phoneLinked: boolean;
@@ -12,6 +12,8 @@ export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBr
   onBrowser: () => void;
   onPhone: () => void;
   onHelperSlot?: (slot: HTMLDivElement | null) => void;
+  onDisconnectPhone?: () => void;
+  onDisconnectHelper?: () => void;
 }) {
   const [open, setOpen] = useState(() => helperCodeFromHash(window.location.hash) != null);
   const helperSlot = useRef<HTMLDivElement>(null);
@@ -19,19 +21,28 @@ export function TalkSetup({ talkMode, talkLabel, phoneLinked, helperLinked, onBr
     onHelperSlot?.(open ? helperSlot.current : null);
     return () => onHelperSlot?.(null);
   }, [open, onHelperSlot]);
-  const current = describePttMode({ talkMode, talkLabel, phoneLinked, helperLinked });
+  const current = pttModeView({ talkMode, talkLabel, phoneLinked, helperLinked });
   const close = () => setOpen(false);
+  const disconnect = () => {
+    if (current.disconnect === 'phone') onDisconnectPhone?.();
+    if (current.disconnect === 'helper') onDisconnectHelper?.();
+  };
   const [browser, phone, helper, desktop] = pttChoices;
   return (
     <div className="ptt-setup-block">
-      <button className="btn primary ptt-setup" type="button" onClick={() => setOpen(true)}>Set up push to talk</button>
-      <p className="sub ptt-current">{current}</p>
+      <div className="ptt-setup-row">
+        <button className="btn primary ptt-setup" type="button" onClick={() => setOpen(true)}>
+          <span className="ptt-kicker">Set up push to talk</span>
+          <span className={`ptt-mode${current.live ? ' live' : ''}`}>{current.label}</span>
+        </button>
+        {current.disconnect && <button className="btn ptt-disconnect" type="button" onClick={disconnect}>Disconnect</button>}
+      </div>
       {open && (
         <div className="modal-bg" onClick={close}>
           <div className="modal talk-setup-modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: 0 }}>Set up push to talk</h3>
             <p className="sub" style={{ margin: 0 }}>{PTT_CHOOSER_INTRO}</p>
-            <p className="sub" style={{ margin: 0 }}>{current}</p>
+            <p className="sub" style={{ margin: 0 }}>{current.label}</p>
             <div className="talk-chooser">
               <button className="talk-choice" type="button" onClick={() => { close(); onBrowser(); }}>
                 <span className="talk-rank">{browser.rank}</span>

@@ -20,11 +20,13 @@ function forgetStored(): void {
 }
 
 /** Link this browser to the Windows helper window. The socket stays up when the setup dialog closes. */
-export function HelperLink({ engine, externalDown, slot, onLinked }: {
+export function HelperLink({ engine, externalDown, slot, onLinked, onDisconnectReady }: {
   engine: RadioControl;
   externalDown: { current: boolean };
   slot: HTMLElement | null;
   onLinked?: (linked: boolean) => void;
+  /** The main radio calls this to unlink without opening the setup dialog. */
+  onDisconnectReady?: (disconnect: (() => void) | null) => void;
 }) {
   const saved = storedDevice();
   const [code, setCode] = useState(() => helperCodeFromHash(window.location.hash) ?? '');
@@ -214,6 +216,7 @@ export function HelperLink({ engine, externalDown, slot, onLinked }: {
     };
   };
 
+  const unlinkRef = useRef<() => void>(() => undefined);
   const unlink = () => {
     const device = storedDevice();
     const ws = socket.current;
@@ -230,6 +233,12 @@ export function HelperLink({ engine, externalDown, slot, onLinked }: {
     closeSocket();
     if (device && !open) dropRemote(device.token);
   };
+  unlinkRef.current = unlink;
+
+  useEffect(() => {
+    onDisconnectReady?.(() => unlinkRef.current());
+    return () => onDisconnectReady?.(null);
+  }, [onDisconnectReady]);
 
   if (!slot) return null;
   const status = error || helperSetupStatus(phase, holding);
