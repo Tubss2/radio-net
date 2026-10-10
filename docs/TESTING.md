@@ -105,7 +105,8 @@ Default keys:
 
 | Key | Does |
 |---|---|
-| Space | Talk (hold) |
+| Mouse 4 (back side button) | Talk (hold) |
+| Mouse 5 (forward side button) | Change transmit channel |
 | F2 | Open the channel wheel |
 | F10 | Hide or show the overlay |
 
