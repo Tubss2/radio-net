@@ -13,12 +13,12 @@ These answers are from the security review on PR #51 and from Tobias. Question 8
 5. **Proof of work is off.** `GET /api/join/policy` returns `{ "powBits": 0 }`. Register does not read `powNonce`.
 6. **The community's original invite stays unlimited.** New invites may set `maxUses` and `expiresAt`.
 7. **Device access tokens last one hour.** Refresh is a new signature. Every member request loads the device row. Revoke is that lookup, not a bit in the HMAC.
-8. **`POST /api/join` is closed** once this flow is live. It returns 410 `{ "error": "This server uses device sign-in. Update the app, then join once with your invite.", "code": "device_signin" }`. It does not mint a session and does not consume a use. Existing members re-join in two ways: the client registers with the invite already saved on the device, or `POST /api/join/migrate` binds a device while a legacy session is still valid. Migrate does not consume a use. A revoked device cannot migrate. Legacy tokens still expire after 12 hours.
+8. **`POST /api/join` is closed** once this flow is live. It returns 410 `{ "error": "This server uses device sign-in. Update the app, then join once with your invite.", "code": "device_signin" }`. It does not mint a session and does not consume a use. Existing members re-join in two ways: the client registers with the invite already saved on the device, or `POST /api/join/migrate` binds one new device while a legacy session is still valid. Register and migrate return `409 already_enrolled` with `communityId` when that device id is already active, and they do not return a token. The client signs a challenge for that community. Migrate counts one use on the primary invite and records the legacy session id. A second migrate with that token returns `409 migrate_used`. A revoked device cannot migrate. Legacy tokens still expire after 12 hours.
 9. **Challenge uses one 404,** `This device is not enrolled.`, for an unknown id and a revoked id. Register may say the device was removed.
 10. **The GitHub Pages origin residual is accepted.** Non-extractable IndexedDB on `https://tubss2.github.io`. A script on that origin can sign while the site is open and cannot export the key.
 11. **Restore ships.** The confirm copy says a stolen key comes back in too.
 12. **Desktop refuses a plaintext private key.** `safeStorage` stays with the desktop agent. Until that lands, the shared renderer stores a non-extractable key in IndexedDB and does not write PKCS#8 to disk.
-13. **The phone never enrolls.** Pairing uses the LiveKit identity `d` plus the device id, so an access-token refresh does not drop the button.
+13. **The phone never enrolls.** Pairing uses the LiveKit identity `d` plus the device id, so an access-token refresh does not drop the button. Redeem and any new phone token refuse a missing or revoked device. Kick and ban remove `d` plus the device id and `phone:` plus that identity from the phone room as well as the channel rooms. Voice grants last two minutes (`VOICE_GRANT_TTL_SECONDS`) so a JWT already issued cannot rejoin for the old ten minutes. The web client refreshes a tuned channel before that expiry. A phone token that was redeemed before the ban can still reconnect until that token expires.
 14. **An admin device or the break-glass admin key may mint and revoke invites.** Members cannot.
 15. **Only the latest callsign is stored.**
 16. **One private key, a separate device row per community,** each with its own revoke flag.
@@ -375,7 +375,8 @@ New:
 | Method | Path | Who | What |
 |---|---|---|---|
 | GET | `/api/join/policy` | public, rate-limited | `{ powBits: number }` |
-| POST | `/api/join/register` | invite | Enroll this device or refresh an active one. Returns the same session payload as join, with `did` set. |
+| POST | `/api/join/register` | invite | Enroll a new device. An active id returns `409 already_enrolled` and `communityId`, with no token. |
+| POST | `/api/join/migrate` | legacy session | One new device per legacy session id. Counts one use, then burns that id. An active device returns `409 already_enrolled`. |
 | POST | `/api/communities/:cid/challenge` | enrolled device id | One-time nonce. |
 | POST | `/api/communities/:cid/join` | signature | Access token. |
 | GET | `/api/communities/:cid/devices` | admin | Member and device list. |
