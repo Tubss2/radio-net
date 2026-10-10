@@ -1,3 +1,7 @@
+This desktop app signs in with a device key kept on this PC. Windows encrypts that key when it can. An older server still accepts the invite code. After the server update, the same key signs in, and a saved session can move over without spending the invite again. If this PC is already enrolled, the app signs a fresh challenge instead of taking a session from the invite.
+
+A tuned channel stays connected. The app refreshes the voice permission about once a minute, so it does not drop after two minutes.
+
 Recording a new key works only while the Radio Net window is in front. The app opens its own pages and checks that those files have not been swapped.
 
 Options is still where you change keys, turn the overlay and the channel wheel on or off, paste or forget the admin key for this community, choose sounds, turn on simple mode, set up a phone as the talk button, and check for updates.

@@ -10,7 +10,8 @@ import { matchChannel } from '../../shared/radialWheel';
 import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import { RECONNECTING } from '../../shared/net';
-import { API_URL, Api, ApiError, isReconnectError, type ChannelInfo } from './lib/api';
+import { API_URL, Api, ApiError, isReconnectError, type ChannelInfo, type JoinResult } from './lib/api';
+import { openDeviceSession } from './lib/deviceSession';
 import { parseFreqInput, validateFrequency } from './lib/freq';
 import { isPreview } from './lib/previewMode';
 import { PreviewApi } from './lib/previewApi';
@@ -52,6 +53,41 @@ function UpdateBar() {
 function clientFor(server: { url?: string; token?: string | null; adminKey?: string | null } | null): Api {
   if (isPreview) return new PreviewApi();
   return new Api(server?.url || API_URL, server?.token ?? null, server?.adminKey ?? null);
+}
+
+function sessionEntry(base: Partial<ServerEntry>, url: string, result: JoinResult, inviteFallback: string): ServerEntry {
+  return {
+    id: result.community.id,
+    name: result.community.name,
+    url,
+    inviteCode: result.community.inviteCode || inviteFallback || base.inviteCode || '',
+    adminKey: base.adminKey,
+    rememberAdmin: base.rememberAdmin,
+    token: result.token,
+    tokenExp: Date.parse(result.expiresAt),
+    lastUsed: new Date().toISOString(),
+    deviceId: result.deviceId ?? base.deviceId,
+    deviceRole: result.role ?? base.deviceRole,
+  };
+}
+
+/** Desktop signs with the key in the main process. The web app and the preview keep the invite join. */
+async function signIn(api: Api, input: {
+  callsign: string;
+  inviteCode?: string;
+  communityId?: string;
+  legacyToken?: string | null;
+}): Promise<JoinResult> {
+  if (!inElectron || isPreview) return api.join(input.inviteCode || '', input.callsign);
+  const device = await bridge.deviceEnsure();
+  return openDeviceSession(api, {
+    callsign: input.callsign,
+    device,
+    sign: (message) => bridge.deviceSign(message),
+    inviteCode: input.inviteCode,
+    communityId: input.communityId,
+    legacyToken: input.legacyToken,
+  });
 }
 
 export function App() {
@@ -230,7 +266,7 @@ function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
       <div className="titlebar" />
       <div className="box">
         <h1>Your callsign</h1>
-        <p>Stored {isWeb ? 'in this browser' : 'on this PC'}. There is no account and nothing to sign in to.</p>
+        <p>{inElectron ? 'Stored on this PC. This app keeps a device key here and signs in with it.' : isWeb ? 'Stored in this browser. There is no account and nothing to sign in to.' : 'Stored on this PC. There is no account and nothing to sign in to.'}</p>
         <label className="field">Callsign<input placeholder="Toby" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
         {err && <div className="err">{err}</div>}
         <button className="btn primary" onClick={go}>Continue</button>
@@ -264,15 +300,13 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
       const name = callsign.trim().replace(/\s+/g, ' ');
       if (!name) throw new Error('Pick a callsign (1-32 characters)');
       const api = clientFor({ url: server.url, token: null, adminKey: server.adminKey ?? null });
-      const r = await api.join(server.inviteCode, name);
-      const entry: ServerEntry = {
-        ...server,
-        name: r.community.name,
-        inviteCode: r.community.inviteCode,
-        token: r.token,
-        tokenExp: Date.parse(r.expiresAt),
-        lastUsed: new Date().toISOString(),
-      };
+      const r = await signIn(api, {
+        callsign: name,
+        communityId: server.id,
+        inviteCode: server.inviteCode || undefined,
+        legacyToken: server.token,
+      });
+      const entry = sessionEntry(server, server.url, r, server.inviteCode);
       const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
       onProfile({ ...profile, callsign: name, servers });
       onOpen(entry);
@@ -288,34 +322,35 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
       if (!name) throw new Error('Pick a callsign (1-32 characters)');
       const api = clientFor({ url, token: null, adminKey: null });
       if (mode === 'join') {
-        const r = await api.join(code, name);
+        const r = await signIn(api, { callsign: name, inviteCode: code });
         const prev = profile.servers.find((s) => s.id === r.community.id);
-        const entry: ServerEntry = {
-          id: r.community.id,
-          name: r.community.name,
-          url,
-          inviteCode: r.community.inviteCode,
+        const entry = sessionEntry({
           adminKey: prev?.adminKey,
-          token: r.token,
-          tokenExp: Date.parse(r.expiresAt),
-          lastUsed: new Date().toISOString(),
-        };
+          rememberAdmin: prev?.rememberAdmin,
+          deviceId: prev?.deviceId,
+          deviceRole: prev?.deviceRole,
+        }, url, r, code);
         const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
         onProfile({ ...profile, callsign: name, servers });
         onOpen(entry);
       } else {
         const created = await api.createCommunity(community, setup || undefined);
-        const joined = await api.join(created.community.inviteCode, name);
-        const entry: ServerEntry = {
-          id: created.community.id,
-          name: created.community.name,
-          url,
+        const joined = await signIn(api, {
+          callsign: name,
+          communityId: created.community.id,
           inviteCode: created.community.inviteCode,
-          adminKey: created.adminKey,
-          token: joined.token,
-          tokenExp: Date.parse(joined.expiresAt),
-          lastUsed: new Date().toISOString(),
-        };
+        });
+        let role = joined.role;
+        if (inElectron && joined.deviceId && created.adminKey) {
+          try {
+            const authed = new Api(url, joined.token, created.adminKey);
+            await authed.claimAdmin(created.community.id);
+            role = 'admin';
+          } catch {
+            // An older server has no claim route. The admin key is still stored on this PC.
+          }
+        }
+        const entry = sessionEntry({ adminKey: created.adminKey }, url, { ...joined, role }, created.community.inviteCode || '');
         const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
         onProfile({ ...profile, callsign: name, servers });
         onCreated(entry, created.adminKey);
@@ -339,7 +374,7 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
               <div key={s.id} className="server">
                 <div>
                   <div>{s.name}</div>
-                  <div className="sub" style={{ margin: 0 }}>Invite {s.inviteCode}</div>
+                  <div className="sub" style={{ margin: 0 }}>{s.inviteCode ? `Invite ${s.inviteCode}` : 'Saved on this PC'}{inElectron && s.deviceId ? ` · this PC ${s.deviceId.slice(-8)}` : ''}</div>
                 </div>
                 <button className="btn sm" disabled={busy} onClick={() => void joinExisting(s)}>Rejoin</button>
               </div>
@@ -434,7 +469,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const [restored, setRestored] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [deleteSupported, setDeleteSupported] = useState(true);
-  const isAdmin = Boolean(server.adminKey);
+  const isAdmin = Boolean(server.adminKey) || server.deviceRole === 'admin';
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [talkOpen, setTalkOpen] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
@@ -463,6 +498,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const profileRef = useRef(boot);
   profileRef.current = boot;
   const loadGen = useRef(0);
+  const sessionRenewed = useRef(false);
 
   const load = useCallback(() => {
     const gen = ++loadGen.current;
@@ -522,11 +558,18 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
         } catch (e) {
           if (!alive) return;
           const msg = (e as Error).message ?? '';
-          if (!isPreview && /session expired|not signed in/i.test(msg)) {
+          if (!sessionRenewed.current && !isPreview && /session expired|not signed in|invite was rotated|device was removed/i.test(msg)) {
             try {
-              const again = await new Api(server.url, null, server.adminKey ?? null).join(server.inviteCode, callsign);
-              onServer({ ...server, token: again.token, tokenExp: Date.parse(again.expiresAt), lastUsed: new Date().toISOString() });
-              return;
+              const again = await signIn(new Api(server.url, null, null), {
+                callsign,
+                communityId: server.id,
+                inviteCode: server.inviteCode || undefined,
+                legacyToken: server.token,
+              });
+              sessionRenewed.current = true;
+              api.token = again.token;
+              onServer(sessionEntry(server, server.url, again, server.inviteCode));
+              continue;
             } catch (err) {
               if (isReconnectError(err)) { setErr(RECONNECTING); await wait(2000); continue; }
               setErr((err as Error).message);
