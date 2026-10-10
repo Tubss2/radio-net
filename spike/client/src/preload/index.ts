@@ -49,6 +49,10 @@ const api = {
   log: (event: string, detail?: string) => ipcRenderer.send('log:event', event, detail),
   /** Compact the main window. The radio stays in this window so there is one microphone. */
   setSimpleWindow: (state: { compact: boolean; alwaysOnTop: boolean }) => ipcRenderer.send('window:simple', state),
+  /** Public device id and SPKI. The private key stays in the main process. */
+  deviceEnsure: (): Promise<{ deviceId: string; publicKeySpki: string } | null> => ipcRenderer.invoke('device:ensure'),
+  /** Sign one canonical join message. The main process refuses anything else. */
+  deviceSign: (message: string): Promise<string> => ipcRenderer.invoke('device:sign', message),
 };
 export type RadioNetBridge = typeof api;
 contextBridge.exposeInMainWorld('radionet', api);

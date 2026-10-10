@@ -2,9 +2,16 @@ import { RECONNECTING, isNetworkFailure, isRouteMissing } from '../../../shared/
 
 /** Thin client for the Radio Net API (see spike/server). */
 export interface ChannelInfo { id: string; freq: string; freqKHz: number; name: string; restricted: boolean }
-export interface CommunityInfo { id: string; name: string; inviteCode: string; band?: { minKHz: number; maxKHz: number; stepKHz: number } }
+export interface CommunityInfo { id: string; name: string; inviteCode?: string; band?: { minKHz: number; maxKHz: number; stepKHz: number } }
 export interface Grant { channelId: string; room: string; freqKHz: number; name: string; canTransmit: boolean; token: string }
-export interface JoinResult { token: string; expiresAt: string; callsign: string; community: CommunityInfo }
+export interface JoinResult {
+  token: string;
+  expiresAt: string;
+  callsign: string;
+  community: CommunityInfo;
+  role?: 'member' | 'admin';
+  deviceId?: string;
+}
 export interface CreateResult { adminKey: string; community: CommunityInfo }
 export interface PhoneHostResult { livekitUrl: string; room: string; token: string; phoneIdentity: string }
 export interface PhoneRedeemResult { livekitUrl: string; room: string; token: string; identity: string; callsign: string; communityId: string; communityName: string }
@@ -77,6 +84,23 @@ export class Api {
   }
   join(inviteCode: string, callsign: string) {
     return this.req<JoinResult>('/api/join', { method: 'POST', body: JSON.stringify({ inviteCode, callsign }) });
+  }
+  register(body: { inviteCode: string; callsign: string; deviceId: string; publicKeySpki: string }) {
+    return this.req<JoinResult>('/api/join/register', { method: 'POST', body: JSON.stringify(body) });
+  }
+  migrate(body: { deviceId: string; publicKeySpki: string; callsign: string }) {
+    return this.req<JoinResult>('/api/join/migrate', { method: 'POST', body: JSON.stringify(body) });
+  }
+  challenge(cid: string, deviceId: string) {
+    return this.req<{ challengeId: string; nonce: string; expiresAt: string }>(`/api/communities/${cid}/challenge`, {
+      method: 'POST', body: JSON.stringify({ deviceId }),
+    });
+  }
+  joinSigned(cid: string, body: { challengeId: string; deviceId: string; signature: string; callsign: string }) {
+    return this.req<JoinResult>(`/api/communities/${cid}/join`, { method: 'POST', body: JSON.stringify(body) });
+  }
+  claimAdmin(cid: string) {
+    return this.req<{ role: 'admin'; deviceId: string }>(`/api/communities/${cid}/claim-admin`, { method: 'POST', body: '{}' });
   }
   createCommunity(name: string, setupCode?: string) {
     return this.req<CreateResult>('/api/communities', { method: 'POST', body: JSON.stringify({ name, setupCode }) });

@@ -39,7 +39,7 @@ export class PreviewApi extends Api {
   }
 
   rotateInvite() {
-    return Promise.resolve({ inviteCode: community().inviteCode });
+    return Promise.resolve({ inviteCode: 'K7QM-2XPA' });
   }
 
   rotateAdminKey() {
