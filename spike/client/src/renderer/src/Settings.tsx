@@ -62,8 +62,8 @@ export function Settings({ binds, quick, hotkeysOn, onHotkeys, onPrivacy, sounds
           <span className="about">Radio Net {APP_VERSION}</span>
         </div>
         <p className="sub" style={{ margin: 0 }}>
-          Click a slot, then press a key or a mouse button. Mouse 4 and Mouse 5 still work. Left, right and middle click are left alone. Escape cancels. Only these binds are watched.
-          {inElectron ? ' Defaults are F1 to talk (hold), F2 to show or hide the overlay, F3 and F4 for the previous and next transmit channel, and F5 for the channel wheel.' : ''}
+          Click a slot, then press a key. Left, right and middle click are left alone. Escape cancels. Only these binds are watched.
+          {inElectron ? ' Defaults are F1 to talk (hold), F2 for the channel wheel, F3 and F4 for the previous and next transmit channel, and F5 to show or hide the overlay.' : ''}
         </p>
         <label className="row">
           <input type="checkbox" checked={hotkeysOn} onChange={(e) => onHotkeys(e.target.checked)} />

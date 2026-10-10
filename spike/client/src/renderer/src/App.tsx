@@ -608,8 +608,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       }
     };
     const ku = (e: KeyboardEvent) => { if (!inElectron && e.code === 'Space') void engine.ptt(false); };
-    window.addEventListener('keydown', kd); window.addEventListener('keyup', ku);
-    return () => { off(); offWheel(); window.removeEventListener('keydown', kd); window.removeEventListener('keyup', ku); };
+    window.addEventListener('keydown', kd, true); window.addEventListener('keyup', ku, true);
+    return () => { off(); offWheel(); window.removeEventListener('keydown', kd, true); window.removeEventListener('keyup', ku, true); };
   }, [engine, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close]);
 
   const tuned = engine.tuned;

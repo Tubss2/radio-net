@@ -4,7 +4,7 @@ import type { Bind, Keybinds } from './types';
  * Numeric codes from uiohook-napi's UiohookKey (libuiohook).
  * Hardcoded so the renderer and the preload never import the native module.
  * F1 = 59, F2 = 60, F3 = 61, F4 = 62, F5 = 63, G = 34, F10 = 68, Escape = 1.
- * Mouse buttons are 1-based (4 = Mouse 4).
+ * Mouse buttons are 1-based.
  */
 export const UIO_ESCAPE = 1;
 export const UIO_G = 34;
@@ -17,30 +17,40 @@ export const UIO_F10 = 68;
 
 /**
  * Profiles saved before this set. Bumped when the desktop defaults move, so a
- * person who later chooses the old mouse buttons is not migrated again.
+ * person who later chooses an older set is not migrated again.
+ * 2 was the unreleased swap (F2 overlay, F5 wheel). 3 is F2 wheel, F5 overlay.
  */
-export const KEYBINDS_VERSION = 2;
+export const KEYBINDS_VERSION = 3;
 
 /** Desktop defaults. The web in-page talk key stays Space and is not this set. */
 export const DEFAULT_BINDS: Keybinds = {
   ptt: { kind: 'key', keycode: UIO_F1, label: 'F1' },
   prev: { kind: 'key', keycode: UIO_F3, label: 'F3' },
   next: { kind: 'key', keycode: UIO_F4, label: 'F4' },
-  overlay: { kind: 'key', keycode: UIO_F2, label: 'F2' },
-  wheel: { kind: 'key', keycode: UIO_F5, label: 'F5' },
+  overlay: { kind: 'key', keycode: UIO_F5, label: 'F5' },
+  wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
   direct: {},
   select: {},
 };
 
 /**
- * Untouched desktop defaults from before KEYBINDS_VERSION.
- * Mouse 4 talk, Mouse 5 change TX, F10 overlay, F2 channel wheel.
+ * Untouched desktop defaults from before the F-key set.
+ * Talk on mouse button 4, change TX on mouse button 5, F10 overlay, F2 wheel.
  */
 const LEGACY_DEFAULT_BINDS = {
   ptt: { kind: 'mouse' as const, button: 4 },
   cycle: { kind: 'mouse' as const, button: 5 },
   overlay: { kind: 'key' as const, keycode: UIO_F10 },
   wheel: { kind: 'key' as const, keycode: UIO_F2 },
+};
+
+/** Unreleased keybind version 2: F2 overlay and F5 wheel. */
+const V2_DEFAULT_BINDS = {
+  ptt: { kind: 'key' as const, keycode: UIO_F1 },
+  prev: { kind: 'key' as const, keycode: UIO_F3 },
+  next: { kind: 'key' as const, keycode: UIO_F4 },
+  overlay: { kind: 'key' as const, keycode: UIO_F2 },
+  wheel: { kind: 'key' as const, keycode: UIO_F5 },
 };
 
 /** A saved profile may still have the single `cycle` slot instead of prev/next. */
@@ -96,7 +106,7 @@ function sameSlot(saved: Bind | null | undefined, legacy: { kind: 'key'; keycode
   return false;
 }
 
-/** True when the stored desktop binds are the old defaults and nothing else was set. */
+/** True when the stored desktop binds are the pre-F-key defaults and nothing else was set. */
 export function isLegacyDefaultKeybinds(raw: LooseKeybinds): boolean {
   if (!emptyMap(raw.direct) || !emptyMap(raw.select)) return false;
   if (raw.prev != null || raw.next != null) return false;
@@ -104,6 +114,17 @@ export function isLegacyDefaultKeybinds(raw: LooseKeybinds): boolean {
     && sameSlot(raw.cycle, LEGACY_DEFAULT_BINDS.cycle)
     && sameSlot(raw.overlay, LEGACY_DEFAULT_BINDS.overlay)
     && sameSlot(raw.wheel, LEGACY_DEFAULT_BINDS.wheel);
+}
+
+/** True when the stored binds are still the unreleased version-2 defaults and nothing else was set. */
+export function isV2DefaultKeybinds(raw: LooseKeybinds): boolean {
+  if (!emptyMap(raw.direct) || !emptyMap(raw.select)) return false;
+  if (raw.cycle != null) return false;
+  return sameSlot(raw.ptt, V2_DEFAULT_BINDS.ptt)
+    && sameSlot(raw.prev, V2_DEFAULT_BINDS.prev)
+    && sameSlot(raw.next, V2_DEFAULT_BINDS.next)
+    && sameSlot(raw.overlay, V2_DEFAULT_BINDS.overlay)
+    && sameSlot(raw.wheel, V2_DEFAULT_BINDS.wheel);
 }
 
 export interface DesktopKeybindMigration {
@@ -114,9 +135,10 @@ export interface DesktopKeybindMigration {
 }
 
 /**
- * Desktop only. Custom binds are kept. A missing version plus the old default
- * set becomes the F1–F5 defaults. A profile already on KEYBINDS_VERSION is left
- * alone, even if someone has put the old mouse buttons back.
+ * Desktop only. Custom binds are kept. Untouched older defaults become the
+ * current set: the original mouse defaults, and a version-2 profile that is
+ * still exactly F1, F2 overlay, F3, F4, F5 wheel. A profile already on
+ * KEYBINDS_VERSION is left alone.
  */
 export function migrateDesktopKeybinds(raw: unknown, version: unknown): DesktopKeybindMigration {
   const storedVersion = typeof version === 'number' && Number.isInteger(version) && version > 0 ? version : 0;
@@ -127,30 +149,40 @@ export function migrateDesktopKeybinds(raw: unknown, version: unknown): DesktopK
     const keybinds = cloneBinds(withBindDefaults(body));
     return { keybinds, version: storedVersion, changed: body.cycle != null };
   }
-  if (isLegacyDefaultKeybinds(body)) {
+  if (isLegacyDefaultKeybinds(body) || isV2DefaultKeybinds(body)) {
     return { keybinds: cloneBinds(), version: KEYBINDS_VERSION, changed: true };
   }
   return { keybinds: cloneBinds(withBindDefaults(body)), version: KEYBINDS_VERSION, changed: true };
 }
 
 /**
- * Browser and preview. Talk stays Space. The wheel stays F2 and the overlay
- * stays F10 so the in-page mock does not follow the desktop defaults.
+ * Browser and preview. Talk stays Space: F1 opens Chrome's help, so it is not
+ * the in-page talk key. The wheel is F2. The overlay toggle is F5.
  * Saved page binds are kept and are not run through the desktop migration.
  */
 export function pageKeybinds(stored: LooseKeybinds | null | undefined, preview: boolean): Keybinds {
-  if (!stored) {
-    return {
-      ptt: { kind: 'key', keycode: 0, label: preview ? 'Space' : 'Space (window only)' },
-      prev: null,
-      next: null,
-      overlay: { kind: 'key', keycode: UIO_F10, label: 'F10' },
-      wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
-      direct: {},
-      select: {},
-    };
-  }
+  const fresh = (): Keybinds => ({
+    ptt: { kind: 'key', keycode: 0, label: preview ? 'Space' : 'Space (window only)' },
+    prev: null,
+    next: null,
+    overlay: { kind: 'key', keycode: UIO_F5, label: 'F5' },
+    wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
+    direct: {},
+    select: {},
+  });
+  if (!stored || isOldPageDefault(stored)) return fresh();
   return withBindDefaults(stored);
+}
+
+/** Page defaults from before the overlay moved from F10 to F5. */
+function isOldPageDefault(raw: LooseKeybinds): boolean {
+  if (!emptyMap(raw.direct) || !emptyMap(raw.select)) return false;
+  if (raw.prev != null || raw.next != null || raw.cycle != null) return false;
+  const talk = raw.ptt;
+  const space = talk?.kind === 'key' && talk.keycode === 0 && (talk.label === 'Space' || talk.label === 'Space (window only)');
+  return Boolean(space)
+    && sameSlot(raw.overlay, { kind: 'key', keycode: UIO_F10 })
+    && sameSlot(raw.wheel, { kind: 'key', keycode: UIO_F2 });
 }
 
 const NAMED = ['ptt', 'prev', 'next', 'wheel', 'overlay'] as const;

@@ -55,9 +55,9 @@ function Preview() {
         <button className={demo === 'two' ? 'on' : ''} onClick={() => run('two')}>Two talkers</button>
         <button className={demo === 'you' ? 'on' : ''} onClick={() => run('you')}>You talk</button>
         <button className={demo === 'gone' ? 'on' : ''} onClick={() => run('gone')}>Command deleted</button>
-        <button onClick={() => emitPreviewHotkey({ type: 'overlay' })}>Overlay F10</button>
+        <button onClick={() => emitPreviewHotkey({ type: 'overlay' })}>Overlay F5</button>
         <button onClick={() => emitPreviewUpdate({ version: '9.9.9' })}>Update ready</button>
-        <span className="preview-hint">F2 wheel · Space talk · scroll freq · Shift+scroll volume · right-click mute</span>
+        <span className="preview-hint">F2 wheel · F5 overlay · Space talk · scroll freq · Shift+scroll volume · right-click mute</span>
       </div>
     </div>
   );

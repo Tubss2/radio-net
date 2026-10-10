@@ -4,6 +4,7 @@ import {
   conflicts,
   DEFAULT_BINDS,
   isLegacyDefaultKeybinds,
+  isV2DefaultKeybinds,
   KEYBINDS_VERSION,
   migrateDesktopKeybinds,
   pageKeybinds,
@@ -28,32 +29,69 @@ const legacyDefaults = {
   select: {},
 };
 
+const v2Defaults = {
+  ptt: { kind: 'key' as const, keycode: UIO_F1, label: 'F1' },
+  prev: { kind: 'key' as const, keycode: UIO_F3, label: 'F3' },
+  next: { kind: 'key' as const, keycode: UIO_F4, label: 'F4' },
+  overlay: { kind: 'key' as const, keycode: UIO_F2, label: 'F2' },
+  wheel: { kind: 'key' as const, keycode: UIO_F5, label: 'F5' },
+  direct: {},
+  select: {},
+};
+
 describe('keybinds', () => {
-  it('defaults and reset are F1 talk, F2 overlay, F3 previous, F4 next and F5 wheel, with no clashes', () => {
+  it('defaults and reset are F1 talk, F2 wheel, F3 previous, F4 next and F5 overlay, with no clashes', () => {
     expect(DEFAULT_BINDS.ptt).toMatchObject({ kind: 'key', keycode: UIO_F1, label: 'F1' });
-    expect(DEFAULT_BINDS.overlay).toMatchObject({ kind: 'key', keycode: UIO_F2, label: 'F2' });
+    expect(DEFAULT_BINDS.wheel).toMatchObject({ kind: 'key', keycode: UIO_F2, label: 'F2' });
     expect(DEFAULT_BINDS.prev).toMatchObject({ kind: 'key', keycode: UIO_F3, label: 'F3' });
     expect(DEFAULT_BINDS.next).toMatchObject({ kind: 'key', keycode: UIO_F4, label: 'F4' });
-    expect(DEFAULT_BINDS.wheel).toMatchObject({ kind: 'key', keycode: UIO_F5, label: 'F5' });
+    expect(DEFAULT_BINDS.overlay).toMatchObject({ kind: 'key', keycode: UIO_F5, label: 'F5' });
     expect(cloneBinds().wheel).toEqual(DEFAULT_BINDS.wheel);
     expect(conflicts(DEFAULT_BINDS)).toEqual([]);
   });
 
-  it('keeps a saved wheel bind instead of replacing it with F5', () => {
+  it('keeps a saved wheel bind instead of replacing it with F2', () => {
     const saved = { ...DEFAULT_BINDS, wheel: { kind: 'key' as const, keycode: UIO_G, label: 'G' } };
     expect(withBindDefaults(saved).wheel).toMatchObject({ keycode: UIO_G, label: 'G' });
     const migrated = migrateDesktopKeybinds(saved, KEYBINDS_VERSION);
     expect(migrated.changed).toBe(false);
     expect(migrated.keybinds?.wheel).toMatchObject({ keycode: UIO_G, label: 'G' });
-    expect(migrated.keybinds?.ptt).toMatchObject({ keycode: UIO_F1 });
+    expect(migrated.keybinds?.overlay).toMatchObject({ keycode: UIO_F5 });
   });
 
-  it('moves an untouched old default profile onto F1–F5', () => {
+  it('moves an untouched original default profile onto F2 wheel and F5 overlay', () => {
     expect(isLegacyDefaultKeybinds(legacyDefaults)).toBe(true);
     const migrated = migrateDesktopKeybinds(legacyDefaults, 0);
     expect(migrated.changed).toBe(true);
     expect(migrated.version).toBe(KEYBINDS_VERSION);
     expect(migrated.keybinds).toEqual(cloneBinds());
+    expect(migrated.keybinds?.wheel).toMatchObject({ keycode: UIO_F2 });
+    expect(migrated.keybinds?.overlay).toMatchObject({ keycode: UIO_F5 });
+  });
+
+  it('moves a version-2 profile that is still the unreleased F2-overlay set', () => {
+    expect(isV2DefaultKeybinds(v2Defaults)).toBe(true);
+    const migrated = migrateDesktopKeybinds(v2Defaults, 2);
+    expect(migrated.changed).toBe(true);
+    expect(migrated.version).toBe(3);
+    expect(migrated.keybinds).toEqual(cloneBinds());
+  });
+
+  it('leaves a version-3 profile on the unreleased F2-overlay set', () => {
+    const migrated = migrateDesktopKeybinds(v2Defaults, 3);
+    expect(migrated.changed).toBe(false);
+    expect(migrated.keybinds?.overlay).toMatchObject({ keycode: UIO_F2 });
+    expect(migrated.keybinds?.wheel).toMatchObject({ keycode: UIO_F5 });
+  });
+
+  it('keeps a custom version-2 profile and only bumps the version', () => {
+    const custom = { ...v2Defaults, wheel: { kind: 'key' as const, keycode: UIO_G, label: 'G' } };
+    const migrated = migrateDesktopKeybinds(custom, 2);
+    expect(migrated.changed).toBe(true);
+    expect(migrated.version).toBe(3);
+    expect(migrated.keybinds?.wheel).toMatchObject({ keycode: UIO_G, label: 'G' });
+    expect(migrated.keybinds?.overlay).toMatchObject({ keycode: UIO_F2, label: 'F2' });
+    expect(migrated.keybinds?.ptt).toMatchObject({ keycode: UIO_F1 });
   });
 
   it('keeps a custom talk key and turns the old change-TX bind into next', () => {
@@ -82,6 +120,7 @@ describe('keybinds', () => {
       select: {},
     };
     const migrated = migrateDesktopKeybinds(chosen, KEYBINDS_VERSION);
+    expect(migrated.version).toBe(KEYBINDS_VERSION);
     expect(migrated.changed).toBe(false);
     expect(migrated.keybinds?.ptt).toMatchObject({ kind: 'mouse', button: 4 });
     expect(migrated.keybinds?.next).toMatchObject({ kind: 'mouse', button: 5 });
@@ -109,13 +148,27 @@ describe('keybinds', () => {
     expect(withBindDefaults(migrated.keybinds)).toEqual(cloneBinds());
   });
 
-  it('keeps the in-page preview on Space, F2 and F10', () => {
+  it('keeps the in-page talk key on Space, with F2 wheel and F5 overlay', () => {
     const page = pageKeybinds(null, true);
     expect(page.ptt).toMatchObject({ label: 'Space' });
     expect(page.wheel).toMatchObject({ keycode: UIO_F2, label: 'F2' });
-    expect(page.overlay).toMatchObject({ keycode: UIO_F10, label: 'F10' });
+    expect(page.overlay).toMatchObject({ keycode: UIO_F5, label: 'F5' });
     expect(page.prev).toBeNull();
     expect(page.next).toBeNull();
+    const savedPageDefault = pageKeybinds({
+      ptt: { kind: 'key', keycode: 0, label: 'Space' },
+      overlay: { kind: 'key', keycode: UIO_F10, label: 'F10' },
+      wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
+      direct: {},
+      select: {},
+    }, true);
+    expect(savedPageDefault.overlay).toMatchObject({ keycode: UIO_F5 });
+    const customPage = pageKeybinds({
+      ptt: { kind: 'key', keycode: 0, label: 'Space' },
+      overlay: { kind: 'key', keycode: UIO_G, label: 'G' },
+      wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
+    }, true);
+    expect(customPage.overlay).toMatchObject({ keycode: UIO_G, label: 'G' });
   });
 
   it('shows a conflict and still keeps both binds', () => {

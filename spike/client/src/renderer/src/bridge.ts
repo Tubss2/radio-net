@@ -68,7 +68,7 @@ export function captureBind(): Promise<Bind | null> {
       finish({ kind: 'key', keycode: domKeycode(e), label: domKeyLabel(e) });
     };
     const onMouse = (e: MouseEvent) => {
-      const button = e.button + 1; // DOM is 0-based; the global hook is 1-based (Mouse 4 = DOM button 3).
+      const button = e.button + 1; // DOM is 0-based; the global hook is 1-based.
       if (button <= 2) return;
       e.preventDefault();
       e.stopPropagation();

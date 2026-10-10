@@ -78,7 +78,7 @@ Default keys:
 | F3 | Previous channel |
 | F4 | Next channel |
 
-- To change a key, click **Set** on that row and press a keyboard key or a mouse side button.
+- To change a key, click **Set** on that row and press the key you want.
 - Each row has a red light that comes on while you hold that key. Use it to check your keys work, even before linking.
 - To disconnect the browser, click **Unlink** in the helper window. Your keys are kept.
 - Next time, keep the helper window open and the site reconnects by itself.
@@ -101,19 +101,19 @@ The site labels this "Still heavily WIP". It adds an in-game overlay and the cha
 4. Accept the privacy note. The keyboard listener stays off until you do.
 5. Check or change your keys in keybind settings.
 
-Default keys in this update (the same talk and channel keys as the helper, plus the overlay and the wheel). The published 0.4.4 installer still uses the old Mouse 4, Mouse 5, F2, and F10 set until a newer desktop release is published:
+Default keys (the same talk and channel keys as the helper, plus the wheel and the overlay). The published 0.4.4 installer is an older build and does not use this table yet:
 
 | Key | Does |
 |---|---|
 | F1 | Talk (hold) |
-| F2 | Hide or show the overlay |
+| F2 | Open the channel wheel |
 | F3 | Previous transmit channel |
 | F4 | Next transmit channel |
-| F5 | Open the channel wheel |
+| F5 | Hide or show the overlay |
 
-If you already changed your keys, those stay. If the app still has the old untouched defaults (Mouse 4 to talk, Mouse 5 to change channel, F2 for the wheel, F10 for the overlay), it switches to the table above the next time you open it. Mouse 4 and Mouse 5 can still be assigned in keybind settings.
+If you already changed your keys, those stay. If you never changed the keys that came with an older build, they switch to this table the next time you open the app.
 
-- On the wheel: hold or press F5. Hover a channel and left-click to transmit there, right-click to mute it, scroll to change frequency, Shift+scroll for volume, and **+** to add a channel you haven't tuned yet. Hold F5 and press 1–9 if the game keeps keyboard focus.
+- On the wheel: hold or press F2. Hover a channel and left-click to transmit there, right-click to mute it, scroll to change frequency, Shift+scroll for volume, and **+** to add a channel you haven't tuned yet. Hold F2 and press 1–9 if the game keeps keyboard focus.
 - Updates: the app asks before it downloads an update. Then click **Restart now** or **Later**.
 - Version 0.4.4 doesn't have the new **Set up push to talk** chooser or the red on-air banner yet. Those are web-only for now.
 - Quit the app when you're done playing. Its keyboard listener stops when the app closes.

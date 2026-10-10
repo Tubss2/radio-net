@@ -30,8 +30,8 @@ export interface Profile {
   servers: ServerEntry[];
   keybinds: Keybinds | null;
   /**
-   * Desktop keybind generation. Missing or 0 is a profile from before the F1–F5 defaults.
-   * 2 means those defaults have been considered, so a later choice of the old mouse buttons stays.
+   * Desktop keybind generation. Missing or 0 is a profile from before the F-key defaults.
+   * 2 is the unreleased F2-overlay set. 3 is F2 wheel and F5 overlay.
    */
   keybindsVersion?: number;
   overlayOn: boolean;
