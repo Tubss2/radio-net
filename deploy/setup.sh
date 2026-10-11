@@ -120,7 +120,7 @@ ${API_HOST} {
 	encode gzip
 	header Strict-Transport-Security "max-age=31536000"
 
-	# Browser UI preview: static, fully mocked build (no API or LiveKit calls; CSP blocks any fetch/WebSocket).
+	# Retired mock files from an old pack. The web app is GitHub Pages. This route is not the product.
 	redir /preview /preview/ 308
 	handle_path /preview/* {
 		root * ${APP_DIR}/preview
@@ -206,13 +206,13 @@ log "Radio Net API"
 rsync -a --delete --exclude node_modules --exclude '*.log' "$SRC_DIR/server/" "$APP_DIR/server/"
 (cd "$APP_DIR/server" && PATH="$APP_DIR/node/bin:$PATH" npm ci --no-audit --no-fund --loglevel=error)
 
-log "Browser UI preview (optional)"
+log "Retired mock files, if a pack still contains them"
 if [[ -f "$SRC_DIR/preview/index.html" ]]; then
   mkdir -p "$APP_DIR/preview"
   rsync -a --delete "$SRC_DIR/preview/" "$APP_DIR/preview/"
-  echo "Preview installed: https://${API_HOST}/preview/"
+  echo "Copied a retired mock into ${APP_DIR}/preview. The web app is https://tubss2.github.io/radio-net/"
 else
-  echo "No preview build in $SRC_DIR/preview; /preview/ will 404 (run pack.sh with PREVIEW_DIST set)."
+  echo "No retired mock in this pack."
 fi
 chown -R radionet:radionet "$APP_DIR" /var/lib/caddy
 
@@ -280,7 +280,7 @@ cat <<DONE
  Radio Net server $( ((ok)) && echo READY || echo 'needs attention (see above)')
  API (put in the client as VITE_API_URL): https://${API_HOST}
  LiveKit (handed to clients by the API):  wss://${LK_HOST}
- UI preview (mocked, if packed):           https://${API_HOST}/preview/
+ Web app:                                  https://tubss2.github.io/radio-net/
  Community setup code (keep private):     ${COMMUNITY_SETUP_CODE:0:4}-****-**** (full value in ${SECRETS_FILE})
  Secrets: ${SECRETS_FILE}
  Logs:    journalctl -u livekit -u radionet-api -u radionet-caddy -f

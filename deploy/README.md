@@ -19,11 +19,9 @@ No domain needed yet: the hostnames are `radio-<ip-with-dashes>.sslip.io` (API) 
 - `secrets/` (gitignored, chmod 700/600): copy of the server's `/etc/radionet/secrets.env` per server. Never commit.
 - `systemd/*.service`: hardened units (`ProtectSystem=strict`, non-root `radionet` user, no new privileges, private devices, no extra capabilities except Caddy's `CAP_NET_BIND_SERVICE`).
 
-## Browser UI preview (optional, mocked)
-- Served by Caddy at `https://<API_HOST>/preview/` from `/opt/radionet/preview` (`handle_path /preview/*` + `file_server`; everything else still goes to the API). `/preview` redirects to `/preview/`.
-- It is the `vite --mode preview` build of `spike/client` (`npm run preview:build`, or the `ui-preview` Actions artifact): fake community/channels, no mic, no LiveKit, no API. Caddy also sends `Content-Security-Policy: connect-src 'none'` on /preview/ so the page physically can't call the API or LiveKit, plus `X-Robots-Tag: noindex`.
-- `pack.sh` includes it when `PREVIEW_DIST` (default `../spike/client/preview-dist`) has an `index.html` built with relative paths; `setup.sh` rsyncs it to `/opt/radionet/preview`. No build → `/preview/` just 404s.
-- Preview-only update without restarting the API/LiveKit: upload the tgz, extract to /opt, `rsync -a --delete /opt/radionet-src/preview/ /opt/radionet/preview/`, re-render the Caddyfile with `RENDER_ONLY=/tmp/x PUBLIC_IP=<ip> bash setup.sh`, copy `/tmp/x/Caddyfile` to `/etc/radionet/`, `systemctl reload radionet-caddy`, delete `/tmp/x`.
+## Browser UI preview (retired)
+
+The mocked page that used to be served on the API host at `/preview/` is retired. The web app is [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/). `pack.sh` and `setup.sh` do not advertise that server path, and there is no preview-only update. An old box may still have files under `/opt/radionet/preview`. Leave them. The local `npm run preview` mock stays on a developer machine. It is not a server site.
 
 ## Firewall (ufw, also mirror in the provider's cloud firewall if you use one)
 
@@ -44,6 +42,7 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
    ```
    API (put in the client as VITE_API_URL): https://radio-1-2-3-4.sslip.io
    LiveKit (handed to clients by the API):  wss://lk-1-2-3-4.sslip.io
+   Web app:                                  https://tubss2.github.io/radio-net/
    Community setup code (keep private):     XXXX-****-**** (full value in /etc/radionet/secrets.env)
    ```
 3. Build the Windows client with `VITE_API_URL=https://radio-<ip>.sslip.io`, create the community in the app with the setup code, share the invite code with testers.
@@ -87,7 +86,10 @@ The Sydney box that ran main `9bcc940` was hot-fixed in place: a LiveKit drop-in
 - Test communities were wiped afterwards by restarting `radionet-api` (in-memory store).
 - Caddy is limited to HTTP/1 and HTTP/2. UDP 443 stays closed in UFW; leaving HTTP/3 on made clients retry QUIC and drop for about 30 seconds while the server stayed healthy. Access logs are JSON at `/var/log/caddy/access.log` (rotated). The API logs method, path, status and latency to the journal, and `TRUST_PROXY=1` so the join limit is per client. Re-run `setup.sh` and restart `radionet-caddy` and `radionet-api` to apply this on a box that was installed earlier.
 
-### UI preview added (9 Oct 2026 ~6:30pm NZ)
-- https://radio-149-28-170-200.sslip.io/preview/ — built on the box from PR #1 branch `cursor/initial-radio-net-3d59` (all 22 source files checked against the branch's git blob SHAs; the Actions artifact couldn't be downloaded without GitHub auth). Bundle: index.html + index-qrK5K9D4.js + index-DB47ri7X.css.
+### UI preview added (9 Oct 2026 ~6:30pm NZ) — retired
+
+This is a log of what was on the box that day. The server path is retired. The web app is [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/).
+
+- The mock was built on the box from PR #1 branch `cursor/initial-radio-net-3d59` (all 22 source files checked against the branch's git blob SHAs; the Actions artifact couldn't be downloaded without GitHub auth). Bundle: index.html + index-qrK5K9D4.js + index-DB47ri7X.css.
 - Applied with a Caddy reload only (API/LiveKit not restarted). Old Caddyfile kept at `/etc/radionet/Caddyfile.bak-prepreview`.
 - Checks: /preview → 308 → /preview/ 200, assets 200 (JS byte-identical), CSP + noindex headers present, headless Chrome renders the mock (War Dogs NZ, channels) and requests nothing but /preview/ files; /health ok; setup-code community → channel → voice token 200; LiveKit WSS /rtc with token → 101.
