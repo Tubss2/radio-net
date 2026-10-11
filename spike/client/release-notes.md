@@ -1,11 +1,13 @@
-This desktop app signs in with a device key kept on this PC. Windows encrypts that key when it can. An older server still accepts the invite code. After the server update, the same key signs in, and a saved session can move over without spending the invite again. If this PC is already enrolled, the app signs a fresh challenge instead of taking a session from the invite.
+Letting go of talk keeps the microphone open for a short moment, so the end of a word is not cut off. A roger beep plays at the end. Options, under Sounds, can turn that beep off, and can play a copy on your own speakers. That copy stays off until you turn it on.
 
-A tuned channel stays connected. The app refreshes the voice permission about once a minute, so it does not drop after two minutes.
+The corner overlay keeps the last person who talked for a few seconds and fades them out, so you can still see who it was after they stop.
 
-Recording a new key works only while the Radio Net window is in front. The app opens its own pages and checks that those files have not been swapped.
+An admin can set an All call key in Options. It has no default. Hold it to talk on every channel you have tuned. The server only allows this for an admin.
 
-Options is still where you change keys, turn the overlay and the channel wheel on or off, paste or forget the admin key for this community, choose sounds, turn on simple mode, set up a phone as the talk button, and check for updates.
+Talk can come from the desktop key, the button on screen, a phone, and the helper at the same time. Letting go of one leaves the microphone open while another is still held.
 
-Default keys are still F1 to talk (hold it), F2 for the channel wheel, F3 for the previous channel, F4 for the next channel, and F5 to hide or show the overlay. Keys you already changed stay as they are.
+This app still signs in with a device key kept on this PC. A tuned channel refreshes its voice permission about once a minute.
+
+Recording a new key works only while the Radio Net window is in front. Default keys are still F1 to talk (hold it), F2 for the channel wheel, F3 for the previous channel, F4 for the next channel, and F5 to hide or show the overlay. Keys you already changed stay as they are.
 
 The Windows helper is a separate download, not this installer. The app asks before it downloads an update. The keyboard hook stays off until you accept the privacy note. The installer is unsigned: on the SmartScreen warning choose More info, then Run anyway. SHA256SUMS.txt next to the installer is the checksum of this file.
