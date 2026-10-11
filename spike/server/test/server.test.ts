@@ -585,3 +585,103 @@ describe('token grants', () => {
     expect(new Set(grants.map((g: { room: string }) => g.room)).size).toBe(2);
   });
 });
+
+describe('all-call', () => {
+  function liveKitIdentityOf(member: { authorization: string }): string {
+    const token = member.authorization.slice('Bearer '.length);
+    const json = JSON.parse(Buffer.from(token.split('.')[0] ?? '', 'base64url').toString()) as { sid?: string; did?: string };
+    if (typeof json.did === 'string' && /^[0-9a-f]{64}$/.test(json.did)) return `d${json.did}`;
+    if (typeof json.sid !== 'string' || json.sid.length === 0) throw new Error('session has no identity');
+    return json.sid;
+  }
+
+  function controlFor(calls: string[]) {
+    return {
+      mark: async (room: string, identity: string, on: boolean) => { calls.push(`mark ${room} ${identity} ${on ? '1' : '0'}`); },
+      forward: async (from: string, identity: string, to: string) => { calls.push(`forward ${from} ${identity} ${to}`); },
+      stop: async (room: string, identity: string) => { calls.push(`stop ${room} ${identity}`); },
+    };
+  }
+
+  it('refuses a member without the admin key, and an admin key with no session', async () => {
+    const calls: string[] = [];
+    const { app, admin, member, cid } = await setup({ allCall: controlFor(calls) });
+    const url = `/api/communities/${cid}/channels`;
+    const ch = (await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '59.5', name: 'Command' } })).json().channel;
+    const body = { active: true, sourceChannelId: ch.id, channelIds: [ch.id] };
+    const denied = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/all-call`, headers: member, payload: body });
+    expect(denied.statusCode).toBe(403);
+    const nosession = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/all-call`, headers: admin, payload: body });
+    expect(nosession.statusCode).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  it('forwards the session identity into the other tuned rooms and later stops those rooms', async () => {
+    const calls: string[] = [];
+    const { app, admin, member, cid } = await setup({ allCall: controlFor(calls) });
+    const url = `/api/communities/${cid}/channels`;
+    const command = (await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '59.5', name: 'Command' } })).json().channel;
+    const arty = (await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '41.5', name: 'Arty' } })).json().channel;
+    const identity = liveKitIdentityOf(member);
+    const source = roomNameFor({ communityId: cid, id: command.id });
+    const dest = roomNameFor({ communityId: cid, id: arty.id });
+    const headers = { ...member, ...admin };
+    const started = await app.inject({
+      method: 'POST', url: `/api/communities/${cid}/radio/all-call`, headers,
+      payload: { active: true, sourceChannelId: command.id, channelIds: [command.id, arty.id, 'missing'] },
+    });
+    expect(started.statusCode).toBe(400);
+    expect(calls).toEqual([]);
+    const ok = await app.inject({
+      method: 'POST', url: `/api/communities/${cid}/radio/all-call`, headers,
+      payload: { active: true, sourceChannelId: command.id, channelIds: [command.id, arty.id] },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(calls).toEqual([`mark ${source} ${identity} 1`, `forward ${source} ${identity} ${dest}`]);
+    calls.length = 0;
+    const stopped = await app.inject({
+      method: 'POST', url: `/api/communities/${cid}/radio/all-call`, headers,
+      payload: { active: false, sourceChannelId: command.id, channelIds: [command.id] },
+    });
+    expect(stopped.statusCode).toBe(200);
+    expect(calls).toEqual([`stop ${dest} ${identity}`, `mark ${source} ${identity} 0`]);
+  });
+
+  it('rolls a failed forward back and does not return the LiveKit error', async () => {
+    const calls: string[] = [];
+    const { app, admin, member, cid } = await setup({
+      allCall: {
+        mark: async (room: string, identity: string, on: boolean) => { calls.push(`mark ${room} ${identity} ${on ? '1' : '0'}`); },
+        forward: async () => { throw Object.assign(new Error('participant not found rnk_secret'), { status: 404, code: 'not_found' }); },
+        stop: async (room: string, identity: string) => { calls.push(`stop ${room} ${identity}`); },
+      },
+    });
+    const url = `/api/communities/${cid}/channels`;
+    const command = (await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '59.5', name: 'Command' } })).json().channel;
+    const arty = (await app.inject({ method: 'POST', url, headers: admin, payload: { freq: '41.5', name: 'Arty' } })).json().channel;
+    const res = await app.inject({
+      method: 'POST', url: `/api/communities/${cid}/radio/all-call`, headers: { ...member, ...admin },
+      payload: { active: true, sourceChannelId: command.id, channelIds: [command.id, arty.id] },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.json())).not.toMatch(/rnk_secret/);
+    expect(res.json().error).toMatch(/Tune the channel/);
+    const source = roomNameFor({ communityId: cid, id: command.id });
+    expect(calls.filter((line) => line.startsWith('mark') && line.endsWith(' 0'))).toHaveLength(1);
+    expect(calls.some((line) => line.startsWith(`forward ${source}`))).toBe(false);
+    const down = await setup({
+      allCall: {
+        mark: async () => { throw new Error('livekit down rnk_secret'); },
+        forward: async () => undefined,
+        stop: async () => undefined,
+      },
+    });
+    const ch = (await down.app.inject({ method: 'POST', url: `/api/communities/${down.cid}/channels`, headers: down.admin, payload: { freq: '59.5', name: 'Command' } })).json().channel;
+    const failed = await down.app.inject({
+      method: 'POST', url: `/api/communities/${down.cid}/radio/all-call`, headers: { ...down.member, ...down.admin },
+      payload: { active: true, sourceChannelId: ch.id, channelIds: [ch.id] },
+    });
+    expect(failed.statusCode).toBe(502);
+    expect(JSON.stringify(failed.json())).not.toMatch(/rnk_secret|livekit down/);
+  });
+});

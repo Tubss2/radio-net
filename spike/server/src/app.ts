@@ -16,6 +16,7 @@ import { type Channel, ChannelError, type ChannelStore, type Community, type Dev
 import { mintPhoneToken, phoneIdentity, phoneRoomName, PhonePairs } from './phone.js';
 import { dropCommunityRooms, type RoomAdmin } from './rooms.js';
 import { type RadioUser, mintChannelGrants } from './tokens.js';
+import { type AllCallControl, allCallUnavailable, liveKitAllCall, planAllCall } from './allCall.js';
 
 export interface AppConfig {
   livekitUrl: string; // ws(s)://... handed to clients
@@ -36,6 +37,11 @@ export interface AppConfig {
   log?: (line: string) => void;
   /** LiveKit room admin. Tests pass a fake. Production uses the Room Service client. */
   roomAdmin?: RoomAdmin;
+  /**
+   * Forwards an admin's mic into every other tuned channel room.
+   * Tests pass a fake. Production uses Room Service, which is the only holder of the LiveKit secret.
+   */
+  allCall?: AllCallControl;
 }
 
 const publicChannel = (c: Channel) => ({
@@ -99,7 +105,11 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     allowedHeaders: ['authorization', 'content-type', 'x-admin-key'],
     credentials: false,
   });
-  const rooms: RoomAdmin = cfg.roomAdmin ?? new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
+  const livekit = new RoomServiceClient(cfg.livekitHttpUrl, cfg.apiKey, cfg.apiSecret);
+  const rooms: RoomAdmin = cfg.roomAdmin ?? livekit;
+  const allCall = cfg.allCall ?? liveKitAllCall(livekit);
+  /** Forwards created for this process, so stop removes those rooms even if the client lists a different set later. */
+  const allCallLeases = new Map<string, { sourceRoom: string; destinations: string[] }>();
 
   const write = cfg.log ?? ((line: string) => console.log(line));
   app.addHook('onSend', async (_req, reply) => {
@@ -547,6 +557,82 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     store.deleteCommunity(req.params.cid);
     await Promise.all(channels.map((ch) => rooms.deleteRoom(roomNameFor(ch)).catch(() => undefined)));
     return reply.code(204).send();
+  });
+
+  /**
+   * Admin all-call. The signed-in session supplies the LiveKit identity.
+   * Room Service then marks that participant and forwards them into the other tuned channel rooms.
+   * A client that only unmutes its own mic does not get this path.
+   */
+  app.post<{ Params: { cid: string } }>('/api/communities/:cid/radio/all-call', async (req) => {
+    const { user } = member(req, req.params.cid);
+    requireAdmin(req, req.params.cid);
+    const body = z.object({
+      active: z.boolean(),
+      sourceChannelId: z.string().min(1).max(64),
+      channelIds: z.array(z.string().min(1).max(64)).min(1).max(16),
+    }).parse(req.body);
+    const key = `${req.params.cid}\0${user.id}`;
+    const lease = allCallLeases.get(key);
+    const quiet = async (job: Promise<void>) => {
+      try { await job; } catch (err) { if (!allCallUnavailable(err)) throw err; }
+    };
+    const end = async (sourceRoom: string, destinations: readonly string[]) => {
+      for (const dest of destinations) await quiet(allCall.stop(dest, user.id));
+      await quiet(allCall.mark(sourceRoom, user.id, false));
+      allCallLeases.delete(key);
+    };
+    if (!body.active) {
+      if (lease) {
+        try {
+          await end(lease.sourceRoom, lease.destinations);
+        } catch {
+          write(`all-call ${req.params.cid} stop failed`);
+          throw new HttpError(502, 'All-call did not stop. Try again.');
+        }
+        return { ok: true };
+      }
+    }
+    const plan = planAllCall(body.sourceChannelId, body.channelIds, store.list(req.params.cid));
+    if (plan === 'empty') throw new HttpError(400, 'Choose at least one tuned channel.');
+    if (plan === 'too_many') throw new HttpError(400, 'All-call covers at most 16 channels.');
+    if (plan === 'unknown') throw new HttpError(400, 'That channel is not in this community.');
+    if (plan === 'source') throw new HttpError(400, 'All-call has to include the channel you are transmitting on.');
+    if (!body.active) {
+      try {
+        await end(plan.sourceRoom, plan.destinations);
+      } catch {
+        write(`all-call ${req.params.cid} stop failed`);
+        throw new HttpError(502, 'All-call did not stop. Try again.');
+      }
+      return { ok: true };
+    }
+    if (lease) {
+      try {
+        for (const dest of lease.destinations) await quiet(allCall.stop(dest, user.id));
+      } catch {
+        write(`all-call ${req.params.cid} start failed`);
+        throw new HttpError(502, 'All-call did not start. Try again.');
+      }
+      allCallLeases.delete(key);
+    }
+    const started: string[] = [];
+    try {
+      await allCall.mark(plan.sourceRoom, user.id, true);
+      for (const dest of plan.destinations) {
+        await allCall.forward(plan.sourceRoom, user.id, dest);
+        started.push(dest);
+      }
+    } catch (err) {
+      for (const dest of started) await quiet(allCall.stop(dest, user.id)).catch(() => undefined);
+      await quiet(allCall.mark(plan.sourceRoom, user.id, false)).catch(() => undefined);
+      allCallLeases.delete(key);
+      write(`all-call ${req.params.cid} start failed`);
+      if (allCallUnavailable(err)) throw new HttpError(409, 'Tune the channel and connect before all-call.');
+      throw new HttpError(502, 'All-call did not start. Try again.');
+    }
+    allCallLeases.set(key, { sourceRoom: plan.sourceRoom, destinations: plan.destinations });
+    return { ok: true };
   });
 
   /** Tune: tokens for the channels in my radio. Called on start and whenever the user tunes a new channel. */

@@ -1,6 +1,7 @@
 import {
   type LocalTrackPublication, type RemoteTrack, Room, RoomEvent, Track, createLocalAudioTrack, DisconnectReason,
 } from 'livekit-client';
+import { ALL_CALL_ATTR } from '../../../shared/allCall';
 import { RECONNECTING } from '../../../shared/net';
 import { pickTransmitId } from '../../../shared/transmit';
 import { isReconnectError, type Api, type ChannelInfo } from './api';
@@ -24,6 +25,8 @@ export interface TunedChannel {
   muted: boolean;
   speakers: string[]; // display names talking now
   listeners: number;
+  /** Remote all-call name heard in this room, if the server marked one. */
+  allCallFrom: string | null;
 }
 
 /** What the UI needs from a radio. The real engine and the browser preview both satisfy it. */
@@ -47,6 +50,15 @@ export interface RadioControl {
   cycle(step?: 1 | -1): void;
   /** True only after this call left the microphone unmuted. */
   ptt(down: boolean, channelId?: string): Promise<boolean>;
+  /** True while this radio is holding admin all-call. */
+  readonly allCalling: boolean;
+  /** Name of a remote all-call, from the server attribute on a forwarded participant. */
+  readonly allCallFrom: string | null;
+  /**
+   * Open the transmit mic for all-call, or close it when the talk key is not also held.
+   * The API has to accept the all-call before the UI calls this.
+   */
+  holdAllCall(on: boolean): Promise<boolean>;
   /** Hang and roger beep applied the next time push-to-talk releases. */
   setRelease(opts: { hangMs: number; roger: boolean; rogerLocal: boolean }): void;
   /** Resume audio and open the mic on a user gesture. The track stays published and muted until PTT. */
@@ -82,6 +94,10 @@ export class RadioEngine implements RadioControl {
   private listeners = new Set<() => void>();
   txId: string | null = null;
   transmittingOn: string | null = null;
+  allCalling = false;
+  allCallFrom: string | null = null;
+  /** Talk key (or voice) is holding the mic, so releasing all-call must leave it open. */
+  private micHeldByTalk = false;
   version = 0;
   onChannelDeleted?: (channelId: string) => void;
   private mix: OutgoingMix | null = null;
@@ -154,15 +170,17 @@ export class RadioEngine implements RadioControl {
     gain.connect(panner).connect(this.ctx.destination);
     const slot: Slot = {
       room, gain, panner, sinks: [], refreshing: false,
-      info: { channel, status: 'connecting', canTransmit: grant.canTransmit, volume: 1, pan: 0, muted: false, speakers: [], listeners: 0 },
+      info: { channel, status: 'connecting', canTransmit: grant.canTransmit, volume: 1, pan: 0, muted: false, speakers: [], listeners: 0, allCallFrom: null },
     };
     this.slots.set(channel.id, slot);
     this.ensureTx();
     this.changed();
 
     room
-      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant) => {
         if (track.kind !== Track.Kind.Audio) return;
+        // A forwarded all-call uses the admin's own identity. Playing it back would be an echo.
+        if (participant.identity === room.localParticipant.identity) return;
         // Chromium only feeds remote WebRTC audio into WebAudio if it's also attached to a (muted) element.
         const el = new Audio();
         el.srcObject = new MediaStream([track.mediaStreamTrack]);
@@ -170,13 +188,15 @@ export class RadioEngine implements RadioControl {
         void el.play().catch(() => undefined);
         slot.sinks.push(el);
         this.ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack])).connect(gain);
+        this.noteAllCall();
       })
+      .on(RoomEvent.ParticipantAttributesChanged, () => { this.noteAllCall(); })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         slot.info.speakers = speakers.filter((p) => p !== room.localParticipant).map((p) => p.name || p.identity);
         this.changed();
       })
-      .on(RoomEvent.ParticipantConnected, () => { slot.info.listeners = room.numParticipants; this.changed(); })
-      .on(RoomEvent.ParticipantDisconnected, () => { slot.info.listeners = room.numParticipants; this.changed(); })
+      .on(RoomEvent.ParticipantConnected, () => { slot.info.listeners = room.numParticipants; this.noteAllCall(); })
+      .on(RoomEvent.ParticipantDisconnected, () => { slot.info.listeners = room.numParticipants; this.noteAllCall(); })
       .on(RoomEvent.Reconnecting, () => {
         slot.info.status = 'reconnecting';
         clientLog('livekit', `reconnecting ${channel.freq}`);
@@ -272,12 +292,13 @@ export class RadioEngine implements RadioControl {
     o.stop(now + 0.18);
   }
 
-  private async publishMutedMic(slot: Slot) {
+  private async publishMutedMic(slot: Slot): Promise<LocalTrackPublication> {
     const pub = await slot.room.localParticipant.publishTrack(await this.outgoingTrack(), {
       source: Track.Source.Microphone, dtx: true, red: true, name: 'mic',
     });
     await pub.mute();
     slot.mic = pub;
+    return pub;
   }
 
   private scheduleRefresh(channelId: string, delay = GRANT_REFRESH_MS) {
@@ -305,14 +326,19 @@ export class RadioEngine implements RadioControl {
       slot.info.canTransmit = grant.canTransmit;
       slot.info.status = 'live';
       slot.info.listeners = slot.room.numParticipants;
+      let mic: LocalTrackPublication | undefined;
       if (grant.canTransmit) {
         try {
-          await this.publishMutedMic(slot);
+          mic = await this.publishMutedMic(slot);
         } catch (err) {
           clientLog('livekit', `mic ${slot.info.channel.freq} ${(err as Error).message}`);
         }
       }
-      if (wasTalking && slot.mic) await this.ptt(true, channelId);
+      if (wasTalking && mic) {
+        // All-call keeps the mic open without pretending the talk key is held.
+        if (this.allCalling && channelId === this.txId) await mic.unmute();
+        else await this.ptt(true, channelId);
+      }
       this.changed();
       this.scheduleRefresh(channelId);
     } catch (err) {
@@ -341,7 +367,10 @@ export class RadioEngine implements RadioControl {
     slot.sinks.forEach((e) => { e.srcObject = null; });
     try { slot.gain.disconnect(); } catch { /* already torn down */ }
     const wasTx = this.txId === channelId;
-    if (wasTx) this.txId = null;
+    if (wasTx) {
+      this.txId = null;
+      this.allCalling = false;
+    }
     if (this.transmittingOn === channelId) {
       this.transmittingOn = null;
       this.tail.cancel();
@@ -395,6 +424,7 @@ export class RadioEngine implements RadioControl {
    */
   async ptt(down: boolean, channelId?: string): Promise<boolean> {
     const id = channelId ?? this.txId;
+    if (this.allCalling && id !== this.txId) return false;
     const slot = id ? this.slots.get(id) : undefined;
     if (down) {
       this.tail.cancel();
@@ -409,12 +439,19 @@ export class RadioEngine implements RadioControl {
         this.changed();
         return false;
       }
+      this.micHeldByTalk = true;
       this.transmittingOn = id;
       if (!already) playPttEdge('down');
       this.changed();
       return true;
     }
+    if (this.allCalling && id === this.txId) {
+      this.micHeldByTalk = false;
+      this.changed();
+      return false;
+    }
     if (this.transmittingOn !== id || this.tail.running) return false;
+    this.micHeldByTalk = false;
     playPttEdge('up');
     const result = await this.tail.run(this.release, () => {
       this.playRogerIntoMix();
@@ -426,6 +463,60 @@ export class RadioEngine implements RadioControl {
     if (this.transmittingOn === id) this.transmittingOn = null;
     this.changed();
     return false;
+  }
+
+  async holdAllCall(on: boolean): Promise<boolean> {
+    if (!on) {
+      if (!this.allCalling) return false;
+      this.allCalling = false;
+      if (this.micHeldByTalk) {
+        this.changed();
+        return false;
+      }
+      const id = this.transmittingOn;
+      const slot = id ? this.slots.get(id) : undefined;
+      if (slot?.mic) await slot.mic.mute().catch(() => undefined);
+      if (this.transmittingOn) {
+        this.transmittingOn = null;
+        playPttEdge('up');
+      }
+      this.changed();
+      return false;
+    }
+    const id = this.txId;
+    const slot = id ? this.slots.get(id) : undefined;
+    if (!slot?.mic || slot.info.status === 'gone') return false;
+    if (this.transmittingOn && this.transmittingOn !== id) return false;
+    const already = this.transmittingOn === id;
+    try {
+      await slot.mic.unmute();
+    } catch (err) {
+      clientLog('livekit', `all-call unmute ${slot.info.channel.freq} ${(err as Error).message}`);
+      return false;
+    }
+    this.allCalling = true;
+    this.transmittingOn = id;
+    if (!already) playPttEdge('down');
+    this.changed();
+    return true;
+  }
+
+  /** Banner name for a remote all-call. The local participant is skipped so the sender does not cue on their own forward. */
+  private noteAllCall() {
+    let from: string | null = null;
+    for (const slot of this.slots.values()) {
+      const localId = slot.room.localParticipant.identity;
+      for (const peer of slot.room.remoteParticipants.values()) {
+        if (peer.identity === localId) continue;
+        if (peer.attributes[ALL_CALL_ATTR] !== '1') continue;
+        from = peer.name || peer.identity;
+        break;
+      }
+      if (from) break;
+    }
+    for (const slot of this.slots.values()) slot.info.allCallFrom = from;
+    this.allCallFrom = from;
+    this.changed();
   }
 
   async dispose() { await Promise.all([...this.slots.keys()].map((id) => this.untune(id))); this.micTrack?.stop(); await this.ctx.close(); }

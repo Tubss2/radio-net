@@ -197,6 +197,8 @@ describe('keybinds', () => {
     expect(page.overlay).toMatchObject({ keycode: UIO_F5, label: 'F5' });
     expect(page.prev).toBeNull();
     expect(page.next).toBeNull();
+    expect(page.allCall).toBeNull();
+    expect(DEFAULT_BINDS.allCall).toBeNull();
     const savedPageDefault = pageKeybinds({
       ptt: { kind: 'key', keycode: 0, label: 'Space' },
       overlay: { kind: 'key', keycode: UIO_F10, label: 'F10' },
@@ -211,6 +213,16 @@ describe('keybinds', () => {
       wheel: { kind: 'key', keycode: UIO_F2, label: 'F2' },
     }, true);
     expect(customPage.overlay).toMatchObject({ keycode: UIO_G, label: 'G' });
+    const withAllCall = pageKeybinds({
+      ...customPage,
+      allCall: { kind: 'key', keycode: UIO_G, label: 'G' },
+    }, true);
+    expect(withAllCall.allCall).toMatchObject({ keycode: UIO_G, label: 'G' });
+    expect(isLegacyDefaultKeybinds({ ...legacyDefaults, allCall: { kind: 'key', keycode: UIO_G, label: 'G' } })).toBe(false);
+    expect(isV2DefaultKeybinds({ ...v2Defaults, allCall: { kind: 'key', keycode: UIO_G, label: 'G' } })).toBe(false);
+    const kept = migrateDesktopKeybinds({ ...legacyDefaults, allCall: { kind: 'key', keycode: UIO_G, label: 'G' } }, 0);
+    expect(kept.keybinds?.allCall).toMatchObject({ keycode: UIO_G, label: 'G' });
+    expect(kept.keybinds?.ptt).toMatchObject({ kind: 'mouse', button: 4 });
   });
 
   it('shows a conflict and still keeps both binds', () => {

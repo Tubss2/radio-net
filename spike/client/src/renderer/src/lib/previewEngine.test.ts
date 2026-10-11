@@ -83,4 +83,31 @@ describe('preview radio', () => {
     expect(engine.tuned.some((t) => t.speakers.length > 0)).toBe(true);
     await engine.dispose();
   });
+
+  it('keeps the mic open when talk is still held, and refuses another channel during all-call', async () => {
+    const engine = new PreviewEngine();
+    const api = new PreviewApi();
+    const channels = await api.channels();
+    const cmd = channels.find((c) => c.id === 'cmd');
+    const arty = channels.find((c) => c.id === 'arty');
+    if (!cmd || !arty) throw new Error('preview channels missing');
+    await engine.tune(cmd);
+    await engine.tune(arty);
+    engine.setTx('cmd');
+    expect(await engine.holdAllCall(true)).toBe(true);
+    expect(engine.allCalling).toBe(true);
+    expect(engine.transmittingOn).toBe('cmd');
+    await engine.ptt(false);
+    expect(engine.transmittingOn).toBe('cmd');
+    expect(await engine.ptt(true, 'arty')).toBe(false);
+    expect(engine.transmittingOn).toBe('cmd');
+    await engine.ptt(true);
+    await engine.holdAllCall(false);
+    expect(engine.allCalling).toBe(false);
+    expect(engine.transmittingOn).toBe('cmd');
+    await engine.ptt(false);
+    expect(engine.transmittingOn).toBeNull();
+    expect(await api.allCall('wdnz', { active: true, sourceChannelId: 'cmd', channelIds: ['cmd', 'arty'] })).toEqual({ ok: true });
+    await engine.dispose();
+  });
 });

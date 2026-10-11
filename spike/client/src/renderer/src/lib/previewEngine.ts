@@ -22,6 +22,9 @@ export class PreviewEngine implements RadioControl {
   private mode: PreviewDemo = 'auto';
   txId: string | null = null;
   transmittingOn: string | null = null;
+  allCalling = false;
+  allCallFrom: string | null = null;
+  private micHeldByTalk = false;
   version = 0;
 
   constructor() {
@@ -42,7 +45,7 @@ export class PreviewEngine implements RadioControl {
   async tune(channel: ChannelInfo) {
     if (this.slots.has(channel.id)) return;
     this.slots.set(channel.id, {
-      channel, status: 'live', canTransmit: true, volume: 1, pan: 0, muted: false, speakers: [], listeners: 4,
+      channel, status: 'live', canTransmit: true, volume: 1, pan: 0, muted: false, speakers: [], listeners: 4, allCallFrom: null,
     });
     if (!this.txId) this.txId = channel.id;
     this.changed();
@@ -51,6 +54,7 @@ export class PreviewEngine implements RadioControl {
 
   async untune(channelId: string) {
     if (!this.slots.delete(channelId)) return;
+    if (this.txId === channelId) this.allCalling = false;
     if (this.transmittingOn === channelId) this.transmittingOn = null;
     if (this.txId === channelId) { this.txId = null; this.cycle(); }
     this.changed();
@@ -82,10 +86,43 @@ export class PreviewEngine implements RadioControl {
 
   async ptt(down: boolean, channelId?: string): Promise<boolean> {
     const id = channelId ?? this.txId;
-    if (!id || !this.slots.get(id)?.canTransmit) return false;
-    this.transmittingOn = down ? id : (this.transmittingOn === id ? null : this.transmittingOn);
+    if (this.allCalling && id !== this.txId) return false;
+    const slot = id ? this.slots.get(id) : undefined;
+    if (!slot?.canTransmit || slot.status === 'gone') return false;
+    if (down) {
+      this.micHeldByTalk = true;
+      this.transmittingOn = id;
+      this.changed();
+      return true;
+    }
+    if (id !== this.transmittingOn && id !== this.txId) return false;
+    this.micHeldByTalk = false;
+    if (this.allCalling) {
+      this.changed();
+      return false;
+    }
+    if (this.transmittingOn === id) this.transmittingOn = null;
     this.changed();
-    return this.transmittingOn === id;
+    return false;
+  }
+
+  /** Opens the banner without a microphone. The preview API already accepts the admin check. */
+  async holdAllCall(on: boolean): Promise<boolean> {
+    if (!on) {
+      if (!this.allCalling) return false;
+      this.allCalling = false;
+      if (!this.micHeldByTalk) this.transmittingOn = null;
+      this.changed();
+      return false;
+    }
+    const id = this.txId;
+    const slot = id ? this.slots.get(id) : undefined;
+    if (!slot?.canTransmit || slot.status === 'gone') return false;
+    if (this.transmittingOn && this.transmittingOn !== id) return false;
+    this.allCalling = true;
+    this.transmittingOn = id;
+    this.changed();
+    return true;
   }
 
   /** Advance the automatic talker, or do nothing while a demo button is holding a state. */
