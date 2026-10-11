@@ -59,7 +59,12 @@ export function parseOverlayState(raw: unknown): OverlayState | null {
   for (const sp of s.speakers) {
     if (!sp || typeof sp.name !== 'string' || typeof sp.channel !== 'string' || typeof sp.freq !== 'string') return null;
     if (sp.name.length > 64 || sp.channel.length > 64 || sp.freq.length > 16) return null;
-    speakers.push({ name: sp.name, channel: sp.channel, freq: sp.freq });
+    let opacity = 1;
+    if (sp.opacity !== undefined) {
+      if (typeof sp.opacity !== 'number' || !Number.isFinite(sp.opacity) || sp.opacity < 0 || sp.opacity > 1) return null;
+      opacity = sp.opacity;
+    }
+    speakers.push({ name: sp.name, channel: sp.channel, freq: sp.freq, opacity });
   }
   if (s.wheel === undefined) return { visible: s.visible, speakers };
   if (!s.wheel || typeof s.wheel !== 'object' || typeof s.wheel.open !== 'boolean') return null;
