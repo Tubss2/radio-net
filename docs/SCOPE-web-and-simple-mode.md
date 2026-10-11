@@ -14,7 +14,7 @@ Radio Net can grow two things that share one playing screen. A **web app** at [h
 
 ## A. Web app on GitHub Pages
 
-The Pages URL is the product site. The mocked UI preview that the preview workflow builds is a different thing: it never calls the API, and its Content-Security-Policy sets `connect-src 'none'`. Shipping that mock at the same URL would look like Radio Net and then fail every join. The real app is a separate static build with the Sydney URLs baked in (`https://radio-149-28-170-200.sslip.io` and `wss://lk-149-28-170-200.sslip.io`). The mock can move to `/preview/` on Pages, matching the path Sydney already serves.
+The Pages URL is the product site. The mocked UI preview that the preview workflow builds is a different thing: it never calls the API, and its Content-Security-Policy sets `connect-src 'none'`. Shipping that mock at the same URL would look like Radio Net and then fail every join. The real app is a separate static build with the Sydney URLs baked in (`https://radio-149-28-170-200.sslip.io` and `wss://lk-149-28-170-200.sslip.io`). The mock can move to `/preview/` on Pages. The copy that Sydney served at `/preview/` is retired. The product is the Pages app.
 
 GitHub Pages for this repo is set to **GitHub Actions** (the Pages API reports `build_type: workflow`). The web workflow still prints the Settings → Pages → Source step if `configure-pages` fails, and it deploys from `main` and from `cursor/local-callsign-keybinds-3d59`.
 

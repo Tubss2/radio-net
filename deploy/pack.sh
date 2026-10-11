@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Build deploy/radionet-src.tgz (server source + setup.sh + systemd units + optional UI preview)
+# Build deploy/radionet-src.tgz (server source + setup.sh + systemd units)
 # for deploy.ps1 or a manual scp.
-# PREVIEW_DIST: folder with the built browser preview (spike/client `npm run preview:build` -> preview-dist,
-# or the `ui-preview` Actions artifact). Defaults to ../spike/client/preview-dist when it exists.
+# A leftover preview-dist is still packed when it exists, so an old tree does not
+# change shape. That server mock is retired. The web app is
+# https://tubss2.github.io/radio-net/
+# PREVIEW_DIST defaults to ../spike/client/preview-dist when that folder exists.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREVIEW_DIST="${PREVIEW_DIST:-$HERE/../spike/client/preview-dist}"
@@ -16,9 +18,9 @@ if [[ -f "$PREVIEW_DIST/index.html" ]]; then
     echo "Preview build uses absolute asset paths; rebuild with base './' (npm run preview:build)" >&2; exit 1
   fi
   cp -r "$PREVIEW_DIST" "$TMP/radionet-src/preview"
-  echo "including UI preview from $PREVIEW_DIST"
+  echo "packed a retired mock from $PREVIEW_DIST (not the web app)"
 else
-  echo "no UI preview found at $PREVIEW_DIST (skipping)"
+  echo "no retired mock at $PREVIEW_DIST (skipping)"
 fi
 tar czf "$HERE/radionet-src.tgz" -C "$TMP" radionet-src
 echo "wrote $HERE/radionet-src.tgz"
