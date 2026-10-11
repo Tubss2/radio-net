@@ -7,6 +7,9 @@ export interface RadioUser {
   tags: string[]; // BACKLOG: tags such as "SL", used by restricted channels
 }
 
+/** A kicked device can rejoin with the JWT it already holds until this expires. Two minutes, then the row check is the only way back in. */
+export const VOICE_GRANT_TTL_SECONDS = 120;
+
 export interface ChannelGrant {
   channelId: string;
   room: string;
@@ -40,7 +43,7 @@ export async function mintChannelGrants(opts: {
   channels: Channel[];
   ttlSeconds?: number;
 }): Promise<ChannelGrant[]> {
-  const { apiKey, apiSecret, user, channels, ttlSeconds = 600 } = opts;
+  const { apiKey, apiSecret, user, channels, ttlSeconds = VOICE_GRANT_TTL_SECONDS } = opts;
   const out: ChannelGrant[] = [];
   for (const ch of channels) {
     if (!canListen(user, ch)) continue;

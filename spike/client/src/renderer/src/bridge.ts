@@ -132,6 +132,8 @@ function previewBridge(): RadioNetBridge {
     appFacts: async () => ({ packaged: false, platform: 'preview', arch: '' }),
     log: () => undefined,
     setSimpleWindow: () => undefined,
+    deviceEnsure: async () => null,
+    deviceSign: async () => { throw new Error('Device signing is only available in the desktop app.'); },
   };
 }
 
@@ -157,6 +159,8 @@ const browserFallback: RadioNetBridge = {
   appFacts: async () => ({ packaged: false, platform: 'browser', arch: '' }),
   log: () => undefined,
   setSimpleWindow: () => undefined,
+  deviceEnsure: async () => null,
+  deviceSign: async () => { throw new Error('Device signing is only available in the desktop app.'); },
 };
 
 export const bridge: RadioNetBridge = window.radionet ?? (isPreview ? previewBridge() : browserFallback);
