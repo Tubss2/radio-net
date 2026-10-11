@@ -7,7 +7,7 @@ export const HELPER_URL = 'ws://127.0.0.1:47321';
  * /releases/latest, because that address follows whichever release is newest,
  * including the desktop installer. The file is not listed in latest.yml.
  */
-export const HELPER_DOWNLOAD_URL = 'https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe';
+export const HELPER_DOWNLOAD_URL = 'https://github.com/Tubss2/radio-net/releases/download/helper-6/RadioNetHelper.exe';
 
 /** Open-source helper window. */
 export const HELPER_SOURCE_URL = 'https://github.com/Tubss2/radio-net/tree/main/helper';

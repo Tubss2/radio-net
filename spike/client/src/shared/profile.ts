@@ -14,7 +14,7 @@ export interface ServerEntry {
   /** Short-lived join session. A device session is refreshed by signing a challenge. */
   token?: string;
   tokenExp?: number;
-  /** Enrolled device. Public id, safe to keep with the server list. */
+  /** Enrolled device. Public id, safe to keep with the server list. The private key is not stored here. */
   deviceId?: string;
   /** From the device row. The admin key is not required once this is admin. */
   deviceRole?: 'member' | 'admin';

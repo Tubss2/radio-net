@@ -90,7 +90,7 @@ The **Windows installer** workflow builds an unsigned NSIS installer on `windows
 
 `RN_FAKE_MEDIA` is not set. The job fails if that variable is present, so a release build cannot ship the fake microphone.
 
-The current client version is **0.4.7**. The release is `RadioNet-Setup-0.4.7.exe` on the public GitHub Release `v0.4.7` (Actions artifact name `RadioNet-Setup`, which holds the exe, `latest.yml`, the blockmap, and `SHA256SUMS.txt`). That publish marks `v0.4.7` as GitHub's Latest release so the installed app can find `latest.yml`. The helper stays on its own tag, [helper-5](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
+The current client version is **0.4.8**. The release is `RadioNet-Setup-0.4.8.exe` on the public GitHub Release `v0.4.8` (Actions artifact name `RadioNet-Setup`, which holds the exe, `latest.yml`, the blockmap, and `SHA256SUMS.txt`). That publish marks `v0.4.8` as GitHub's Latest release so the installed app can find `latest.yml`. The helper stays on its own tag, [helper-5](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
 
 The installed app checks that public release on startup and every four hours. It asks before downloading: **Download** fetches the update, and **Later** leaves the current version in place. **Restart now** installs the download. Signature checks are off until the installer is code-signed. Anyone who can publish a GitHub Release on this repo can ship a build the client will install. The installer workflow also writes `SHA256SUMS.txt` (SHA-256 of the exe) into the Actions artifact and, when it publishes, attaches that file to the GitHub Release. That checksum matches the file. It does not prove who built it.
 
@@ -111,12 +111,12 @@ git push origin v0.5.0
 
 The tag must be `v` plus the `package.json` version. That workflow run publishes `RadioNet-Setup-<version>.exe`, `RadioNet-Setup-<version>.exe.blockmap`, `latest.yml`, and `SHA256SUMS.txt` to a public GitHub Release with `GITHUB_TOKEN`, then marks that release as Latest. A manual **Windows installer** run does the same when **publish** is left on (it also creates the tag). Every other push only uploads the Actions artifact. The helper workflow does not mark its release as Latest.
 
-| Piece | Name for 0.4.7 |
+| Piece | Name for 0.4.8 |
 |---|---|
-| NSIS file | `RadioNet-Setup-0.4.7.exe` |
-| Blockmap | `RadioNet-Setup-0.4.7.exe.blockmap` |
-| Update feed | `latest.yml` on the `v0.4.7` GitHub Release |
-| Checksum | `SHA256SUMS.txt` on the `v0.4.7` GitHub Release |
+| NSIS file | `RadioNet-Setup-0.4.8.exe` |
+| Blockmap | `RadioNet-Setup-0.4.8.exe.blockmap` |
+| Update feed | `latest.yml` on the `v0.4.8` GitHub Release |
+| Checksum | `SHA256SUMS.txt` on the `v0.4.8` GitHub Release |
 | Actions artifact | `RadioNet-Setup` |
-| Installer and app exe properties | File version and Product version `0.4.7` |
-| In-app keybinds settings | `Radio Net 0.4.7` |
+| Installer and app exe properties | File version and Product version `0.4.8` |
+| In-app keybinds settings | `Radio Net 0.4.8` |

@@ -46,16 +46,22 @@ export interface Device {
   revokedAt: string | null;
 }
 
+/** One legacy session id may create one device. The row is the burn mark. */
+export interface LegacyMigration {
+  sid: string;
+  communityId: string;
+  /** The device this token created. Null when the token was burned because that device was already enrolled. */
+  deviceId: string | null;
+  createdAt: string;
+}
+
 export interface EnrollInput {
   communityId: string;
   inviteId: string;
   deviceId: string;
   publicKeySpki: string;
   callsign: string;
-  /**
-   * New rows take one use. A repeat of an active device never does.
-   * Migration passes false so an existing member can bind a key without burning a cap.
-   */
+  /** A new row takes one use. An id that is already enrolled is refused and does not change the row. */
   consumeUse: boolean;
 }
 
@@ -95,6 +101,7 @@ export interface StoreSnapshot {
   channels: Channel[];
   devices: Device[];
   invites: Invite[];
+  legacyMigrations: LegacyMigration[];
 }
 
 /**
@@ -116,10 +123,14 @@ export interface ChannelStore {
   listDevices(communityId: string): Device[];
   getDevice(communityId: string, deviceId: string): Device | undefined;
   /**
-   * Insert or refresh a device. The use check and the increment happen here, synchronously,
-   * before the caller awaits anything else.
+   * Insert a device. The use check and the increment happen here, synchronously,
+   * before the caller awaits anything else. An id that is already enrolled is refused.
    */
   enrollDevice(input: EnrollInput): Device;
+  /** True after this legacy session id has been used for one migrate. */
+  legacyMigrationBurned(sid: string): boolean;
+  /** Record that legacy session id. A second call for the same id does nothing. */
+  burnLegacyMigration(sid: string, communityId: string, deviceId: string | null): void;
   /** Bump lastSeenAt at most once a minute so a token poll does not rewrite store.json. */
   touchDevice(communityId: string, deviceId: string): void;
   setDeviceRevoked(communityId: string, deviceId: string, revoked: boolean): Device;
@@ -149,6 +160,7 @@ export class MemoryChannelStore implements ChannelStore {
   private channels = new Map<string, Channel>(); // key = channel id
   protected devices = new Map<string, Device>(); // key = communityId:deviceId
   protected invites = new Map<string, Invite>();
+  protected legacyMigrations = new Map<string, LegacyMigration>();
 
   /** Subclasses persist after a mutation. Loading must not call this. */
   protected persist() {}
@@ -230,6 +242,9 @@ export class MemoryChannelStore implements ChannelStore {
     for (const [key, invite] of this.invites) {
       if (invite.communityId === id) this.invites.delete(key);
     }
+    for (const [sid, row] of this.legacyMigrations) {
+      if (row.communityId === id) this.legacyMigrations.delete(sid);
+    }
     this.persist();
     return community;
   }
@@ -254,10 +269,7 @@ export class MemoryChannelStore implements ChannelStore {
       throw new IdentityError('revoked', 'This device was removed. Ask an admin for an invite.');
     }
     if (existing) {
-      existing.callsign = input.callsign;
-      existing.lastSeenAt = new Date().toISOString();
-      this.persist();
-      return existing;
+      throw new IdentityError('invalid', 'This device is already enrolled.');
     }
     if (invite.revokedAt || inviteExpired(invite) || !this.communities.has(input.communityId)) {
       throw new IdentityError('invite', "That invite code doesn't match any community");
@@ -284,6 +296,21 @@ export class MemoryChannelStore implements ChannelStore {
     this.devices.set(deviceKey(input.communityId, input.deviceId), device);
     this.persist();
     return device;
+  }
+
+  legacyMigrationBurned(sid: string) {
+    return this.legacyMigrations.has(sid);
+  }
+
+  burnLegacyMigration(sid: string, communityId: string, deviceId: string | null) {
+    if (this.legacyMigrations.has(sid)) return;
+    this.legacyMigrations.set(sid, {
+      sid,
+      communityId,
+      deviceId,
+      createdAt: new Date().toISOString(),
+    });
+    this.persist();
   }
 
   touchDevice(communityId: string, deviceId: string) {
@@ -451,6 +478,7 @@ export class MemoryChannelStore implements ChannelStore {
       channels: [...this.channels.values()],
       devices: [...this.devices.values()],
       invites: [...this.invites.values()],
+      legacyMigrations: [...this.legacyMigrations.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.sid.localeCompare(b.sid)),
     };
   }
 
@@ -460,10 +488,12 @@ export class MemoryChannelStore implements ChannelStore {
     this.channels.clear();
     this.devices.clear();
     this.invites.clear();
+    this.legacyMigrations.clear();
     for (const c of snap.communities) this.communities.set(c.id, c);
     for (const ch of snap.channels) this.channels.set(ch.id, ch);
     for (const d of snap.devices) this.devices.set(deviceKey(d.communityId, d.id), d);
     for (const invite of snap.invites) this.invites.set(invite.id, invite);
+    for (const row of snap.legacyMigrations) this.legacyMigrations.set(row.sid, row);
     for (const community of snap.communities) this.ensurePrimaryInvite(community);
   }
 }
@@ -480,12 +510,13 @@ function inviteExpired(invite: Invite): boolean {
 
 export function validateSnapshot(raw: unknown): StoreSnapshot {
   if (!raw || typeof raw !== 'object') throw new Error('store.json is not an object');
-  const body = raw as { communities?: unknown; channels?: unknown; devices?: unknown; invites?: unknown };
+  const body = raw as { communities?: unknown; channels?: unknown; devices?: unknown; invites?: unknown; legacyMigrations?: unknown };
   if (!Array.isArray(body.communities) || !Array.isArray(body.channels)) throw new Error('store.json is missing communities or channels');
   const devices = body.devices === undefined ? [] : body.devices;
   const invites = body.invites === undefined ? [] : body.invites;
-  if (!Array.isArray(devices) || !Array.isArray(invites)) throw new Error('store.json has a bad device list');
-  if (body.communities.length > 10_000 || body.channels.length > 100_000 || devices.length > 100_000 || invites.length > 100_000) {
+  const legacyMigrations = body.legacyMigrations === undefined ? [] : body.legacyMigrations;
+  if (!Array.isArray(devices) || !Array.isArray(invites) || !Array.isArray(legacyMigrations)) throw new Error('store.json has a bad device list');
+  if (body.communities.length > 10_000 || body.channels.length > 100_000 || devices.length > 100_000 || invites.length > 100_000 || legacyMigrations.length > 100_000) {
     throw new Error('store.json is too large');
   }
   for (const c of body.communities) {
@@ -516,11 +547,19 @@ export function validateSnapshot(raw: unknown): StoreSnapshot {
       throw new Error('store.json has a bad invite');
     }
   }
+  for (const row of legacyMigrations) {
+    if (!row || typeof row !== 'object') throw new Error('store.json has a bad migration');
+    const migration = row as Partial<LegacyMigration>;
+    if (typeof migration.sid !== 'string' || migration.sid.length === 0 || migration.sid.length > 64 || typeof migration.communityId !== 'string') {
+      throw new Error('store.json has a bad migration');
+    }
+  }
   return {
     communities: body.communities as Community[],
     channels: body.channels as Channel[],
     devices: devices as Device[],
     invites: invites as Invite[],
+    legacyMigrations: legacyMigrations as LegacyMigration[],
   };
 }
 
@@ -530,7 +569,18 @@ function macPayload(snap: StoreSnapshot): string {
     channels: snap.channels,
     devices: snap.devices,
     invites: snap.invites,
+    legacyMigrations: snap.legacyMigrations,
   });
+}
+
+/** MAC from the first identity release, before legacy migration rows existed. */
+export function identityStoreMac(snap: Pick<StoreSnapshot, 'communities' | 'channels' | 'devices' | 'invites'>, key: string): string {
+  return createHmac('sha256', key).update(JSON.stringify({
+    communities: snap.communities,
+    channels: snap.channels,
+    devices: snap.devices,
+    invites: snap.invites,
+  })).digest('hex');
 }
 
 /** MAC over communities, channels, devices, and invites, so a `mac` field is not part of itself. */
@@ -551,7 +601,7 @@ export class FileChannelStore extends MemoryChannelStore {
     super();
     let rewrite = false;
     if (existsSync(file)) {
-      const parsed = JSON.parse(readFileSync(file, 'utf8')) as { mac?: unknown; devices?: unknown; invites?: unknown };
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as { mac?: unknown; devices?: unknown; invites?: unknown; legacyMigrations?: unknown };
       const snap = validateSnapshot(parsed);
       if (macKey) {
         const mac = typeof parsed.mac === 'string' ? parsed.mac : '';
@@ -559,8 +609,10 @@ export class FileChannelStore extends MemoryChannelStore {
         const identityRows = Array.isArray(parsed.devices) && parsed.devices.length > 0
           || Array.isArray(parsed.invites) && parsed.invites.length > 0;
         const legacy = !identityRows && secretMacEqual(mac, legacyStoreMac(snap, macKey));
-        if (!current && !legacy) throw new Error('store.json failed its integrity check');
-        rewrite = legacy || !current;
+        // A file written before migration rows existed has no legacyMigrations key. Do not accept that MAC if the key is present, or a burn list could be smuggled under it.
+        const previousIdentity = !Array.isArray(parsed.legacyMigrations) && secretMacEqual(mac, identityStoreMac(snap, macKey));
+        if (!current && !legacy && !previousIdentity) throw new Error('store.json failed its integrity check');
+        rewrite = legacy || previousIdentity || !current;
       }
       this.restore(snap);
       if ([...this.invites.values()].length > (Array.isArray(parsed.invites) ? parsed.invites.length : 0)) rewrite = true;

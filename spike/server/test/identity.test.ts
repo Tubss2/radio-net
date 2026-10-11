@@ -1,4 +1,5 @@
 import { generateKeyPairSync, sign } from 'node:crypto';
+import { TokenVerifier } from 'livekit-server-sdk';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { signSession } from '../src/accounts.js';
 import { buildApp } from '../src/app.js';
 import { ChallengeTable, canonicalJoin } from '../src/identity.js';
-import { FileChannelStore, MemoryChannelStore, legacyStoreMac, roomNameFor, storeMac, type StoreSnapshot } from '../src/store.js';
+import { FileChannelStore, MemoryChannelStore, identityStoreMac, legacyStoreMac, roomNameFor, storeMac, type StoreSnapshot } from '../src/store.js';
 import { freshDevice, registerDevice } from './devices.js';
 
 const cfg = { livekitUrl: 'ws://x', livekitHttpUrl: 'http://127.0.0.1:1', apiKey: 'devkey', apiSecret: 'secret-secret-secret-secret-secret' };
@@ -43,15 +44,22 @@ describe('device identity', () => {
     expect(table.issue('community', 'cd'.repeat(32)).challengeId).toBeTruthy();
   });
 
-  it('enrolls once, refreshes the same device without another use, and closes the old join', async () => {
+  it('enrolls once, refuses a second register without a signature, and closes the old join', async () => {
     const { app, community, admin, cid } = await world();
     const device = freshDevice();
     const first = await registerDevice(app, community.inviteCode, 'Rifleman', device);
     expect(first.res.statusCode).toBe(200);
     expect(first.res.json().community.inviteCode).toBeUndefined();
     const second = await registerDevice(app, community.inviteCode, 'Actual', device);
-    expect(second.res.statusCode).toBe(200);
-    expect(second.res.json().callsign).toBe('Actual');
+    expect(second.res.statusCode).toBe(409);
+    expect(second.res.json()).toEqual({
+      error: 'This device is already enrolled.',
+      code: 'already_enrolled',
+      communityId: cid,
+    });
+    expect(second.res.json().token).toBeUndefined();
+    const still = await app.inject({ url: `/api/communities/${cid}/devices`, headers: admin });
+    expect(still.json().devices.map((d: { callsign: string }) => d.callsign)).toEqual(['Rifleman']);
     const invites = await app.inject({ url: `/api/communities/${cid}/invites`, headers: admin });
     expect(invites.json().invites).toEqual([expect.objectContaining({ code: community.inviteCode, uses: 1, maxUses: null })]);
     const closed = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Late' } });
@@ -114,7 +122,13 @@ describe('device identity', () => {
       method: 'POST', url: `/api/communities/${cid}/devices/${device.deviceId}/revoke`, headers: admin,
     });
     expect(revoked.statusCode).toBe(200);
-    expect(removed).toEqual([`${roomNameFor({ communityId: cid, id: channel.json().channel.id })} d${device.deviceId}`]);
+    const identity = `d${device.deviceId}`;
+    const phoneRoom = `g${cid}.phone.${identity}`;
+    expect(removed).toEqual([
+      `${roomNameFor({ communityId: cid, id: channel.json().channel.id })} ${identity}`,
+      `${phoneRoom} ${identity}`,
+      `${phoneRoom} phone:${identity}`,
+    ]);
     expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
     const bannedChallenge = await app.inject({
       method: 'POST', url: `/api/communities/${cid}/challenge`, payload: { deviceId: device.deviceId },
@@ -171,7 +185,7 @@ describe('device identity', () => {
     })).statusCode).toBe(403);
   });
 
-  it('migrates a legacy session without spending a use, and a rotated key does not demote the device', async () => {
+  it('migrates a legacy session once, counts that seat, and a rotated key does not demote the device', async () => {
     const app = buildApp(new MemoryChannelStore(), { ...cfg, communitySetupCode: 'letmein' });
     const created = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Unit', setupCode: 'letmein' } });
     const { adminKey, community } = created.json();
@@ -189,7 +203,17 @@ describe('device identity', () => {
     expect(migrated.json().deviceId).toBe(device.deviceId);
     const admin = { 'x-admin-key': adminKey };
     const invites = await app.inject({ url: `/api/communities/${community.id}/invites`, headers: admin });
-    expect(invites.json().invites[0].uses).toBe(0);
+    expect(invites.json().invites[0].uses).toBe(1);
+    const other = freshDevice();
+    const second = await app.inject({
+      method: 'POST', url: '/api/join/migrate',
+      headers: { authorization: `Bearer ${legacy}` },
+      payload: { deviceId: other.deviceId, publicKeySpki: other.publicKeySpki, callsign: 'Other' },
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().code).toBe('migrate_used');
+    expect(second.json().token).toBeUndefined();
+    expect((await app.inject({ url: `/api/communities/${community.id}/invites`, headers: admin })).json().invites[0].uses).toBe(1);
     const claimed = await app.inject({
       method: 'POST', url: `/api/communities/${community.id}/claim-admin`,
       headers: { authorization: `Bearer ${migrated.json().token}`, 'x-admin-key': adminKey },
@@ -221,6 +245,73 @@ describe('device identity', () => {
       payload: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki },
     });
     expect(again.statusCode).toBe(403);
+
+    const enrolled = freshDevice();
+    await registerDevice(app, community.inviteCode, 'Kept', enrolled);
+    const repeat = await app.inject({
+      method: 'POST', url: '/api/join/migrate',
+      headers: { authorization: `Bearer ${legacy}` },
+      payload: { deviceId: enrolled.deviceId, publicKeySpki: enrolled.publicKeySpki },
+    });
+    expect(repeat.statusCode).toBe(409);
+    expect(repeat.json().code).toBe('migrate_used');
+  });
+
+  it('burns a legacy token when the device is already enrolled and does not mint a session', async () => {
+    const { app, community, admin, cid } = await world();
+    const device = freshDevice();
+    await registerDevice(app, community.inviteCode, 'Rifleman', device);
+    const legacy = signSession({
+      cid, name: 'Rifleman', sid: 'legacy-sid-2', exp: Math.floor(Date.now() / 1000) + 3600,
+      scope: 'member', epoch: 0,
+    }, cfg.apiSecret);
+    const migrated = await app.inject({
+      method: 'POST', url: '/api/join/migrate',
+      headers: { authorization: `Bearer ${legacy}` },
+      payload: { deviceId: device.deviceId, publicKeySpki: device.publicKeySpki, callsign: 'Renamed' },
+    });
+    expect(migrated.statusCode).toBe(409);
+    expect(migrated.json()).toMatchObject({ code: 'already_enrolled', communityId: cid });
+    expect(migrated.json().token).toBeUndefined();
+    const other = freshDevice();
+    const again = await app.inject({
+      method: 'POST', url: '/api/join/migrate',
+      headers: { authorization: `Bearer ${legacy}` },
+      payload: { deviceId: other.deviceId, publicKeySpki: other.publicKeySpki },
+    });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().code).toBe('migrate_used');
+    const list = await app.inject({ url: `/api/communities/${cid}/devices`, headers: admin });
+    expect(list.json().devices.map((d: { callsign: string }) => d.callsign)).toEqual(['Rifleman']);
+  });
+
+  it('refuses a phone redeem after a ban and keeps a voice grant to two minutes', async () => {
+    const { app, community, admin, cid, removed } = await world();
+    const device = freshDevice();
+    const enrolled = await registerDevice(app, community.inviteCode, 'Rifleman', device);
+    const member = { authorization: `Bearer ${enrolled.res.json().token}` };
+    const channel = await app.inject({
+      method: 'POST', url: `/api/communities/${cid}/channels`, headers: admin, payload: { freq: '59.5', name: 'Command' },
+    });
+    const grants = await app.inject({
+      method: 'POST', url: `/api/communities/${cid}/radio/tokens`, headers: member,
+      payload: { channelIds: [channel.json().channel.id] },
+    });
+    const voicePart = String(grants.json().grants[0].token).split('.')[1] ?? '';
+    const voice = JSON.parse(Buffer.from(voicePart, 'base64url').toString('utf8')) as { exp: number; nbf: number };
+    expect(voice.exp - voice.nbf).toBe(120);
+    await new TokenVerifier(cfg.apiKey, cfg.apiSecret).verify(grants.json().grants[0].token);
+    const paired = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-pair`, headers: member });
+    const code = paired.json().code as string;
+    const banned = await app.inject({
+      method: 'POST', url: `/api/communities/${cid}/devices/${device.deviceId}/revoke`, headers: admin,
+    });
+    expect(banned.statusCode).toBe(200);
+    const identity = `d${device.deviceId}`;
+    expect(removed).toContain(`g${cid}.phone.${identity} ${identity}`);
+    expect(removed).toContain(`g${cid}.phone.${identity} phone:${identity}`);
+    expect((await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-host`, headers: member })).statusCode).toBe(401);
   });
 
   it('rejects a key that is not P-256 or whose id does not match', async () => {
@@ -274,6 +365,7 @@ describe('device identity', () => {
       channels: [],
       devices: [],
       invites: [],
+      legacyMigrations: [],
     };
     writeFileSync(file, JSON.stringify({ communities: snap.communities, channels: snap.channels, mac: legacyStoreMac(snap, 'mac-key') }));
     const store = new FileChannelStore(file, 'mac-key');
@@ -282,7 +374,12 @@ describe('device identity', () => {
     })]);
     const raw = JSON.parse(readFileSync(file, 'utf8')) as StoreSnapshot & { mac: string };
     expect(raw.invites).toHaveLength(1);
-    expect(raw.mac).toBe(storeMac({ ...snap, invites: raw.invites, devices: raw.devices }, 'mac-key'));
+    expect(raw.mac).toBe(storeMac({
+      ...snap,
+      invites: raw.invites,
+      devices: raw.devices,
+      legacyMigrations: raw.legacyMigrations,
+    }, 'mac-key'));
 
     const smuggle = join(dir, 'smuggle.json');
     writeFileSync(smuggle, JSON.stringify({
@@ -292,5 +389,14 @@ describe('device identity', () => {
       devices: [{ id: 'aa'.repeat(32), communityId: 'c1', publicKeySpki: 'AQID' }],
     }));
     expect(() => new FileChannelStore(smuggle, 'mac-key')).toThrow(/integrity/);
+
+    const previous = join(dir, 'previous.json');
+    const previousSnap = { ...snap, invites: raw.invites, devices: raw.devices };
+    const { legacyMigrations: _dropped, ...previousBody } = previousSnap;
+    writeFileSync(previous, JSON.stringify({ ...previousBody, mac: identityStoreMac(previousSnap, 'mac-key') }));
+    const reloaded = new FileChannelStore(previous, 'mac-key');
+    reloaded.burnLegacyMigration('legacy-sid-1', 'c1', null);
+    const again = new FileChannelStore(previous, 'mac-key');
+    expect(again.legacyMigrationBurned('legacy-sid-1')).toBe(true);
   });
 });

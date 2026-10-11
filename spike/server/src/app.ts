@@ -66,7 +66,12 @@ const LEGACY_JOIN_MESSAGE = 'This server uses device sign-in. Update the app, th
 const NOT_ENROLLED = 'This device is not enrolled.';
 
 class HttpError extends Error {
-  constructor(public status: number, message: string, public code?: string) { super(message); }
+  constructor(
+    public status: number,
+    message: string,
+    public code?: string,
+    public communityId?: string,
+  ) { super(message); }
 }
 
 export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
@@ -221,12 +226,22 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
   const dropDevice = async (communityId: string, deviceId: string) => {
     if (!rooms.removeParticipant) return;
     const identity = `d${deviceId}`;
-    await Promise.all(store.list(communityId).map((ch) => rooms.removeParticipant!(roomNameFor(ch), identity).catch(() => undefined)));
+    const phoneRoom = phoneRoomName(communityId, identity);
+    const kicks = [
+      ...store.list(communityId).map((ch) => rooms.removeParticipant!(roomNameFor(ch), identity)),
+      rooms.removeParticipant!(phoneRoom, identity),
+      rooms.removeParticipant!(phoneRoom, phoneIdentity(identity)),
+    ];
+    await Promise.all(kicks.map((kick) => kick.catch(() => undefined)));
   };
 
   app.setErrorHandler((err, _req, reply: FastifyReply) => {
     if (err instanceof HttpError) {
-      return reply.code(err.status).send(err.code ? { error: err.message, code: err.code } : { error: err.message });
+      return reply.code(err.status).send({
+        error: err.message,
+        ...(err.code ? { code: err.code } : {}),
+        ...(err.communityId ? { communityId: err.communityId } : {}),
+      });
     }
     if (err instanceof IdentityError) {
       const status = err.code === 'revoked' ? 403 : err.code === 'invalid' ? 400 : err.code === 'rate' ? 429 : 404;
@@ -278,7 +293,10 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     throw new HttpError(410, LEGACY_JOIN_MESSAGE, 'device_signin');
   });
 
-  /** Enroll this device with an invite, or refresh an active device without spending another use. */
+  /**
+   * Enroll a new device with an invite. An id that is already on the server gets no session:
+   * the client must sign a fresh challenge. The community id is in that refusal.
+   */
   app.post('/api/join/register', async (req) => {
     rateLimit(req);
     const body = z.object({
@@ -294,6 +312,9 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     if (!invite) throw new HttpError(404, "That invite code doesn't match any community");
     const community = store.getCommunity(invite.communityId);
     if (!community) throw new HttpError(404, "That invite code doesn't match any community");
+    const existing = store.getDevice(community.id, body.deviceId);
+    if (existing?.revokedAt) throw new HttpError(403, 'This device was removed. Ask an admin for an invite.');
+    if (existing) throw new HttpError(409, 'This device is already enrolled.', 'already_enrolled', community.id);
     const device = store.enrollDevice({
       communityId: community.id,
       inviteId: invite.id,
@@ -306,8 +327,8 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
   });
 
   /**
-   * Bind a device to a still-valid legacy session. Does not consume an invite use.
-   * The window closes when that token expires or the invite epoch moves.
+   * Bind one new device to a still-valid legacy session, then burn that session id.
+   * A second device from the same token is refused. An already-enrolled device gets no session.
    */
   app.post('/api/join/migrate', async (req) => {
     rateLimit(req);
@@ -324,16 +345,28 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     const spki = parseDeviceKey(body.deviceId, body.publicKeySpki);
     const callsign = cleanLabel(body.callsign ?? session.name);
     if (!callsign) throw new HttpError(400, 'Pick a callsign (1-32 characters)');
+    const existing = store.getDevice(community.id, body.deviceId);
+    if (existing?.revokedAt) throw new HttpError(403, 'This device was removed. Ask an admin for an invite.');
+    if (store.legacyMigrationBurned(session.sid)) {
+      throw new HttpError(409, 'This sign-in was already moved to a device.', 'migrate_used');
+    }
+    if (existing) {
+      store.burnLegacyMigration(session.sid, community.id, null);
+      throw new HttpError(409, 'This device is already enrolled.', 'already_enrolled', community.id);
+    }
     const invite = store.inviteForCommunityCode(community);
-    if (!invite || invite.revokedAt) throw new HttpError(404, "That invite code doesn't match any community");
+    if (!invite || invite.revokedAt || (invite.maxUses !== null && invite.uses >= invite.maxUses)) {
+      throw new HttpError(404, "That invite code doesn't match any community");
+    }
     const device = store.enrollDevice({
       communityId: community.id,
       inviteId: invite.id,
       deviceId: body.deviceId,
       publicKeySpki: spki.toString('base64'),
       callsign,
-      consumeUse: false,
+      consumeUse: true,
     });
+    store.burnLegacyMigration(session.sid, community.id, device.id);
     return issueDeviceSession(community, device);
   });
 
@@ -553,6 +586,11 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
     const community = subject ? store.getCommunity(subject.cid) : undefined;
     if (!subject || !community || (subject.epoch ?? 0) !== (community.sessionEpoch ?? 0)) {
       throw new HttpError(404, 'That pairing code is not valid');
+    }
+    const deviceId = /^d([0-9a-f]{64})$/.exec(subject.sid)?.[1];
+    if (deviceId) {
+      const device = store.getDevice(subject.cid, deviceId);
+      if (!device || device.revokedAt) throw new HttpError(404, 'That pairing code is not valid');
     }
     const room = phoneRoomName(subject.cid, subject.sid);
     const token = await mintPhoneToken({

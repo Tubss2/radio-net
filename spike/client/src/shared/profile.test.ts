@@ -6,7 +6,7 @@ describe('profile secrets', () => {
     const saved = persistableProfile({
       ...emptyProfile(),
       privacyAccepted: true,
-      servers: [{ id: 'c', name: 'Unit', url: 'https://radio.example', inviteCode: 'ABCD-EF23', adminKey: 'rnk_secret', token: 'eyJ.mac', tokenExp: 1, lastUsed: 't' }],
+      servers: [{ id: 'c', name: 'Unit', url: 'https://radio.example', inviteCode: 'ABCD-EF23', adminKey: 'rnk_secret', token: 'eyJ.mac', tokenExp: 1, deviceId: 'ab'.repeat(32), deviceRole: 'member' as const, lastUsed: 't' }],
     }, { encrypt: true });
     expect(saved.servers[0].adminKey).toBe('rnk_secret');
     expect(saved.servers[0].token).toBe('eyJ.mac');
@@ -16,12 +16,13 @@ describe('profile secrets', () => {
   it('drops the admin key and session when the file would be plaintext', () => {
     const saved = persistableProfile({
       ...emptyProfile(),
-      servers: [{ id: 'c', name: 'Unit', url: 'https://radio.example', inviteCode: 'ABCD-EF23', adminKey: 'rnk_secret', token: 'eyJ.mac', tokenExp: 1, lastUsed: 't' }],
+      servers: [{ id: 'c', name: 'Unit', url: 'https://radio.example', inviteCode: 'ABCD-EF23', adminKey: 'rnk_secret', token: 'eyJ.mac', tokenExp: 1, deviceId: 'ab'.repeat(32), deviceRole: 'member' as const, lastUsed: 't' }],
     }, { encrypt: false });
     expect(saved.servers[0].adminKey).toBeUndefined();
     expect(saved.servers[0].token).toBeUndefined();
     expect(saved.servers[0].tokenExp).toBeUndefined();
     expect(saved.servers[0].inviteCode).toBe('ABCD-EF23');
+    expect(saved.servers[0].deviceId).toBe('ab'.repeat(32));
   });
 
   it('treats a missing privacy flag as not yet accepted, and keybinds as on', () => {
@@ -36,5 +37,6 @@ describe('profile secrets', () => {
     const kept = normaliseProfile({ servers: [{ id: 'c', url: 'https://radio.example', deviceRole: 'admin', deviceId: 'ab'.repeat(32), inviteCode: 'ABCD-EF23' }] });
     expect(kept.servers[0].deviceRole).toBe('admin');
     expect(kept.servers[0].deviceId).toBe('ab'.repeat(32));
+    expect(normaliseProfile({ servers: [{ id: 'c', url: 'https://radio.example', deviceId: 'not-a-device', inviteCode: 'ABCD-EF23' }] }).servers[0].deviceId).toBeUndefined();
   });
 });

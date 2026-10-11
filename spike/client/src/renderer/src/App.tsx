@@ -11,8 +11,9 @@ import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import { RECONNECTING } from '../../shared/net';
 import { API_URL, Api, ApiError, isReconnectError, type ChannelInfo, type JoinResult } from './lib/api';
-import { commitDevice, createExtractable, loadDevice, type PendingDevice } from './lib/deviceKey';
+import { commitDevice, createExtractable, loadDevice, type HeldDevice, type PendingDevice } from './lib/deviceKey';
 import { openSession } from './lib/session';
+import { openDeviceSession } from './lib/deviceSession';
 import { unwrapIdentity, wrapIdentity, type IdentityBackup } from '../../shared/identity';
 import { Members } from './Members';
 import { parseFreqInput, validateFrequency } from './lib/freq';
@@ -86,6 +87,36 @@ function downloadBackup(file: IdentityBackup) {
 function clientFor(server: { url?: string; token?: string | null; adminKey?: string | null } | null): Api {
   if (isPreview) return new PreviewApi();
   return new Api(server?.url || API_URL, server?.token ?? null, server?.adminKey ?? null);
+}
+
+/** Desktop signs in the main process. The web app signs with the IndexedDB key. Preview keeps the invite join. */
+async function signIn(api: Api, input: {
+  callsign: string;
+  inviteCode?: string;
+  communityId?: string;
+  legacyToken?: string | null;
+  device?: HeldDevice | null;
+}): Promise<JoinResult> {
+  if (isPreview) return api.join(input.inviteCode || '', input.callsign);
+  if (inElectron) {
+    const device = await bridge.deviceEnsure();
+    return openDeviceSession(api, {
+      callsign: input.callsign,
+      device,
+      sign: (message) => bridge.deviceSign(message),
+      inviteCode: input.inviteCode,
+      communityId: input.communityId,
+      legacyToken: input.legacyToken,
+    });
+  }
+  const device = input.device === undefined ? await loadDevice() : input.device;
+  return openSession(api, {
+    callsign: input.callsign,
+    device,
+    inviteCode: input.inviteCode,
+    communityId: input.communityId,
+    legacyToken: input.legacyToken,
+  });
 }
 
 export function App() {
@@ -264,7 +295,9 @@ function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
       <div className="titlebar" />
       <div className="box">
         <h1>Your callsign</h1>
-        <p>Stored {isWeb ? 'in this browser' : 'on this PC'}. This radio is a device key, not a password account.</p>
+        <p>{inElectron
+          ? 'Stored on this PC. This app keeps a device key here and signs in with it.'
+          : 'Stored in this browser. This radio is a device key, not a password account.'}</p>
         <label className="field">Callsign<input placeholder="Toby" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
         {err && <div className="err">{err}</div>}
         <button className="btn primary" onClick={go}>Continue</button>
@@ -296,7 +329,7 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
   const [importFile, setImportFile] = useState<File | null>(null);
 
   const ensureDevice = async () => {
-    if (isPreview) return null;
+    if (isPreview || inElectron) return null;
     const existing = await loadDevice();
     if (existing) return existing;
     const pending = await createExtractable();
@@ -318,7 +351,7 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
       if (!name) throw new Error('Pick a callsign (1-32 characters)');
       const device = await ensureDevice();
       const api = clientFor({ url: server.url, token: null, adminKey: server.adminKey ?? null });
-      const r = await openSession(api, {
+      const r = await signIn(api, {
         callsign: name,
         device,
         communityId: server.id,
@@ -342,15 +375,20 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
       const api = clientFor({ url, token: null, adminKey: null });
       const device = await ensureDevice();
       if (mode === 'join') {
-        const r = await openSession(api, { callsign: name, device, inviteCode: code });
+        const r = await signIn(api, { callsign: name, device, inviteCode: code });
         const prev = profile.servers.find((s) => s.id === r.community.id);
-        const entry = sessionEntry({ adminKey: prev?.adminKey, rememberAdmin: prev?.rememberAdmin, deviceId: prev?.deviceId, deviceRole: prev?.deviceRole }, url, r, code);
+        const entry = sessionEntry({
+          adminKey: prev?.adminKey,
+          rememberAdmin: prev?.rememberAdmin,
+          deviceId: prev?.deviceId,
+          deviceRole: prev?.deviceRole,
+        }, url, r, code);
         const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
         onProfile({ ...profile, callsign: name, servers });
         onOpen(entry);
       } else {
         const created = await api.createCommunity(community, setup || undefined);
-        const joined = await openSession(api, {
+        const joined = await signIn(api, {
           callsign: name,
           device,
           communityId: created.community.id,
@@ -408,7 +446,7 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
               <div key={s.id} className="server">
                 <div>
                   <div>{s.name}</div>
-                  <div className="sub" style={{ margin: 0 }}>{s.deviceId ? `This browser ${s.deviceId.slice(-8)}` : 'Saved on this radio'}</div>
+                  <div className="sub" style={{ margin: 0 }}>{s.deviceId ? `${inElectron ? 'This PC' : 'This browser'} ${s.deviceId.slice(-8)}` : 'Saved on this radio'}</div>
                 </div>
                 <button className="btn sm" disabled={busy} onClick={() => void joinExisting(s)}>Rejoin</button>
               </div>
@@ -427,7 +465,7 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
         <button className="btn ghost" onClick={() => { setMode(mode === 'join' ? 'create' : 'join'); setErr(''); }}>
           {mode === 'join' ? 'Running a group? Create a community' : 'Have an invite? Join instead'}
         </button>
-        {!isPreview && (
+        {isWeb && !isPreview && (
           <button className="btn ghost" type="button" onClick={() => setImporting((v) => !v)}>Import a backup</button>
         )}
         {importing && (
@@ -590,6 +628,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const profileRef = useRef(boot);
   profileRef.current = boot;
   const loadGen = useRef(0);
+  const sessionRenewed = useRef(false);
 
   const load = useCallback(() => {
     const gen = ++loadGen.current;
@@ -623,7 +662,6 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     setOverlayOn(bootRef.current.overlayOn);
     const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const boot = async () => {
-      let renewed = false;
       while (alive) {
         const gen = ++loadGen.current;
         try {
@@ -650,17 +688,15 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
         } catch (e) {
           if (!alive) return;
           const msg = (e as Error).message ?? '';
-          if (!renewed && !isPreview && /session expired|not signed in|invite was rotated|device was removed/i.test(msg)) {
+          if (!sessionRenewed.current && !isPreview && /session expired|not signed in|invite was rotated|device was removed/i.test(msg)) {
             try {
-              const device = await loadDevice();
-              const again = await openSession(new Api(server.url, null, null), {
+              const again = await signIn(new Api(server.url, null, null), {
                 callsign,
-                device,
                 communityId: server.id,
                 inviteCode: server.inviteCode || undefined,
                 legacyToken: server.token,
               });
-              renewed = true;
+              sessionRenewed.current = true;
               api.token = again.token;
               onServer(sessionEntry(server, server.url, again, server.inviteCode));
               continue;
