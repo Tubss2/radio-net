@@ -7,7 +7,8 @@ import { pickTransmitId } from '../../../shared/transmit';
 import { isReconnectError, type Api, type ChannelInfo } from './api';
 import { clientLog } from './clientLog';
 import { resolveLivekitUrl } from './livekitUrl';
-import { playPttEdge, playTxChange } from './uiSounds';
+import { ReleaseTail } from '../../../shared/roger';
+import { playPttEdge, playRogerLocal, playTxChange } from './uiSounds';
 
 /**
  * The radio: one LiveKit Room per tuned channel.
@@ -58,11 +59,17 @@ export interface RadioControl {
    * The API has to accept the all-call before the UI calls this.
    */
   holdAllCall(on: boolean): Promise<boolean>;
+  /** Hang and roger beep applied the next time push-to-talk releases. */
+  setRelease(opts: { hangMs: number; roger: boolean; rogerLocal: boolean }): void;
   /** Resume audio and open the mic on a user gesture. The track stays published and muted until PTT. */
   unlock(): Promise<void>;
   /** RMS of the open mic, about 0..1. Used for voice activation. */
   monitorMic(onLevel: (rms: number) => void): () => void;
   dispose(): Promise<void>;
+}
+
+interface OutgoingMix {
+  dest: MediaStreamAudioDestinationNode;
 }
 
 /** Voice grants last two minutes. Refresh earlier so a tuned channel does not drop, and a ban fails the next mint. */
@@ -93,6 +100,13 @@ export class RadioEngine implements RadioControl {
   private micHeldByTalk = false;
   version = 0;
   onChannelDeleted?: (channelId: string) => void;
+  private mix: OutgoingMix | null = null;
+  private release = { hangMs: 200, roger: true, rogerLocal: false };
+  private tail = new ReleaseTail((ms) => new Promise((resolve) => { setTimeout(resolve, ms); }));
+
+  setRelease(opts: { hangMs: number; roger: boolean; rogerLocal: boolean }) {
+    this.release = { ...opts };
+  }
 
   constructor(private api: Api, private communityId: string) {}
 
@@ -239,8 +253,47 @@ export class RadioEngine implements RadioControl {
     this.changed();
   }
 
+  /**
+   * Mic plus a tone, captured as the track we publish. The roger beep is mixed here so
+   * everyone tuned to the channel hears it. The raw mic still has echo cancellation;
+   * the beep is added after that, so noise suppression does not eat it.
+   */
+  private async outgoingTrack(): Promise<MediaStreamTrack> {
+    const track = await this.mic();
+    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    if (!this.mix) {
+      const dest = this.ctx.createMediaStreamDestination();
+      this.ctx.createMediaStreamSource(new MediaStream([track])).connect(dest);
+      this.mix = { dest };
+    }
+    const out = this.mix.dest.stream.getAudioTracks()[0];
+    if (!out) throw new Error('No outgoing audio');
+    return out.clone();
+  }
+
+  /** Two short tones on the still-open carrier. Listeners hear this in the voice room. */
+  private playRogerIntoMix() {
+    if (!this.mix || this.ctx.state === 'closed') return;
+    const now = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(1046, now);
+    o.frequency.setValueAtTime(1568, now + 0.09);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.2, now + 0.012);
+    g.gain.setValueAtTime(0.2, now + 0.075);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+    g.gain.exponentialRampToValueAtTime(0.2, now + 0.102);
+    g.gain.setValueAtTime(0.2, now + 0.15);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+    o.connect(g).connect(this.mix.dest);
+    o.start(now);
+    o.stop(now + 0.18);
+  }
+
   private async publishMutedMic(slot: Slot): Promise<LocalTrackPublication> {
-    const pub = await slot.room.localParticipant.publishTrack((await this.mic()).clone(), {
+    const pub = await slot.room.localParticipant.publishTrack(await this.outgoingTrack(), {
       source: Track.Source.Microphone, dtx: true, red: true, name: 'mic',
     });
     await pub.mute();
@@ -318,7 +371,10 @@ export class RadioEngine implements RadioControl {
       this.txId = null;
       this.allCalling = false;
     }
-    if (this.transmittingOn === channelId) this.transmittingOn = null;
+    if (this.transmittingOn === channelId) {
+      this.transmittingOn = null;
+      this.tail.cancel();
+    }
     if (wasTx) this.cycle();
     else this.changed();
     return slot;
@@ -371,6 +427,7 @@ export class RadioEngine implements RadioControl {
     if (this.allCalling && id !== this.txId) return false;
     const slot = id ? this.slots.get(id) : undefined;
     if (down) {
+      this.tail.cancel();
       if (!slot?.mic) return false;
       if (this.transmittingOn && this.transmittingOn !== id) await this.ptt(false, this.transmittingOn);
       const already = this.transmittingOn === id;
@@ -393,13 +450,18 @@ export class RadioEngine implements RadioControl {
       this.changed();
       return false;
     }
-    if (this.transmittingOn === id) {
-      this.micHeldByTalk = false;
-      if (slot?.mic) await slot.mic.mute().catch(() => undefined);
-      this.transmittingOn = null;
-      playPttEdge('up');
-      this.changed();
-    }
+    if (this.transmittingOn !== id || this.tail.running) return false;
+    this.micHeldByTalk = false;
+    playPttEdge('up');
+    const result = await this.tail.run(this.release, () => {
+      this.playRogerIntoMix();
+      if (this.release.rogerLocal) playRogerLocal();
+    });
+    if (result !== 'done') return false;
+    const live = id ? this.slots.get(id) : undefined;
+    if (live?.mic) await live.mic.mute().catch(() => undefined);
+    if (this.transmittingOn === id) this.transmittingOn = null;
+    this.changed();
     return false;
   }
 

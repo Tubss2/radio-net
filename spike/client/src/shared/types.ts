@@ -56,7 +56,7 @@ export type { WheelInput };
 export interface OverlayState {
   /** Talker rows. False hides them (the overlay bind, or nobody transmitting). The wheel can still be open. */
   visible: boolean;
-  /** One row per person transmitting right now: display name and that channel. Empty draws nothing. */
-  speakers: { name: string; channel: string; freq: string }[];
+  /** One row per person transmitting, or who just stopped and is fading out. Empty draws nothing. */
+  speakers: { name: string; channel: string; freq: string; opacity?: number }[];
   wheel?: WheelView;
 }

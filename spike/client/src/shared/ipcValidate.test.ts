@@ -19,7 +19,11 @@ describe('IPC validation', () => {
   });
 
   it('caps overlay speakers and drops a non-object', () => {
-    expect(parseOverlayState({ visible: true, speakers: [{ name: 'Toby', channel: 'Command', freq: '59.5' }] })?.speakers).toHaveLength(1);
+    expect(parseOverlayState({ visible: true, speakers: [{ name: 'Toby', channel: 'Command', freq: '59.5' }] })?.speakers).toEqual([
+      { name: 'Toby', channel: 'Command', freq: '59.5', opacity: 1 },
+    ]);
+    expect(parseOverlayState({ visible: true, speakers: [{ name: 'Toby', channel: 'Command', freq: '59.5', opacity: 0.5 }] })?.speakers[0].opacity).toBe(0.5);
+    expect(parseOverlayState({ visible: true, speakers: [{ name: 'Toby', channel: 'Command', freq: '59.5', opacity: 1.2 }] })).toBeNull();
     expect(parseOverlayState({ visible: true, speakers: [{ name: 'x'.repeat(80), channel: 'c', freq: '1' }] })).toBeNull();
     expect(parseOverlayState(null)).toBeNull();
   });
