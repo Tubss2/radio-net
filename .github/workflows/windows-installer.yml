@@ -1,9 +1,9 @@
 name: Windows installer
 
 on:
-  # Push is what actually runs this before the file is on the default branch.
-  # A version tag (v0.4.0) publishes the GitHub Release. A manual run can also
-  # publish, and can override the baked URLs once this file is on the default branch.
+  # A merge to main publishes the desktop release when that version tag is new.
+  # A v* tag push can publish the same way. No one has to start the workflow.
+  # A manual run can still override the baked URLs. Uncheck publish to only build.
   push:
   workflow_dispatch:
     inputs:
@@ -129,18 +129,20 @@ jobs:
             spike/client/release/release-notes.md
           if-no-files-found: error
 
-  # Publishes only for a v* tag, or a manual run with publish left on.
-  # Settings → Environments → release should require Tobias as a reviewer.
-  # Until that rule exists, a tag still publishes, but the build job cannot.
+  # The release environment must not require a reviewer. A merge to main is enough.
+  # An existing version tag is left as published. The build job cannot publish.
   publish:
     needs: installer
     if: >-
-      (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.inputs.publish == 'true')
     runs-on: windows-latest
     environment: release
     permissions:
       contents: write
+      issues: read
+      pull-requests: read
     steps:
       - name: Download the built installer
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -176,13 +178,46 @@ jobs:
           # This job does not check out the repo, so gh cannot discover it from git.
           if ([string]::IsNullOrWhiteSpace($env:GITHUB_REPOSITORY)) { throw "Missing repository" }
           $repo = $env:GITHUB_REPOSITORY
+          $sha = $env:GITHUB_SHA
+          # Publish only when a trusted comment or review starts with: Security review: approved
+          $numbers = gh api "repos/$repo/commits/$sha/pulls" --jq '.[] | select(.merged_at != null) | .number'
+          if ($LASTEXITCODE -ne 0) { throw "Could not list pull requests for this commit" }
+          $approved = $false
+          function Add-TrustedApproval($item, $isReview) {
+            if ($null -eq $item) { return }
+            if ($isReview -and "$($item.state)" -ceq 'CHANGES_REQUESTED') { return }
+            $login = "$($item.user.login)"
+            $slug = "$($item.performed_via_github_app.slug)"
+            $trusted = ($login -ceq 'Tubss2') -or (($login -ceq 'cursor[bot]') -and ($slug -ceq 'cursor'))
+            if (-not $trusted) { return }
+            if ("$($item.body)" -cmatch '^Security review: approved') { $script:approved = $true }
+          }
+          foreach ($n in @($numbers)) {
+            $id = "$n".Trim()
+            if ($id -notmatch '^\d+$') { continue }
+            $commentJson = gh api --paginate "repos/$repo/issues/$id/comments"
+            if ($LASTEXITCODE -ne 0) { throw "Could not read comments on pull request $id" }
+            $commentItems = ConvertFrom-Json $commentJson
+            if ($null -ne $commentItems) {
+              foreach ($item in @($commentItems)) { Add-TrustedApproval $item $false }
+            }
+            $reviewJson = gh api --paginate "repos/$repo/pulls/$id/reviews"
+            if ($LASTEXITCODE -ne 0) { throw "Could not read reviews on pull request $id" }
+            $reviewItems = ConvertFrom-Json $reviewJson
+            if ($null -ne $reviewItems) {
+              foreach ($item in @($reviewItems)) { Add-TrustedApproval $item $true }
+            }
+          }
+          if (-not $approved) {
+            Write-Host "Not publishing. This commit is not a merged pull request with a security review approval."
+            exit 0
+          }
           gh release view $tag --repo $repo --json tagName *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag $exe $blockmap $latest $sums --repo $repo --target $env:GITHUB_SHA --title $version --notes-file $notes --latest
+            gh release create $tag $exe $blockmap $latest $sums --repo $repo --target $sha --title $version --notes-file $notes --latest
             if ($LASTEXITCODE -ne 0) { throw "Could not create the $tag release" }
           } else {
-            gh release upload $tag $exe $blockmap $latest $sums --repo $repo --clobber
-            if ($LASTEXITCODE -ne 0) { throw "Could not upload the $tag installer assets" }
+            Write-Host "$tag already has a release. Not replacing its files."
           }
           # electron-updater reads GitHub's Latest release for latest.yml.
           # A helper release must not stay Latest. This does not replace helper files.

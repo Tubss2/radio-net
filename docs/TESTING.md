@@ -63,7 +63,7 @@ If your phone doesn't turn red, people can't hear you yet. The phone may vibrate
 
 A small window that lets you talk with a key while the game is in front. It has no tray icon, doesn't start with Windows, and quits when you close its window. Minimising it is fine; it keeps working.
 
-1. Download [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe).
+1. Download [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-6/RadioNetHelper.exe).
 2. Open it. Windows will show a blue "Windows protected your PC" box because it isn't signed yet. Click **More info**, then **Run anyway**.
 3. The window is a short wide bar. It says **Disconnected**, shows the pairing code, and has **Copy** next to the code.
 4. On the site, click **Set up push to talk**, then **Helper app**. Copy the code from the helper (or select it) and paste it in.
@@ -94,7 +94,7 @@ We haven't had confirmation yet from WARDOGS' anti-cheat team (Bulkhead) that th
 
 The site labels this "Still heavily WIP". It adds an in-game overlay and the channel wheel. Only use it if you know and trust the developer personally.
 
-1. Go to the [v0.4.7 release page](https://github.com/Tubss2/radio-net/releases/tag/v0.4.7) and download `RadioNet-Setup-0.4.7.exe`. That release is the desktop app. The helper is a different file: [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe).
+1. Go to the [v0.4.8 release page](https://github.com/Tubss2/radio-net/releases/tag/v0.4.8) and download `RadioNet-Setup-0.4.8.exe`. That release is the desktop app. The helper is a different file: [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-6/RadioNetHelper.exe).
 2. Run it. On the blue SmartScreen box, click **More info**, then **Run anyway**.
 3. Enter your callsign, then the invite code.
 4. Accept the privacy note. The keyboard listener stays off until you do.

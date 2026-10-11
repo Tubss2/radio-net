@@ -9,6 +9,7 @@ import { canArmBindRecord } from '../shared/bindRecord';
 import { filePathname, isAllowedAppUrl, mediaTypesOf, RENDERER_CSP, rendererWebPreferences, shouldAllowMedia } from '../shared/windowPolicy';
 import type { HotkeyEvent } from '../shared/types';
 import { clientLog } from './clientLog';
+import { DeviceKeyStore } from './deviceStore';
 import { DEFAULT_BINDS, Hotkeys } from './hotkeys';
 import { checkForUpdatesNow, downloadAvailableUpdate, installDownloadedUpdate, startUpdater } from './updater';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -115,6 +116,35 @@ function writeProfile(p: Profile) {
 }
 ipcMain.handle('profile:get', (e) => (fromApp(e.sender) ? readProfile() : emptyProfile()));
 ipcMain.handle('profile:set', (e, p: unknown) => { if (fromApp(e.sender)) writeProfile(normaliseProfile(p)); });
+
+// Device private key. Sealed with DPAPI (or the OS equivalent) in userData/device-key.bin.
+// IPC returns the public id and SPKI, or a signature over one rn-join.v1 message. Never PKCS#8.
+const deviceKeyFile = () => join(app.getPath('userData'), 'device-key.bin');
+let deviceKeys: DeviceKeyStore | null = null;
+function deviceStore(): DeviceKeyStore {
+  if (!deviceKeys) {
+    deviceKeys = new DeviceKeyStore({
+      read: () => (existsSync(deviceKeyFile()) ? readFileSync(deviceKeyFile()) : null),
+      write: (data) => writeFileSync(deviceKeyFile(), data, { mode: 0o600 }),
+      canEncrypt: () => safeStorage.isEncryptionAvailable(),
+      encrypt: (text) => safeStorage.encryptString(text),
+      decrypt: (data) => safeStorage.decryptString(data),
+      log: (line) => clientLog('device', line),
+    });
+  }
+  return deviceKeys;
+}
+function fromMainWindow(sender: WebContents): boolean {
+  return Boolean(main && fromApp(sender) && sender === main.webContents);
+}
+ipcMain.handle('device:ensure', (e) => {
+  if (!fromMainWindow(e.sender)) throw new Error('Device signing is only available in the main window.');
+  return deviceStore().ensure();
+});
+ipcMain.handle('device:sign', (e, message: unknown) => {
+  if (!fromMainWindow(e.sender) || typeof message !== 'string') throw new Error('Refused to sign that message.');
+  return deviceStore().sign(message);
+});
 
 let wheelShown = false;
 /** True while the wheel window is letting mouse input pass through to the game. forward does not include the wheel. */
