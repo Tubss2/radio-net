@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TokenVerifier } from 'livekit-server-sdk';
 import { describe, expect, it } from 'vitest';
-import { hashAdminKey, adminKeyMatches } from '../src/accounts.js';
+import { hashAdminKey, adminKeyMatches, signSession } from '../src/accounts.js';
 import { buildApp } from '../src/app.js';
 import { isAllowedApiOrigin } from '../src/cors.js';
 import { PhonePairs, phoneIdentity, phoneRoomName } from '../src/phone.js';
@@ -13,6 +13,7 @@ import { assertProductionConfig } from '../src/production.js';
 import { dropCommunityRooms, roomsToClose } from '../src/rooms.js';
 import { loadStore } from '../src/boot.js';
 import { FileChannelStore, MemoryChannelStore, roomNameFor } from '../src/store.js';
+import { freshDevice, registerDevice } from './devices.js';
 
 const cfg = { livekitUrl: 'ws://x', livekitHttpUrl: 'http://127.0.0.1:1', apiKey: 'devkey', apiSecret: 'secret-secret-secret-secret-secret' };
 
@@ -26,10 +27,10 @@ async function setup(extra: Partial<Parameters<typeof buildApp>[1]> = {}) {
   const body = created.json();
   const community = body.community;
   const adminKey = body.adminKey as string;
-  const joined = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode.toLowerCase().replace('-', ' '), callsign: 'Rifleman' } });
-  const member = { authorization: `Bearer ${joined.json().token}` };
+  const joined = await registerDevice(app, community.inviteCode.toLowerCase().replace('-', ' '), 'Rifleman');
+  const member = { authorization: `Bearer ${joined.res.json().token}` };
   const admin = { 'x-admin-key': adminKey };
-  return { app, admin, member, adminKey, cid: community.id as string, community, session: joined.json() };
+  return { app, admin, member, adminKey, cid: community.id as string, community, session: joined.res.json(), device: joined.device };
 }
 
 describe('frequencies', () => {
@@ -66,14 +67,23 @@ describe('communities without accounts', () => {
     expect(community.inviteCode).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
     expect(community.adminKeyHash).toBeUndefined();
     expect(session.callsign).toBe('Rifleman');
-    expect(session.community.inviteCode).toBe(community.inviteCode);
+    expect(session.community.inviteCode).toBeUndefined();
+    expect(session.deviceId).toMatch(/^[0-9a-f]{64}$/);
+    expect(session.role).toBe('member');
     expect(session.token).toContain('.');
+    const claims = JSON.parse(Buffer.from(session.token.split('.')[0], 'base64url').toString('utf8')) as { did?: string; epoch?: number };
+    expect(claims.did).toBe(session.deviceId);
+    expect(claims.epoch).toBeUndefined();
   });
 
   it('rejects a bad invite, a bad session, and a missing callsign', async () => {
     const { app, cid } = await setup();
-    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAAA', callsign: 'x' } })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAAA' } })).statusCode).toBe(400);
+    const device = freshDevice();
+    expect((await registerDevice(app, 'AAAA-AAAA', 'x', device)).res.statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/join/register', payload: { inviteCode: 'AAAA-AAAA', deviceId: device.deviceId, publicKeySpki: device.publicKeySpki } })).statusCode).toBe(400);
+    const closed = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAAA', callsign: 'x' } });
+    expect(closed.statusCode).toBe(410);
+    expect(closed.json().code).toBe('device_signin');
     expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: 'Bearer nope' } })).statusCode).toBe(401);
     expect((await app.inject({ url: `/api/communities/${cid}/channels` })).statusCode).toBe(401);
   });
@@ -86,17 +96,19 @@ describe('communities without accounts', () => {
 
   it('rate-limits invite guessing', async () => {
     const app = buildApp(new MemoryChannelStore(), { ...cfg, joinRateLimit: 3 });
+    const device = freshDevice();
     const codes = [];
-    for (let i = 0; i < 5; i++) codes.push((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: 'AAAA-AAA' + i, callsign: 'x' } })).statusCode);
+    for (let i = 0; i < 5; i++) codes.push((await registerDevice(app, `AAAA-AAA${i}`, 'x', device)).res.statusCode);
     expect(codes).toEqual([404, 404, 404, 429, 429]);
   });
 
   it('counts the join limit per forwarded client when the proxy is trusted', async () => {
     const app = buildApp(new MemoryChannelStore(), { ...cfg, trustProxy: true, joinRateLimit: 1 });
+    const device = freshDevice();
     const join = (ip: string) => app.inject({
-      method: 'POST', url: '/api/join', remoteAddress: '127.0.0.1',
+      method: 'POST', url: '/api/join/register', remoteAddress: '127.0.0.1',
       headers: { 'x-forwarded-for': ip },
-      payload: { inviteCode: 'NOPE-NOPE', callsign: 'x' },
+      payload: { inviteCode: 'NOPE-NOPE', callsign: 'x', deviceId: device.deviceId, publicKeySpki: device.publicKeySpki },
     });
     expect((await join('203.0.113.8')).statusCode).toBe(404);
     expect((await join('203.0.113.8')).statusCode).toBe(429);
@@ -120,8 +132,9 @@ describe('communities without accounts', () => {
     expect((await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: member })).statusCode).toBe(403);
     const r = await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: admin });
     expect(r.json().inviteCode).not.toBe(community.inviteCode);
-    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'late' } })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: r.json().inviteCode, callsign: 'late' } })).statusCode).toBe(200);
+    expect((await registerDevice(app, community.inviteCode, 'late')).res.statusCode).toBe(404);
+    expect((await registerDevice(app, r.json().inviteCode, 'late')).res.statusCode).toBe(200);
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: member })).statusCode).toBe(200);
   });
 
   it('setup code rotates a lost admin key and the old key stops working', async () => {
@@ -141,10 +154,13 @@ describe('communities without accounts', () => {
   it('the same callsign can join two communities, each with its own session', async () => {
     const { app, community } = await setup();
     const other = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Other Unit' } });
-    const a = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
-    const b = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: other.json().community.inviteCode, callsign: 'Toby' } });
-    expect(a.json().token).not.toBe(b.json().token);
-    expect(a.json().community.id).not.toBe(b.json().community.id);
+    const device = freshDevice();
+    const a = await registerDevice(app, community.inviteCode, 'Toby', device);
+    const b = await registerDevice(app, other.json().community.inviteCode, 'Toby', device);
+    expect(a.res.statusCode).toBe(200);
+    expect(b.res.statusCode).toBe(200);
+    expect(a.res.json().token).not.toBe(b.res.json().token);
+    expect(a.res.json().community.id).not.toBe(b.res.json().community.id);
   });
 });
 
@@ -185,8 +201,8 @@ describe('channel API', () => {
   it('a session for another community cannot see this one', async () => {
     const { app, cid } = await setup();
     const stranger = await app.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Mine' } });
-    const joined = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: stranger.json().community.inviteCode, callsign: 'S' } });
-    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${joined.json().token}` } })).statusCode).toBe(404);
+    const joined = await registerDevice(app, stranger.json().community.inviteCode, 'S');
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${joined.res.json().token}` } })).statusCode).toBe(404);
   });
 
   it('reloads the data file and still deletes a channel with the admin key', async () => {
@@ -220,19 +236,19 @@ describe('channel API', () => {
       payload: '{',
     });
     expect(malformed.statusCode).toBe(400);
-    const joined = await second.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
+    const joined = await registerDevice(second, community.inviteCode, 'Toby');
     const listed = await second.inject({
       url: `/api/communities/${community.id}/channels`,
-      headers: { authorization: `Bearer ${joined.json().token}` },
+      headers: { authorization: `Bearer ${joined.res.json().token}` },
     });
     expect(listed.json().channels).toEqual([]);
     await second.close();
 
     const third = buildApp(new FileChannelStore(file), cfg);
-    const again = await third.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
+    const again = await registerDevice(third, community.inviteCode, 'Toby');
     const still = await third.inject({
       url: `/api/communities/${community.id}/channels`,
-      headers: { authorization: `Bearer ${again.json().token}` },
+      headers: { authorization: `Bearer ${again.res.json().token}` },
     });
     expect(still.json().channels).toEqual([]);
     await third.close();
@@ -250,17 +266,17 @@ describe('channel API', () => {
       headers: { 'x-admin-key': adminKey },
       payload: { freq: '45.0', name: 'Logi' },
     });
-    const session = await first.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
-    expect((await first.inject({ method: 'DELETE', url: `/api/communities/${community.id}`, headers: { authorization: `Bearer ${session.json().token}` } })).statusCode).toBe(403);
+    const session = await registerDevice(first, community.inviteCode, 'Toby');
+    expect((await first.inject({ method: 'DELETE', url: `/api/communities/${community.id}`, headers: { authorization: `Bearer ${session.res.json().token}` } })).statusCode).toBe(403);
     expect((await first.inject({ method: 'DELETE', url: `/api/communities/${community.id}`, headers: { 'x-admin-key': adminKey } })).statusCode).toBe(204);
-    expect((await first.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } })).statusCode).toBe(404);
+    expect((await registerDevice(first, community.inviteCode, 'Toby')).res.statusCode).toBe(404);
     await first.close();
 
     const second = buildApp(new FileChannelStore(file), cfg);
-    expect((await second.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } })).statusCode).toBe(404);
-    const kept = await second.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: keep.json().community.inviteCode, callsign: 'Toby' } });
-    expect(kept.statusCode).toBe(200);
-    expect(kept.json().community.name).toBe('Keep');
+    expect((await registerDevice(second, community.inviteCode, 'Toby')).res.statusCode).toBe(404);
+    const kept = await registerDevice(second, keep.json().community.inviteCode, 'Toby');
+    expect(kept.res.statusCode).toBe(200);
+    expect(kept.res.json().community.name).toBe('Keep');
     await second.close();
   });
 
@@ -273,8 +289,8 @@ describe('channel API', () => {
     await first.close();
 
     const second = buildApp(new FileChannelStore(file), cfg);
-    const joined = await second.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'Toby' } });
-    const listed = await second.inject({ url: `/api/communities/${community.id}/channels`, headers: { authorization: `Bearer ${joined.json().token}` } });
+    const joined = await registerDevice(second, community.inviteCode, 'Toby');
+    const listed = await second.inject({ url: `/api/communities/${community.id}/channels`, headers: { authorization: `Bearer ${joined.res.json().token}` } });
     expect(listed.json().channels).toEqual([expect.objectContaining({ freq: '50.5', name: 'Net' })]);
     const again = await second.inject({ method: 'POST', url: '/api/communities', payload: { name: 'Saved' } });
     expect(again.json().community.id).not.toBe(community.id);
@@ -359,18 +375,20 @@ describe('phone push-to-talk pairing', () => {
 
   it('gives the phone a data-only token for that visit and no API session', async () => {
     const { app, member, cid, session } = await setup();
-    const claims = JSON.parse(Buffer.from(session.token.split('.')[0], 'base64url').toString('utf8')) as { sid: string };
+    const claims = JSON.parse(Buffer.from(session.token.split('.')[0], 'base64url').toString('utf8')) as { sid: string; did: string };
+    const live = `d${claims.did}`;
+    expect(live).not.toBe(claims.sid);
     expect((await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-pair` })).statusCode).toBe(401);
     const host = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-host`, headers: member });
     expect(host.statusCode).toBe(200);
-    expect(host.json().phoneIdentity).toBe(`phone:${claims.sid}`);
-    expect(host.json().room).toBe(phoneRoomName(cid, claims.sid));
+    expect(host.json().phoneIdentity).toBe(`phone:${live}`);
+    expect(host.json().room).toBe(phoneRoomName(cid, live));
     const paired = await app.inject({ method: 'POST', url: `/api/communities/${cid}/radio/phone-pair`, headers: member });
     const code = paired.json().code as string;
     const redeemed = await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } });
     expect(redeemed.statusCode).toBe(200);
     expect(redeemed.json().token).not.toBe(session.token);
-    expect(redeemed.json().identity).toBe(`phone:${claims.sid}`);
+    expect(redeemed.json().identity).toBe(`phone:${live}`);
     expect(redeemed.json().communityName).toBe('War Dogs NZ');
     expect((await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } })).statusCode).toBe(404);
     const verifier = new TokenVerifier(cfg.apiKey, cfg.apiSecret);
@@ -382,8 +400,8 @@ describe('phone push-to-talk pairing', () => {
       });
       expect(tokenClaims.video?.canPublishSources ?? []).toEqual([]);
     }
-    expect(phoneClaims.sub).toBe(`phone:${claims.sid}`);
-    expect(hostClaims.sub).toBe(claims.sid);
+    expect(phoneClaims.sub).toBe(`phone:${live}`);
+    expect(hostClaims.sub).toBe(live);
   });
 });
 
@@ -414,9 +432,10 @@ describe('hardening', () => {
 
   it('forgets the oldest IP once the tracker is full', async () => {
     const app = buildApp(new MemoryChannelStore(), { ...cfg, joinRateLimit: 1, maxTrackedIps: 2 });
+    const device = freshDevice();
     const join = (ip: string) => app.inject({
-      method: 'POST', url: '/api/join', remoteAddress: ip,
-      payload: { inviteCode: 'NOPE-NOPE', callsign: 'x' },
+      method: 'POST', url: '/api/join/register', remoteAddress: ip,
+      payload: { inviteCode: 'NOPE-NOPE', callsign: 'x', deviceId: device.deviceId, publicKeySpki: device.publicKeySpki },
     });
     expect((await join('203.0.113.1')).statusCode).toBe(404);
     expect((await join('203.0.113.2')).statusCode).toBe(404);
@@ -425,12 +444,17 @@ describe('hardening', () => {
     expect((await join('203.0.113.1')).statusCode).toBe(404);
   });
 
-  it('ends open sessions when the invite rotates', async () => {
+  it('keeps enrolled devices when the invite rotates and drops legacy tokens', async () => {
     const { app, admin, member, cid, community } = await setup();
+    const legacy = signSession({
+      cid, name: 'Old', sid: 'legacy-sid-1', exp: Math.floor(Date.now() / 1000) + 3600,
+      scope: 'member', epoch: 0,
+    }, cfg.apiSecret);
     const rotated = await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: admin });
-    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: member })).statusCode).toBe(401);
-    const joined = await app.inject({ method: 'POST', url: '/api/join', payload: { inviteCode: rotated.json().inviteCode, callsign: 'late' } });
-    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${joined.json().token}` } })).statusCode).toBe(200);
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: member })).statusCode).toBe(200);
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${legacy}` } })).statusCode).toBe(401);
+    const joined = await registerDevice(app, rotated.json().inviteCode, 'late');
+    expect((await app.inject({ url: `/api/communities/${cid}/channels`, headers: { authorization: `Bearer ${joined.res.json().token}` } })).statusCode).toBe(200);
     expect(rotated.json().inviteCode).not.toBe(community.inviteCode);
   });
 
@@ -460,9 +484,7 @@ describe('hardening', () => {
     expect(deleted).toContain(`g${cid}.phone.visit`);
     expect(deleted).not.toContain('gother.phone.leave');
     expect((await app.inject({ method: 'POST', url: '/api/phone/redeem', payload: { code } })).statusCode).toBe(404);
-    expect((await app.inject({
-      method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'late' },
-    })).statusCode).toBe(404);
+    expect((await registerDevice(app, community.inviteCode, 'late')).res.statusCode).toBe(404);
   });
 
   it('does not rotate the invite when voice rooms cannot be closed', async () => {
@@ -475,9 +497,7 @@ describe('hardening', () => {
     const rotated = await app.inject({ method: 'POST', url: `/api/communities/${cid}/invite/rotate`, headers: admin });
     expect(rotated.statusCode).toBe(503);
     expect(rotated.json().error).toBe('Could not remove people from voice. Try again.');
-    expect((await app.inject({
-      method: 'POST', url: '/api/join', payload: { inviteCode: community.inviteCode, callsign: 'still' },
-    })).statusCode).toBe(200);
+    expect((await registerDevice(app, community.inviteCode, 'still')).res.statusCode).toBe(200);
   });
 
   it('treats an already-empty room as closed', () => {

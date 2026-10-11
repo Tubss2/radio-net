@@ -1,7 +1,9 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { newInviteCode } from './accounts.js';
 import { DEFAULT_BAND, type Band, formatFrequency, parseFrequency, validateFrequency } from './freq.js';
+import { IdentityError } from './identity.js';
 
 /** A community ("net group"): created in the app, joined with an invite code. No user accounts. */
 export interface Community {
@@ -14,6 +16,53 @@ export interface Community {
   createdAt: string;
   /** Bumped when the invite rotates so existing session tokens stop working. Missing means 0. */
   sessionEpoch?: number;
+}
+
+export interface Invite {
+  id: string;
+  communityId: string;
+  code: string;
+  label: string | null;
+  createdAt: string;
+  /** Device id, or "admin-key" when the break-glass key minted it. */
+  createdBy: string;
+  /** null means the code does not run out. */
+  maxUses: number | null;
+  uses: number;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+
+export interface Device {
+  id: string;
+  communityId: string;
+  /** Base64 SPKI. The private key never comes to the server. */
+  publicKeySpki: string;
+  role: 'member' | 'admin';
+  callsign: string;
+  inviteId: string;
+  createdAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+}
+
+/** One legacy session id may create one device. The row is the burn mark. */
+export interface LegacyMigration {
+  sid: string;
+  communityId: string;
+  /** The device this token created. Null when the token was burned because that device was already enrolled. */
+  deviceId: string | null;
+  createdAt: string;
+}
+
+export interface EnrollInput {
+  communityId: string;
+  inviteId: string;
+  deviceId: string;
+  publicKeySpki: string;
+  callsign: string;
+  /** A new row takes one use. An id that is already enrolled is refused and does not change the row. */
+  consumeUse: boolean;
 }
 
 export interface Channel {
@@ -50,6 +99,9 @@ export function roomNameFor(ch: Pick<Channel, 'communityId' | 'id'>): string {
 export interface StoreSnapshot {
   communities: Community[];
   channels: Channel[];
+  devices: Device[];
+  invites: Invite[];
+  legacyMigrations: LegacyMigration[];
 }
 
 /**
@@ -68,11 +120,47 @@ export interface ChannelStore {
   deleteCommunity(id: string): Community;
   /** Resolve "59.5", "59.5 MHz", "command", "Comm" (unique prefix) to a channel. */
   resolve(communityId: string, query: string): Channel[];
+  listDevices(communityId: string): Device[];
+  getDevice(communityId: string, deviceId: string): Device | undefined;
+  /**
+   * Insert a device. The use check and the increment happen here, synchronously,
+   * before the caller awaits anything else. An id that is already enrolled is refused.
+   */
+  enrollDevice(input: EnrollInput): Device;
+  /** True after this legacy session id has been used for one migrate. */
+  legacyMigrationBurned(sid: string): boolean;
+  /** Record that legacy session id. A second call for the same id does nothing. */
+  burnLegacyMigration(sid: string, communityId: string, deviceId: string | null): void;
+  /** Bump lastSeenAt at most once a minute so a token poll does not rewrite store.json. */
+  touchDevice(communityId: string, deviceId: string): void;
+  setDeviceRevoked(communityId: string, deviceId: string, revoked: boolean): Device;
+  setDeviceRole(communityId: string, deviceId: string, role: Device['role']): Device;
+  setDeviceCallsign(communityId: string, deviceId: string, callsign: string): Device;
+  listInvites(communityId: string): Invite[];
+  getInvite(communityId: string, inviteId: string): Invite | undefined;
+  /** A code that can still enroll a new device. Revoked, expired, and exhausted codes are absent. */
+  usableInvite(code: string): Invite | undefined;
+  /** The invite row mirrored on community.inviteCode, including a revoked one. */
+  inviteForCommunityCode(community: Community): Invite | undefined;
+  createInvite(input: {
+    communityId: string;
+    label: string | null;
+    maxUses: number | null;
+    expiresAt: string | null;
+    createdBy: string;
+    code?: string;
+  }): Invite;
+  revokeInvite(communityId: string, inviteId: string): Invite;
+  /** Revoke the current primary code, insert an unlimited replacement, and bump sessionEpoch. */
+  replacePrimaryInvite(community: Community, createdBy: string): Invite;
 }
 
 export class MemoryChannelStore implements ChannelStore {
   private communities = new Map<string, Community>();
   private channels = new Map<string, Channel>(); // key = channel id
+  protected devices = new Map<string, Device>(); // key = communityId:deviceId
+  protected invites = new Map<string, Invite>();
+  protected legacyMigrations = new Map<string, LegacyMigration>();
 
   /** Subclasses persist after a mutation. Loading must not call this. */
   protected persist() {}
@@ -81,13 +169,15 @@ export class MemoryChannelStore implements ChannelStore {
     return this.communities.get(id);
   }
   communityByInvite(code: string) {
-    return [...this.communities.values()].find((c) => c.inviteCode === code);
+    const invite = this.usableInvite(code);
+    return invite ? this.communities.get(invite.communityId) : undefined;
   }
   listCommunities() {
     return [...this.communities.values()];
   }
   upsertCommunity(c: Community) {
     this.communities.set(c.id, c);
+    this.ensurePrimaryInvite(c);
     this.persist();
   }
 
@@ -146,8 +236,226 @@ export class MemoryChannelStore implements ChannelStore {
     for (const [channelId, ch] of this.channels) {
       if (ch.communityId === id) this.channels.delete(channelId);
     }
+    for (const [key, device] of this.devices) {
+      if (device.communityId === id) this.devices.delete(key);
+    }
+    for (const [key, invite] of this.invites) {
+      if (invite.communityId === id) this.invites.delete(key);
+    }
+    for (const [sid, row] of this.legacyMigrations) {
+      if (row.communityId === id) this.legacyMigrations.delete(sid);
+    }
     this.persist();
     return community;
+  }
+
+  listDevices(communityId: string) {
+    return [...this.devices.values()]
+      .filter((d) => d.communityId === communityId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  }
+
+  getDevice(communityId: string, deviceId: string) {
+    return this.devices.get(deviceKey(communityId, deviceId));
+  }
+
+  enrollDevice(input: EnrollInput): Device {
+    const invite = this.invites.get(input.inviteId);
+    if (!invite || invite.communityId !== input.communityId) {
+      throw new IdentityError('invite', "That invite code doesn't match any community");
+    }
+    const existing = this.devices.get(deviceKey(input.communityId, input.deviceId));
+    if (existing?.revokedAt) {
+      throw new IdentityError('revoked', 'This device was removed. Ask an admin for an invite.');
+    }
+    if (existing) {
+      throw new IdentityError('invalid', 'This device is already enrolled.');
+    }
+    if (invite.revokedAt || inviteExpired(invite) || !this.communities.has(input.communityId)) {
+      throw new IdentityError('invite', "That invite code doesn't match any community");
+    }
+    // Check and increment before any await. Node runs this function to completion.
+    if (input.consumeUse) {
+      if (invite.maxUses !== null && invite.uses >= invite.maxUses) {
+        throw new IdentityError('invite', "That invite code doesn't match any community");
+      }
+      invite.uses += 1;
+    }
+    const now = new Date().toISOString();
+    const device: Device = {
+      id: input.deviceId,
+      communityId: input.communityId,
+      publicKeySpki: input.publicKeySpki,
+      role: 'member',
+      callsign: input.callsign,
+      inviteId: invite.id,
+      createdAt: now,
+      lastSeenAt: now,
+      revokedAt: null,
+    };
+    this.devices.set(deviceKey(input.communityId, input.deviceId), device);
+    this.persist();
+    return device;
+  }
+
+  legacyMigrationBurned(sid: string) {
+    return this.legacyMigrations.has(sid);
+  }
+
+  burnLegacyMigration(sid: string, communityId: string, deviceId: string | null) {
+    if (this.legacyMigrations.has(sid)) return;
+    this.legacyMigrations.set(sid, {
+      sid,
+      communityId,
+      deviceId,
+      createdAt: new Date().toISOString(),
+    });
+    this.persist();
+  }
+
+  touchDevice(communityId: string, deviceId: string) {
+    const device = this.getDevice(communityId, deviceId);
+    if (!device || device.revokedAt) return;
+    const last = Date.parse(device.lastSeenAt);
+    if (Number.isFinite(last) && Date.now() - last < 60_000) return;
+    device.lastSeenAt = new Date().toISOString();
+    this.persist();
+  }
+
+  setDeviceRevoked(communityId: string, deviceId: string, revoked: boolean): Device {
+    const device = this.requireDevice(communityId, deviceId);
+    device.revokedAt = revoked ? new Date().toISOString() : null;
+    this.persist();
+    return device;
+  }
+
+  setDeviceRole(communityId: string, deviceId: string, role: Device['role']): Device {
+    const device = this.requireDevice(communityId, deviceId);
+    device.role = role;
+    this.persist();
+    return device;
+  }
+
+  setDeviceCallsign(communityId: string, deviceId: string, callsign: string): Device {
+    const device = this.requireDevice(communityId, deviceId);
+    device.callsign = callsign;
+    device.lastSeenAt = new Date().toISOString();
+    this.persist();
+    return device;
+  }
+
+  listInvites(communityId: string) {
+    return [...this.invites.values()]
+      .filter((i) => i.communityId === communityId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  }
+
+  getInvite(communityId: string, inviteId: string) {
+    const invite = this.invites.get(inviteId);
+    return invite && invite.communityId === communityId ? invite : undefined;
+  }
+
+  usableInvite(code: string) {
+    return [...this.invites.values()].find((invite) => {
+      if (invite.code !== code || invite.revokedAt || inviteExpired(invite)) return false;
+      if (invite.maxUses !== null && invite.uses >= invite.maxUses) return false;
+      return this.communities.has(invite.communityId);
+    });
+  }
+
+  inviteForCommunityCode(community: Community) {
+    return [...this.invites.values()].find((invite) => invite.communityId === community.id && invite.code === community.inviteCode);
+  }
+
+  createInvite(input: {
+    communityId: string;
+    label: string | null;
+    maxUses: number | null;
+    expiresAt: string | null;
+    createdBy: string;
+    code?: string;
+  }): Invite {
+    if (!this.communities.has(input.communityId)) throw new ChannelError('not_found', 'Unknown community');
+    let code = input.code ?? '';
+    if (!input.code) {
+      do {
+        code = newInviteCode();
+      } while ([...this.invites.values()].some((invite) => invite.code === code));
+    }
+    const invite: Invite = {
+      id: randomUUID(),
+      communityId: input.communityId,
+      code,
+      label: input.label,
+      createdAt: new Date().toISOString(),
+      createdBy: input.createdBy,
+      maxUses: input.maxUses,
+      uses: 0,
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+    };
+    this.invites.set(invite.id, invite);
+    this.persist();
+    return invite;
+  }
+
+  revokeInvite(communityId: string, inviteId: string): Invite {
+    const invite = this.getInvite(communityId, inviteId);
+    if (!invite) throw new ChannelError('not_found', 'Invite not found');
+    invite.revokedAt = new Date().toISOString();
+    this.persist();
+    return invite;
+  }
+
+  replacePrimaryInvite(community: Community, createdBy: string): Invite {
+    if (!this.communities.has(community.id)) throw new ChannelError('not_found', 'Unknown community');
+    const current = this.inviteForCommunityCode(community);
+    if (current && !current.revokedAt) current.revokedAt = new Date().toISOString();
+    let code = newInviteCode();
+    while ([...this.invites.values()].some((invite) => invite.code === code)) code = newInviteCode();
+    const invite: Invite = {
+      id: randomUUID(),
+      communityId: community.id,
+      code,
+      label: null,
+      createdAt: new Date().toISOString(),
+      createdBy,
+      maxUses: null,
+      uses: 0,
+      expiresAt: null,
+      revokedAt: null,
+    };
+    this.invites.set(invite.id, invite);
+    community.inviteCode = code;
+    community.sessionEpoch = (community.sessionEpoch ?? 0) + 1;
+    this.communities.set(community.id, community);
+    this.persist();
+    return invite;
+  }
+
+  private requireDevice(communityId: string, deviceId: string): Device {
+    const device = this.getDevice(communityId, deviceId);
+    if (!device) throw new ChannelError('not_found', 'Device not found');
+    return device;
+  }
+
+  /** The community's current invite code always has a row. Loading an old store fills it in. */
+  private ensurePrimaryInvite(community: Community): boolean {
+    if (this.inviteForCommunityCode(community)) return false;
+    const invite: Invite = {
+      id: randomUUID(),
+      communityId: community.id,
+      code: community.inviteCode,
+      label: null,
+      createdAt: community.createdAt,
+      createdBy: 'admin-key',
+      maxUses: null,
+      uses: 0,
+      expiresAt: null,
+      revokedAt: null,
+    };
+    this.invites.set(invite.id, invite);
+    return true;
   }
 
   resolve(communityId: string, query: string): Channel[] {
@@ -165,23 +473,52 @@ export class MemoryChannelStore implements ChannelStore {
   }
 
   protected snapshot(): StoreSnapshot {
-    return { communities: [...this.communities.values()], channels: [...this.channels.values()] };
+    return {
+      communities: [...this.communities.values()],
+      channels: [...this.channels.values()],
+      devices: [...this.devices.values()],
+      invites: [...this.invites.values()],
+      legacyMigrations: [...this.legacyMigrations.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.sid.localeCompare(b.sid)),
+    };
   }
 
   /** Restore without writing. Used while a file store is loading. */
   protected restore(snap: StoreSnapshot) {
     this.communities.clear();
     this.channels.clear();
+    this.devices.clear();
+    this.invites.clear();
+    this.legacyMigrations.clear();
     for (const c of snap.communities) this.communities.set(c.id, c);
     for (const ch of snap.channels) this.channels.set(ch.id, ch);
+    for (const d of snap.devices) this.devices.set(deviceKey(d.communityId, d.id), d);
+    for (const invite of snap.invites) this.invites.set(invite.id, invite);
+    for (const row of snap.legacyMigrations) this.legacyMigrations.set(row.sid, row);
+    for (const community of snap.communities) this.ensurePrimaryInvite(community);
   }
+}
+
+function deviceKey(communityId: string, deviceId: string): string {
+  return `${communityId}:${deviceId}`;
+}
+
+function inviteExpired(invite: Invite): boolean {
+  if (!invite.expiresAt) return false;
+  const at = Date.parse(invite.expiresAt);
+  return !Number.isFinite(at) || at <= Date.now();
 }
 
 export function validateSnapshot(raw: unknown): StoreSnapshot {
   if (!raw || typeof raw !== 'object') throw new Error('store.json is not an object');
-  const body = raw as { communities?: unknown; channels?: unknown };
+  const body = raw as { communities?: unknown; channels?: unknown; devices?: unknown; invites?: unknown; legacyMigrations?: unknown };
   if (!Array.isArray(body.communities) || !Array.isArray(body.channels)) throw new Error('store.json is missing communities or channels');
-  if (body.communities.length > 10_000 || body.channels.length > 100_000) throw new Error('store.json is too large');
+  const devices = body.devices === undefined ? [] : body.devices;
+  const invites = body.invites === undefined ? [] : body.invites;
+  const legacyMigrations = body.legacyMigrations === undefined ? [] : body.legacyMigrations;
+  if (!Array.isArray(devices) || !Array.isArray(invites) || !Array.isArray(legacyMigrations)) throw new Error('store.json has a bad device list');
+  if (body.communities.length > 10_000 || body.channels.length > 100_000 || devices.length > 100_000 || invites.length > 100_000 || legacyMigrations.length > 100_000) {
+    throw new Error('store.json is too large');
+  }
   for (const c of body.communities) {
     if (!c || typeof c !== 'object') throw new Error('store.json has a bad community');
     const community = c as Partial<Community>;
@@ -196,11 +533,63 @@ export function validateSnapshot(raw: unknown): StoreSnapshot {
       throw new Error('store.json has a bad channel');
     }
   }
-  return { communities: body.communities as Community[], channels: body.channels as Channel[] };
+  for (const d of devices) {
+    if (!d || typeof d !== 'object') throw new Error('store.json has a bad device');
+    const device = d as Partial<Device>;
+    if (typeof device.id !== 'string' || typeof device.communityId !== 'string' || typeof device.publicKeySpki !== 'string') {
+      throw new Error('store.json has a bad device');
+    }
+  }
+  for (const item of invites) {
+    if (!item || typeof item !== 'object') throw new Error('store.json has a bad invite');
+    const invite = item as Partial<Invite>;
+    if (typeof invite.id !== 'string' || typeof invite.communityId !== 'string' || typeof invite.code !== 'string') {
+      throw new Error('store.json has a bad invite');
+    }
+  }
+  for (const row of legacyMigrations) {
+    if (!row || typeof row !== 'object') throw new Error('store.json has a bad migration');
+    const migration = row as Partial<LegacyMigration>;
+    if (typeof migration.sid !== 'string' || migration.sid.length === 0 || migration.sid.length > 64 || typeof migration.communityId !== 'string') {
+      throw new Error('store.json has a bad migration');
+    }
+  }
+  return {
+    communities: body.communities as Community[],
+    channels: body.channels as Channel[],
+    devices: devices as Device[],
+    invites: invites as Invite[],
+    legacyMigrations: legacyMigrations as LegacyMigration[],
+  };
 }
 
-/** MAC over the communities and channels only, so a `mac` field is not part of itself. */
+function macPayload(snap: StoreSnapshot): string {
+  return JSON.stringify({
+    communities: snap.communities,
+    channels: snap.channels,
+    devices: snap.devices,
+    invites: snap.invites,
+    legacyMigrations: snap.legacyMigrations,
+  });
+}
+
+/** MAC from the first identity release, before legacy migration rows existed. */
+export function identityStoreMac(snap: Pick<StoreSnapshot, 'communities' | 'channels' | 'devices' | 'invites'>, key: string): string {
+  return createHmac('sha256', key).update(JSON.stringify({
+    communities: snap.communities,
+    channels: snap.channels,
+    devices: snap.devices,
+    invites: snap.invites,
+  })).digest('hex');
+}
+
+/** MAC over communities, channels, devices, and invites, so a `mac` field is not part of itself. */
 export function storeMac(snap: StoreSnapshot, key: string): string {
+  return createHmac('sha256', key).update(macPayload(snap)).digest('hex');
+}
+
+/** Previous MAC, communities and channels only. Accepted on load when the file has no identity rows yet. */
+export function legacyStoreMac(snap: Pick<StoreSnapshot, 'communities' | 'channels'>, key: string): string {
   return createHmac('sha256', key).update(JSON.stringify({ communities: snap.communities, channels: snap.channels })).digest('hex');
 }
 
@@ -210,15 +599,26 @@ export class FileChannelStore extends MemoryChannelStore {
 
   constructor(private file: string, private macKey?: string) {
     super();
+    let rewrite = false;
     if (existsSync(file)) {
-      const parsed = JSON.parse(readFileSync(file, 'utf8')) as { mac?: unknown };
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as { mac?: unknown; devices?: unknown; invites?: unknown; legacyMigrations?: unknown };
       const snap = validateSnapshot(parsed);
-      if (macKey && (typeof parsed.mac !== 'string' || !secretMacEqual(parsed.mac, storeMac(snap, macKey)))) {
-        throw new Error('store.json failed its integrity check');
+      if (macKey) {
+        const mac = typeof parsed.mac === 'string' ? parsed.mac : '';
+        const current = secretMacEqual(mac, storeMac(snap, macKey));
+        const identityRows = Array.isArray(parsed.devices) && parsed.devices.length > 0
+          || Array.isArray(parsed.invites) && parsed.invites.length > 0;
+        const legacy = !identityRows && secretMacEqual(mac, legacyStoreMac(snap, macKey));
+        // A file written before migration rows existed has no legacyMigrations key. Do not accept that MAC if the key is present, or a burn list could be smuggled under it.
+        const previousIdentity = !Array.isArray(parsed.legacyMigrations) && secretMacEqual(mac, identityStoreMac(snap, macKey));
+        if (!current && !legacy && !previousIdentity) throw new Error('store.json failed its integrity check');
+        rewrite = legacy || previousIdentity || !current;
       }
       this.restore(snap);
+      if ([...this.invites.values()].length > (Array.isArray(parsed.invites) ? parsed.invites.length : 0)) rewrite = true;
     }
     this.ready = true;
+    if (rewrite) this.persist();
   }
 
   protected override persist() {

@@ -1,9 +1,10 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
- * No user accounts. A callsign lives on the PC. Joining a community with its invite code
- * returns a short-lived session token (HMAC, not stored). Creating a community returns an
- * admin key once; the server keeps only its SHA-256 hash. Admin actions send that key back.
+ * No email or password accounts. A person is a device key enrolled with an invite.
+ * Day-to-day sessions are HMAC bearers (not stored) that name the device id.
+ * Creating a community returns an admin key once; the server keeps only its SHA-256 hash.
+ * Admin actions send that key back, or use a device whose row is role admin.
  */
 export const CALLSIGN_MAX = 32;
 
@@ -51,7 +52,11 @@ export function adminKeyMatches(key: string, hash: string): boolean {
   return timingSafeEqual(got, want);
 }
 
-/** Stateless join session. `sid` is the LiveKit identity for this visit. */
+/**
+ * HMAC session. `sid` stays a random id on the token.
+ * Device sessions set `did` and omit `epoch`. Their LiveKit identity is `d` + `did`.
+ * Legacy sessions have no `did`. `sid` is their LiveKit identity, and `epoch` dies when the invite rotates.
+ */
 export interface Session {
   cid: string;
   name: string;
@@ -61,11 +66,18 @@ export interface Session {
   iat?: number;
   /** Join sessions are members. Anything else is rejected. */
   scope?: 'member';
-  /** Copied from the community. Invite rotation bumps the community and strands old tokens. */
+  /** Legacy tokens only. Device tokens omit this so invite rotation does not log them out. */
   epoch?: number;
+  /** Enrolled device id (64 hex). Present on device sessions. */
+  did?: string;
 }
 
 export const SESSION_TTL_SECONDS = 12 * 60 * 60;
+
+/** LiveKit identity. Device sessions stay the same participant across token refreshes. */
+export function liveKitIdentity(session: Pick<Session, 'sid' | 'did'>): string {
+  return session.did ? `d${session.did}` : session.sid;
+}
 
 export function signSession(session: Session, secret: string): string {
   const body = Buffer.from(JSON.stringify(session)).toString('base64url');
@@ -93,5 +105,6 @@ export function verifySession(token: string, secret: string): Session | null {
   if (typeof session.exp !== 'number' || session.exp < Math.floor(Date.now() / 1000)) return null;
   if (session.scope !== undefined && session.scope !== 'member') return null;
   if (session.epoch !== undefined && (typeof session.epoch !== 'number' || !Number.isInteger(session.epoch) || session.epoch < 0)) return null;
+  if (session.did !== undefined && (typeof session.did !== 'string' || !/^[0-9a-f]{64}$/.test(session.did))) return null;
   return session;
 }
