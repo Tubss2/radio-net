@@ -78,6 +78,8 @@ export class PreviewEngine implements RadioControl {
     this.setTx(ids[(from + step + ids.length) % ids.length]);
   }
 
+  setRelease(_opts: { hangMs: number; roger: boolean; rogerLocal: boolean }) { /* preview keys drop immediately */ }
+
   async ptt(down: boolean, channelId?: string): Promise<boolean> {
     const id = channelId ?? this.txId;
     if (!id || !this.slots.get(id)?.canTransmit) return false;

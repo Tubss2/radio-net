@@ -63,10 +63,22 @@ export function playTxChange() {
   tone(880, level());
 }
 
+/** Local roger beep. The transmission mixes its own copy; this one is only for the sender's speakers. */
+export function playRogerLocal() {
+  if (!prefs.rogerLocal) return;
+  rogerTones(level());
+}
+
+function rogerTones(gain: number) {
+  tone(1046, gain);
+  window.setTimeout(() => tone(1568, gain), 90);
+}
+
 /** Settings preview. Plays that cue once at the current volume even when its switch is off. */
-export function previewSound(cue: 'add' | 'ptt' | 'tx') {
+export function previewSound(cue: 'add' | 'ptt' | 'tx' | 'roger') {
   const gain = level();
   if (cue === 'add') squelchClip(gain);
+  else if (cue === 'roger') rogerTones(gain);
   else if (cue === 'tx') tone(880, gain);
   else {
     tone(1200, gain);

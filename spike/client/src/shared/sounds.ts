@@ -1,3 +1,5 @@
+import { clampHangMs } from './roger';
+
 /** Master level for short UI cues. 0 is silent, 1 is full. Default stays quiet. */
 export const DEFAULT_SOUND_VOLUME = 0.4;
 
@@ -9,6 +11,12 @@ export interface SoundPrefs {
   ptt: boolean;
   /** Short tone when the transmit channel changes. On for a new profile. */
   txChange: boolean;
+  /** Beep mixed into the transmission so listeners hear the end of it. On for a new profile. */
+  roger: boolean;
+  /** Same beep on this machine's speakers. Off until chosen. */
+  rogerLocal: boolean;
+  /** Milliseconds the mic stays open after release, before the roger beep. */
+  hangMs: number;
   volume: number;
 }
 
@@ -25,13 +33,40 @@ export function soundPrefsFrom(raw: {
   soundsOn?: boolean;
   soundPtt?: boolean;
   soundTx?: boolean;
+  soundRoger?: boolean;
+  soundRogerLocal?: boolean;
+  hangMs?: unknown;
   soundVolume?: unknown;
 }): SoundPrefs {
   return {
     addChannel: raw.soundsOn !== false,
     ptt: raw.soundPtt === true,
     txChange: raw.soundTx !== false,
+    roger: raw.soundRoger !== false,
+    rogerLocal: raw.soundRogerLocal === true,
+    hangMs: clampHangMs(raw.hangMs),
     volume: clampSoundVolume(raw.soundVolume),
+  };
+}
+
+/** Profile fields written when the Sounds panel changes. */
+export function soundProfilePatch(sounds: SoundPrefs): {
+  soundsOn: boolean;
+  soundPtt: boolean;
+  soundTx: boolean;
+  soundRoger: boolean;
+  soundRogerLocal: boolean;
+  hangMs: number;
+  soundVolume: number;
+} {
+  return {
+    soundsOn: sounds.addChannel,
+    soundPtt: sounds.ptt,
+    soundTx: sounds.txChange,
+    soundRoger: sounds.roger,
+    soundRogerLocal: sounds.rogerLocal,
+    hangMs: sounds.hangMs,
+    soundVolume: sounds.volume,
   };
 }
 

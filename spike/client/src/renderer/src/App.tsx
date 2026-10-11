@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from 'react-dom';
 import { bindLabel, cloneBinds, KEYBINDS_VERSION, migrateDesktopKeybinds, pageKeybinds } from '../../shared/keybinds';
 import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
-import { DEFAULT_SOUND_VOLUME, soundPrefsFrom, type SoundPrefs } from '../../shared/sounds';
+import { DEFAULT_SOUND_VOLUME, soundPrefsFrom, soundProfilePatch, type SoundPrefs } from '../../shared/sounds';
 import { APP_VERSION } from '../../shared/version';
 import type { Keybinds } from '../../shared/types';
 import { acceptChannelList, removedTunedIds } from '../../shared/channelList';
@@ -246,7 +246,7 @@ export function App() {
         onSounds={(sounds) => {
           const cur = profileRef.current;
           if (!cur) return;
-          void save({ ...cur, soundsOn: sounds.addChannel, soundPtt: sounds.ptt, soundTx: sounds.txChange, soundVolume: sounds.volume });
+          void save({ ...cur, ...soundProfilePatch(sounds) });
         }}
         onChange={changeBinds}
       />
@@ -587,6 +587,9 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     [api, server.id],
   );
   useSyncExternalStore(engine.subscribe, () => engine.version);
+  useEffect(() => {
+    engine.setRelease({ hangMs: boot.hangMs, roger: boot.soundRoger, rogerLocal: boot.soundRogerLocal });
+  }, [engine, boot.hangMs, boot.soundRoger, boot.soundRogerLocal]);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [listReady, setListReady] = useState(false);
   const [query, setQuery] = useState('');
@@ -926,7 +929,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       onWheel={(on) => { setWheelOn(on); patchProfile({ wheelOn: on }); if (!on) wheel.close(); }}
       onSimple={(on) => { setSimpleOn(on); patchProfile({ simpleOn: on }); }}
       onHotkeys={onHotkeys}
-      onSounds={(sounds) => patchProfile({ soundsOn: sounds.addChannel, soundPtt: sounds.ptt, soundTx: sounds.txChange, soundVolume: sounds.volume })}
+      onSounds={(sounds) => patchProfile(soundProfilePatch(sounds))}
       onServer={onServer}
       onKeybinds={() => { setOptionsOpen(false); openSettings(); }}
       onPhone={() => { setOptionsOpen(false); setPhoneOpen(true); }}
