@@ -103,6 +103,10 @@ export class RadioEngine implements RadioControl {
   private mix: OutgoingMix | null = null;
   private release = { hangMs: 200, roger: true, rogerLocal: false };
   private tail = new ReleaseTail((ms) => new Promise((resolve) => { setTimeout(resolve, ms); }));
+  /** Bumped on every press and release so a release during unmute can win. */
+  private talkSerial = 0;
+  /** True only when the latest press or release still wants the mic open. */
+  private talkWantsOpen = false;
 
   setRelease(opts: { hangMs: number; roger: boolean; rogerLocal: boolean }) {
     this.release = { ...opts };
@@ -430,6 +434,8 @@ export class RadioEngine implements RadioControl {
       this.tail.cancel();
       if (!slot?.mic) return false;
       if (this.transmittingOn && this.transmittingOn !== id) await this.ptt(false, this.transmittingOn);
+      const serial = ++this.talkSerial;
+      this.talkWantsOpen = true;
       const already = this.transmittingOn === id;
       try {
         await slot.mic.unmute();
@@ -439,12 +445,22 @@ export class RadioEngine implements RadioControl {
         this.changed();
         return false;
       }
+      if (serial !== this.talkSerial) {
+        if (!this.talkWantsOpen && !this.allCalling) {
+          await slot.mic.mute().catch(() => undefined);
+          if (this.transmittingOn === id) this.transmittingOn = null;
+          this.changed();
+        }
+        return false;
+      }
       this.micHeldByTalk = true;
       this.transmittingOn = id;
       if (!already) playPttEdge('down');
       this.changed();
       return true;
     }
+    this.talkSerial++;
+    this.talkWantsOpen = false;
     if (this.allCalling && id === this.txId) {
       this.micHeldByTalk = false;
       this.changed();

@@ -36,6 +36,8 @@ import { useLastSpeakers } from './useLastSpeakers';
 import { PrivacyConsent, PrivacyNotes } from './Privacy';
 import { useChannelWheel } from './useChannelWheel';
 import { useTalk } from './useTalk';
+import { useTalkHolds } from './useTalkHolds';
+import type { TalkHolds } from '../../shared/talkHolds';
 
 const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
@@ -621,15 +623,15 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const [arming, setArming] = useState(false);
   const [simpleOn, setSimpleOn] = useState(boot.simpleOn);
   const [onTop, setOnTop] = useState(boot.simpleOnTop);
-  const externalDown = useRef(false);
+  const holds = useTalkHolds(engine);
   const talk = useTalk({
-    enabled: isWeb,
+    enabled: !inElectron,
     engine,
     talkKey: boot.talkKey,
     mode: boot.talkMode,
     sensitivity: boot.voiceSensitivity,
     releaseMs: boot.voiceReleaseMs,
-    externalDown,
+    holds,
   });
   const allCallWanted = useRef(false);
   const allCallGen = useRef(0);
@@ -841,11 +843,11 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
 
   useEffect(() => {
     const off = bridge.onHotkey((e) => {
-      if (e.type === 'ptt') void engine.ptt(e.down);
+      if (e.type === 'ptt') { if (e.down) holds.down('desktop'); else holds.up('desktop'); }
       if (e.type === 'allcall') { if (e.down) startAllCall(); else stopAllCall(); }
       if (e.type === 'cycle') engine.cycle(e.step === -1 ? -1 : 1);
       if (e.type === 'overlay') setOverlayOn((v) => !v);
-      if (e.type === 'direct') void engine.ptt(e.down, e.channelId);
+      if (e.type === 'direct') { if (e.down) holds.down('direct', e.channelId); else holds.up('direct'); }
       if (e.type === 'select') engine.setTx(e.channelId);
       if (e.type === 'wheel' && wheelOn) wheel.onKey(e.down, e.heldMs);
       if (e.type === 'wheel' && !wheelOn) wheel.close();
@@ -857,7 +859,6 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     const kd = (e: KeyboardEvent) => {
       if (inElectron || isCapturingBind() || typing(e)) return;
-      if (e.code === 'Space' && !e.repeat) void engine.ptt(true);
       if (hotkeysOn && !e.repeat && domEventMatchesBind(e, bindsRef.current.allCall)) { e.preventDefault(); startAllCall(); }
       if (domEventMatchesBind(e, bindsRef.current.overlay)) { e.preventDefault(); setOverlayOn((v) => !v); }
       for (const [id, b] of Object.entries(bindsRef.current.select)) {
@@ -866,7 +867,6 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     };
     const ku = (e: KeyboardEvent) => {
       if (inElectron) return;
-      if (e.code === 'Space') void engine.ptt(false);
       if (domEventMatchesBind(e, bindsRef.current.allCall)) stopAllCall();
     };
     const releaseAllCall = () => { if (!inElectron) stopAllCall(); };
@@ -880,7 +880,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       window.removeEventListener('blur', releaseAllCall);
       document.removeEventListener('visibilitychange', vis);
     };
-  }, [engine, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close, wheelOn, hotkeysOn, startAllCall, stopAllCall]);
+  }, [engine, holds.down, holds.up, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close, wheelOn, hotkeysOn, startAllCall, stopAllCall]);
 
   const tuned = engine.tuned;
   const tx = tuned.find((t) => t.channel.id === engine.txId) ?? null;
@@ -1022,7 +1022,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       apiBase={server.url || API_URL}
       electron={inElectron}
       engine={engine}
-      externalDown={externalDown}
+      holds={holds}
       showButton={false}
       opened={phoneOpen}
       onOpenedChange={setPhoneOpen}
@@ -1073,6 +1073,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       <div className={`web-main${keyed ? ' on-air' : ''}`}>
         <AllCallBanner calling={engine.allCalling} from={engine.allCallFrom} />
         <OnAirBanner engine={engine} />
+        <TalkNotice holds={holds} />
         <section className="invite-card">
           {isAdmin ? (
             <>
@@ -1130,7 +1131,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
               apiBase={server.url || API_URL}
               electron={inElectron}
               engine={engine}
-              externalDown={externalDown}
+              holds={holds}
               showButton={false}
               opened={phoneOpen}
               onOpenedChange={setPhoneOpen}
@@ -1141,7 +1142,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           {!isPreview && (
             <HelperLink
               engine={engine}
-              externalDown={externalDown}
+              holds={holds}
               slot={helperSlot}
               onLinked={setHelperLinked}
               onDisconnectReady={bindHelperDisconnect}
@@ -1192,6 +1193,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       <div className={`simple-screen${keyed ? ' on-air' : ''}`}>
         <AllCallBanner calling={engine.allCalling} from={engine.allCallFrom} />
         <OnAirBanner engine={engine} />
+        <TalkNotice holds={holds} />
         <div className="web-bar">
           <strong>{server.name}</strong>
           {allCallButton}
@@ -1200,7 +1202,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           <span className="foot-ver">v{APP_VERSION}</span>
           <label className="sub"><input type="checkbox" checked={onTop} onChange={(e) => { setOnTop(e.target.checked); patchProfile({ simpleOnTop: e.target.checked }); }} /> Always on top</label>
         </div>
-        <SimpleRadio engine={engine} lines={speakerLines} onDown={() => { void engine.ptt(true); }} onUp={() => { void engine.ptt(false); }} label={bindLabel(binds.ptt)} />
+        <SimpleRadio engine={engine} lines={speakerLines} onDown={() => holds.down('pointer')} onUp={() => holds.up('pointer')} label={bindLabel(binds.ptt)} />
         {phoneLink}
         {optionsMenu}
         {people}
@@ -1251,6 +1253,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       <main className={`radio${keyed ? ' on-air' : ''}`}>
         <AllCallBanner calling={engine.allCalling} from={engine.allCallFrom} />
         <OnAirBanner engine={engine} />
+        <TalkNotice holds={holds} />
         <div className={`txbar ${keyed ? 'keyed' : ''}`}>
           <div>
             <div className="lbl">{keyed ? <span className="onair">Transmitting</span> : 'Transmit on'}</div>
@@ -1286,6 +1289,16 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       {optionsMenu}
       {people}
     </>
+  );
+}
+
+function TalkNotice({ holds }: { holds: TalkHolds }) {
+  if (!holds.notice) return null;
+  return (
+    <div className="talk-notice" role="status">
+      <span>{holds.notice}</span>
+      <button className="btn sm" type="button" onClick={holds.dismiss}>OK</button>
+    </div>
   );
 }
 
