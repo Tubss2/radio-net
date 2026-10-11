@@ -12,6 +12,28 @@ export interface JoinResult {
   role?: 'member' | 'admin';
   deviceId?: string;
 }
+export interface DeviceRow {
+  deviceId: string;
+  shortId: string;
+  callsign: string;
+  role: 'member' | 'admin';
+  createdAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  inviteId: string;
+  inviteLabel: string | null;
+}
+export interface InviteRow {
+  id: string;
+  code: string;
+  label: string | null;
+  createdAt: string;
+  createdBy: string;
+  maxUses: number | null;
+  uses: number;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
 export interface CreateResult { adminKey: string; community: CommunityInfo }
 export interface PhoneHostResult { livekitUrl: string; room: string; token: string; phoneIdentity: string }
 export interface PhoneRedeemResult { livekitUrl: string; room: string; token: string; identity: string; callsign: string; communityId: string; communityName: string }
@@ -105,8 +127,31 @@ export class Api {
   joinSigned(cid: string, body: { challengeId: string; deviceId: string; signature: string; callsign: string }) {
     return this.req<JoinResult>(`/api/communities/${cid}/join`, { method: 'POST', body: JSON.stringify(body) });
   }
+  devices(cid: string) {
+    return this.req<{ devices: DeviceRow[] }>(`/api/communities/${cid}/devices`).then((r) => r.devices);
+  }
+  revokeDevice(cid: string, deviceId: string) {
+    return this.req<{ deviceId: string; revokedAt: string | null }>(`/api/communities/${cid}/devices/${deviceId}/revoke`, { method: 'POST' });
+  }
+  restoreDevice(cid: string, deviceId: string) {
+    return this.req<{ deviceId: string; revokedAt: string | null }>(`/api/communities/${cid}/devices/${deviceId}/restore`, { method: 'POST' });
+  }
+  setDeviceRole(cid: string, deviceId: string, role: 'admin' | 'member') {
+    return this.req<{ deviceId: string; role: 'admin' | 'member' }>(`/api/communities/${cid}/devices/${deviceId}/role`, {
+      method: 'POST', body: JSON.stringify({ role }),
+    });
+  }
   claimAdmin(cid: string) {
     return this.req<{ role: 'admin'; deviceId: string }>(`/api/communities/${cid}/claim-admin`, { method: 'POST', body: '{}' });
+  }
+  invites(cid: string) {
+    return this.req<{ invites: InviteRow[] }>(`/api/communities/${cid}/invites`).then((r) => r.invites);
+  }
+  createInvite(cid: string, body: { label?: string; maxUses?: number | null; expiresAt?: string | null }) {
+    return this.req<{ invite: InviteRow }>(`/api/communities/${cid}/invites`, { method: 'POST', body: JSON.stringify(body) }).then((r) => r.invite);
+  }
+  revokeInvite(cid: string, inviteId: string) {
+    return this.req<{ invite: InviteRow }>(`/api/communities/${cid}/invites/${inviteId}/revoke`, { method: 'POST' }).then((r) => r.invite);
   }
   createCommunity(name: string, setupCode?: string) {
     return this.req<CreateResult>('/api/communities', { method: 'POST', body: JSON.stringify({ name, setupCode }) });
