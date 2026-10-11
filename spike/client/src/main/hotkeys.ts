@@ -102,6 +102,7 @@ export class Hotkeys {
     if (down) { if (this.held.has(id)) return; this.held.add(id); } else this.held.delete(id);
     const is = (b: Bind | null) => b !== null && bindId(b) === id;
     if (is(this.binds.ptt)) this.emit({ type: 'ptt', down });
+    if (is(this.binds.allCall)) this.emit({ type: 'allcall', down });
     if (down && is(this.binds.prev)) this.emit({ type: 'cycle', step: -1 });
     if (down && is(this.binds.next)) this.emit({ type: 'cycle', step: 1 });
     if (down && is(this.binds.overlay)) this.emit({ type: 'overlay' });
