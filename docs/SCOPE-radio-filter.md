@@ -10,7 +10,7 @@ Each listener should colour the voice they receive. The chain is Web Audio on th
 
 Four presets: **clean**, **handheld**, **vehicle**, **degraded**. Clean is a bypass. It is the default, so a profile that has never chosen a filter keeps today’s voice.
 
-The choice lives on this browser or this PC, next to volume and pan. A global default covers every tuned channel. A channel can override it. A community admin cannot force a preset in the first slice. A later “suggested preset” is still a courtesy the official client may follow, and this machine’s Clean switch wins over it.
+The choice lives on this browser or this PC, next to volume and pan. One default on that profile covers every channel this person tunes. A channel can override it. There is no community preset and no admin preset. Nobody else chooses what this radio sounds like.
 
 Distance or signal-strength colouring can come later as a cosmetic knob. It is separate from range and terrain, which stay out.
 
@@ -49,9 +49,7 @@ A static bed, when that preset uses one, is a local looping buffer mixed in befo
 
 This matches how volume already works. Each person chooses what they hear. Clean is a wire from source to gain. Web and desktop share `RadioEngine`, so they get the same chain.
 
-**Sender-side** would put the same nodes on `outgoingTrack`, before the track is published. Every listener would hear the coloured voice, including people who wanted Clean. A listener could not turn it off. The roger beep is mixed into that same track, so the sender’s preset would colour the beep for everyone. Echo cancellation stays on the raw mic, ahead of that mix, which is fine, but the effect would be baked into the room.
-
-The first build is listener-side. Sender-side stays a later option only if a group truly needs one shared sound that a listener cannot bypass. That would be a different change, and it would need its own privacy note because the published voice would no longer be the untreated mic.
+**Sender-side** would put the same nodes on `outgoingTrack`, before the track is published. Every listener would then hear the sender’s colour, including people on Clean. The roger beep is mixed into that same track, so that colour would ride the beep as well. That takes the choice away from the listener. This design does not do that. The published voice stays the untreated mic, with echo cancellation still on the raw track ahead of the mix. The beep stays in that mix, and each listener’s own preset colours it on the way to their speakers.
 
 ## Presets
 
@@ -75,21 +73,11 @@ The static bed is off on clean, handheld, and vehicle. Degraded may enable it. A
 Local profile only.
 
 - `radioFilter: 'clean' | 'handheld' | 'vehicle' | 'degraded'` on the profile. Missing or unknown is `clean`.
-- `filter` on `RadioPrefs`, a map of channel id to a preset, the same shape as `volume` and `pan`. A missing channel uses the global preset.
+- `filter` on `RadioPrefs`, a map of channel id to a preset, the same shape as `volume` and `pan`. A missing channel uses this person’s default.
 
-The control sits with the radio, beside that channel’s volume, plus one global choice in Settings. “Use default” on a channel clears the override. The first build can ship both, because the graph is already one chain per channel and the profile already stores per-channel audio. A global-only first slice is acceptable if the map is still the stored shape, so the per-channel control does not need a migration later.
+The control sits with the radio, beside that channel’s volume, plus one choice in Settings for this person’s default. “Use default” on a channel clears the override and follows that personal default. The first build can ship both, because the graph is already one chain per channel and the profile already stores per-channel audio. A default-only first slice is acceptable if the map is still the stored shape, so the per-channel control does not need a migration later.
 
-Nothing is sent to the API. `publicCommunity` stays `id`, `name`, `band`, and the invite only when create returns it.
-
-## A community preset
-
-An admin-forced sound is out of the first slice. No new server field, and no server update for Tobias.
-
-If a group later wants a shared starting point, add an optional community value the admin can set (the admin key, or a device session the server already treats as admin — the same check as create channel and all-call). Unset means each listener keeps their own preset. The official client would apply a set value as the default for people who have not chosen.
-
-That value cannot be a lock. The chain runs in the listener’s browser, so a modified client can skip it. The same limit is why floor control, in [`SCOPE-transmission-queue.md`](SCOPE-transmission-queue.md), mutes on the server instead of trusting a busy hint. Forcing a radio colour the way floor forces silence would mean processing the published track. This note does not recommend that.
-
-Accessibility wins over a community default. **Clean**, or a single “Radio filter off” switch, always bypasses the chain on this machine, including when a community preset is set. An admin cannot take the off switch away.
+The preset is never a community setting and never an admin setting. Nothing is sent to the API. `publicCommunity` stays `id`, `name`, `band`, and the invite only when create returns it. No server field, now or later.
 
 ## Distance and signal strength
 
@@ -144,7 +132,7 @@ The phone page and the helper stay as they are: they key this computer, they do 
 
 ## Accessibility
 
-Clean is the easy off switch. It is the default, it is one choice in the preset list, and it removes the band-pass, the saturation, the bit reduction, and the static bed. A community preset cannot override it once this machine has chosen Clean.
+Clean is the easy off switch. It is the default, it is one choice in the preset list, and it removes the band-pass, the saturation, the bit reduction, and the static bed. It is this person’s switch. No community or admin setting can turn the filter on for them.
 
 The incoming start and end clicks ship off. Someone who wants the coloured voice without extra clicks leaves those switches off. The master volume still scales every UI cue, including the new ones, and 0 silences them.
 
@@ -152,13 +140,13 @@ The filter is cosmetic. It must not be required to understand a transmission. Cl
 
 ## Recommendation
 
-Ship a listener-side chain, default **clean**, stored on the local profile with a per-channel override map. Presets are clean, handheld, vehicle, and degraded, with the band-pass and saturation above. Add the missing incoming start and end cues as Sounds switches, off by default. Leave admin force, sender-side processing, and signal-strength colouring for later.
+Ship a listener-side chain, default **clean**, stored on the local profile with a per-channel override map. Presets are clean, handheld, vehicle, and degraded, with the band-pass and saturation above. Add the missing incoming start and end cues as Sounds switches, off by default. The published voice stays untreated. Signal-strength colouring can come later, still as this person’s own knob.
 
 No API change. No LiveKit change. No server bundle change.
 
 ## Open questions
 
-1. Should the first slice include the per-channel override, or only the global preset with the map reserved?
+1. Should the first slice include the per-channel override, or only this person’s default with the map reserved?
 2. Does degraded’s static bed default on, with a switch to drop it, or default off until the person asks?
 3. Are incoming start and end two switches, or one “incoming squelch” switch that covers both edges?
 4. Should the tail be the existing `squelch.wav`, a shorter click, or a new clip? The current file is credited for the add-channel cue (JovianSounds, CC0, `CREDITS/SOUNDS.md`).
@@ -166,4 +154,4 @@ No API change. No LiveKit change. No server bundle change.
 
 ## Out of scope for the first build
 
-No implementation in this change. No sender-side processing. No community field and no admin lock. No distance, signal strength, range, or terrain. No game hook. No change to the roger hang, the overlay caps, the phone page, or the helper. No extra playback buffer.
+No implementation in this change. No sender-side processing. No community preset and no admin preset. No distance, signal strength, range, or terrain. No game hook. No change to the roger hang, the overlay caps, the phone page, or the helper. No extra playback buffer.
