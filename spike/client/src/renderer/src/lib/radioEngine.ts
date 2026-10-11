@@ -65,6 +65,9 @@ export interface RadioControl {
   dispose(): Promise<void>;
 }
 
+/** Voice grants last two minutes. Refresh earlier so a tuned channel does not drop, and a ban fails the next mint. */
+const GRANT_REFRESH_MS = 60_000;
+
 interface Slot {
   info: TunedChannel;
   room: Room;
@@ -72,6 +75,9 @@ interface Slot {
   panner: StereoPannerNode;
   mic?: LocalTrackPublication;
   sinks: HTMLAudioElement[];
+  /** Ignore the disconnect this refresh causes. */
+  refreshing: boolean;
+  refreshTimer?: ReturnType<typeof setTimeout>;
 }
 
 export class RadioEngine implements RadioControl {
@@ -149,7 +155,7 @@ export class RadioEngine implements RadioControl {
     const panner = this.ctx.createStereoPanner();
     gain.connect(panner).connect(this.ctx.destination);
     const slot: Slot = {
-      room, gain, panner, sinks: [],
+      room, gain, panner, sinks: [], refreshing: false,
       info: { channel, status: 'connecting', canTransmit: grant.canTransmit, volume: 1, pan: 0, muted: false, speakers: [], listeners: 0, allCallFrom: null },
     };
     this.slots.set(channel.id, slot);
@@ -188,6 +194,7 @@ export class RadioEngine implements RadioControl {
         this.changed();
       })
       .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+        if (slot.refreshing) return;
         clientLog('livekit', `disconnected ${channel.freq} ${reason ?? ''}`.trim());
         // The API deletes the LiveKit room when an admin deletes the channel. Drop the slot
         // now so the card and the wheel do not keep a channel the server has removed.
@@ -217,13 +224,10 @@ export class RadioEngine implements RadioControl {
     clientLog('livekit', `connected ${channel.freq}`);
     slot.info.status = 'live';
     slot.info.listeners = room.numParticipants;
+    this.scheduleRefresh(channel.id);
     if (grant.canTransmit) {
       try {
-        const pub = await room.localParticipant.publishTrack((await this.mic()).clone(), {
-          source: Track.Source.Microphone, dtx: true, red: true, name: 'mic',
-        });
-        await pub.mute();
-        slot.mic = pub;
+        await this.publishMutedMic(slot);
       } catch (err) {
         clientLog('livekit', `mic ${channel.freq} ${(err as Error).message}`);
         if (!this.txId) this.txId = channel.id;
@@ -235,10 +239,77 @@ export class RadioEngine implements RadioControl {
     this.changed();
   }
 
+  private async publishMutedMic(slot: Slot): Promise<LocalTrackPublication> {
+    const pub = await slot.room.localParticipant.publishTrack((await this.mic()).clone(), {
+      source: Track.Source.Microphone, dtx: true, red: true, name: 'mic',
+    });
+    await pub.mute();
+    slot.mic = pub;
+    return pub;
+  }
+
+  private scheduleRefresh(channelId: string, delay = GRANT_REFRESH_MS) {
+    const slot = this.slots.get(channelId);
+    if (!slot) return;
+    if (slot.refreshTimer) clearTimeout(slot.refreshTimer);
+    slot.refreshTimer = setTimeout(() => { void this.refreshGrant(channelId); }, delay);
+  }
+
+  /** Mint a new voice grant and reconnect. A ban fails this mint, so the channel drops instead of riding the old JWT. */
+  private async refreshGrant(channelId: string) {
+    const slot = this.slots.get(channelId);
+    if (!slot) return;
+    const wasTalking = this.transmittingOn === channelId;
+    slot.refreshing = true;
+    try {
+      const { livekitUrl, grants } = await this.api.tokens(this.communityId, [channelId]);
+      const grant = grants[0];
+      if (!grant) throw new Error(`You can't tune ${slot.info.channel.name}`);
+      if (wasTalking) await slot.mic?.mute().catch(() => undefined);
+      const url = resolveLivekitUrl(livekitUrl, import.meta.env.VITE_LIVEKIT_URL);
+      await slot.room.disconnect();
+      await slot.room.connect(url, grant.token, { autoSubscribe: true });
+      slot.mic = undefined;
+      slot.info.canTransmit = grant.canTransmit;
+      slot.info.status = 'live';
+      slot.info.listeners = slot.room.numParticipants;
+      let mic: LocalTrackPublication | undefined;
+      if (grant.canTransmit) {
+        try {
+          mic = await this.publishMutedMic(slot);
+        } catch (err) {
+          clientLog('livekit', `mic ${slot.info.channel.freq} ${(err as Error).message}`);
+        }
+      }
+      if (wasTalking && mic) {
+        // All-call keeps the mic open without pretending the talk key is held.
+        if (this.allCalling && channelId === this.txId) await mic.unmute();
+        else await this.ptt(true, channelId);
+      }
+      this.changed();
+      this.scheduleRefresh(channelId);
+    } catch (err) {
+      if (isReconnectError(err)) {
+        slot.info.status = 'reconnecting';
+        this.changed();
+        this.scheduleRefresh(channelId, 5_000);
+        return;
+      }
+      clientLog('livekit', `refresh ${slot.info.channel.freq} ${(err as Error).message}`);
+      slot.info.status = 'gone';
+      this.changed();
+      await slot.room.disconnect().catch(() => undefined);
+    } finally {
+      // The disconnect event can be delivered after disconnect() resolves. Keep ignoring it until that turn finishes.
+      queueMicrotask(() => { slot.refreshing = false; });
+    }
+  }
+
   /** Remove the slot from the radio immediately. The room disconnect can finish afterwards. */
   private takeSlot(channelId: string): Slot | undefined {
     const slot = this.slots.get(channelId);
     if (!slot) return;
+    if (slot.refreshTimer) clearTimeout(slot.refreshTimer);
     this.slots.delete(channelId);
     slot.sinks.forEach((e) => { e.srcObject = null; });
     try { slot.gain.disconnect(); } catch { /* already torn down */ }
