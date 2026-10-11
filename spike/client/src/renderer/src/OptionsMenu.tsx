@@ -81,6 +81,7 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
       soundRoger: profile.soundRoger,
       soundRogerLocal: profile.soundRogerLocal,
       hangMs: profile.hangMs,
+      radioFilter: profile.radioFilter,
       simpleOn,
       serverCount: profile.servers.length,
       binds,

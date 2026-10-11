@@ -1,4 +1,5 @@
 import squelchUrl from '../assets/squelch.wav?url';
+import { synthesizeCue } from '../../../shared/radioFilter';
 import { clampSoundVolume, DEFAULT_SOUND_VOLUME, soundPrefsFrom, uiSoundGain, type SoundPrefs } from '../../../shared/sounds';
 
 /**
@@ -63,23 +64,48 @@ export function playTxChange() {
   tone(880, level());
 }
 
-/** Local roger beep. The transmission mixes its own copy; this one is only for the sender's speakers. */
-export function playRogerLocal() {
-  if (!prefs.rogerLocal) return;
-  rogerTones(level());
+const cueBuffers = new Map<string, AudioBuffer>();
+
+/**
+ * Start or end cue, straight to the speakers. It does not go through the radio
+ * filter and it is not mixed into the transmitted voice.
+ * `own` is this radio's transmission. Otherwise it is someone else's.
+ */
+export function playTransmissionCue(edge: 'start' | 'end', opts?: { own?: boolean; force?: boolean }) {
+  const allowed = opts?.force || (opts?.own ? prefs.rogerLocal : prefs.roger);
+  if (!allowed) return;
+  playCueBuffer(edge, level());
 }
 
-function rogerTones(gain: number) {
-  tone(1046, gain);
-  window.setTimeout(() => tone(1568, gain), 90);
+function playCueBuffer(edge: 'start' | 'end', gain: number) {
+  if (gain <= 0 || typeof AudioContext === 'undefined') return;
+  const ctx = audio ?? (audio = new AudioContext());
+  if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
+  const key = `${edge}:${ctx.sampleRate}`;
+  let buffer = cueBuffers.get(key);
+  if (!buffer) {
+    const samples = synthesizeCue(edge, ctx.sampleRate);
+    buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
+    buffer.getChannelData(0).set(samples);
+    cueBuffers.set(key, buffer);
+  }
+  const src = ctx.createBufferSource();
+  const g = ctx.createGain();
+  g.gain.value = gain;
+  src.buffer = buffer;
+  src.connect(g).connect(ctx.destination);
+  src.start();
+  return buffer.duration;
 }
 
 /** Settings preview. Plays that cue once at the current volume even when its switch is off. */
-export function previewSound(cue: 'add' | 'ptt' | 'tx' | 'roger') {
+export function previewSound(cue: 'add' | 'ptt' | 'tx' | 'beeps') {
   const gain = level();
   if (cue === 'add') squelchClip(gain);
-  else if (cue === 'roger') rogerTones(gain);
-  else if (cue === 'tx') tone(880, gain);
+  else if (cue === 'beeps') {
+    const dur = playCueBuffer('start', gain) ?? 0.15;
+    window.setTimeout(() => playCueBuffer('end', gain), Math.round(dur * 1000) + 120);
+  } else if (cue === 'tx') tone(880, gain);
   else {
     tone(1200, gain);
     squelchClip(gain);

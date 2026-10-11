@@ -1,9 +1,7 @@
 /** How long the mic stays open after the last talk source lets go. */
-export const DEFAULT_HANG_MS = 200;
+export const DEFAULT_HANG_MS = 150;
 export const HANG_MIN_MS = 0;
 export const HANG_MAX_MS = 400;
-/** In-band beep after the hang, so listeners hear the end of the transmission. */
-export const ROGER_MS = 180;
 
 export function clampHangMs(v: unknown): number {
   const n = typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_HANG_MS;
@@ -12,22 +10,18 @@ export function clampHangMs(v: unknown): number {
 }
 
 export interface TailStep {
-  /** Keep the carrier up for this long. */
+  /** Keep the carrier up for this long. The end cue is local and does not extend it. */
   waitMs: number;
-  /** Start the roger beep at the beginning of this wait. The beep rides the still-open mic. */
-  roger: boolean;
 }
 
 /**
- * After key-up: optional hang so the last word is not cut, then an optional roger beep,
- * then the caller mutes. A zero hang and no roger mutes immediately.
+ * After key-up, keep the mic open so the last word is not cut.
+ * A zero delay mutes immediately. The end cue plays on the listener after this,
+ * and is not mixed into the transmission.
  */
-export function releaseTail(opts: { hangMs: number; roger: boolean }): TailStep[] {
-  const hang = clampHangMs(opts.hangMs);
-  const steps: TailStep[] = [];
-  if (hang > 0) steps.push({ waitMs: hang, roger: false });
-  if (opts.roger) steps.push({ waitMs: ROGER_MS, roger: true });
-  return steps;
+export function releaseTail(hangMs: number): TailStep[] {
+  const hang = clampHangMs(hangMs);
+  return hang > 0 ? [{ waitMs: hang }] : [];
 }
 
 /** Runs a release tail. `cancel` makes an in-flight run finish without muting. */
@@ -42,13 +36,12 @@ export class ReleaseTail {
     this.running = false;
   }
 
-  async run(opts: { hangMs: number; roger: boolean }, onRoger: () => void): Promise<'done' | 'cancelled'> {
+  async run(hangMs: number): Promise<'done' | 'cancelled'> {
     const mine = ++this.gen;
     this.running = true;
     try {
-      for (const step of releaseTail(opts)) {
+      for (const step of releaseTail(hangMs)) {
         if (mine !== this.gen) return 'cancelled';
-        if (step.roger) onRoger();
         if (step.waitMs > 0) await this.sleep(step.waitMs);
       }
       if (mine !== this.gen) return 'cancelled';

@@ -1,3 +1,4 @@
+import { parseRadioFilter, type RadioFilterPreset } from './radioFilter';
 import { clampHangMs } from './roger';
 
 /** Master level for short UI cues. 0 is silent, 1 is full. Default stays quiet. */
@@ -11,13 +12,15 @@ export interface SoundPrefs {
   ptt: boolean;
   /** Short tone when the transmit channel changes. On for a new profile. */
   txChange: boolean;
-  /** Beep mixed into the transmission so listeners hear the end of it. On for a new profile. */
+  /** Start and end cues for other people's transmissions. On for a new profile. */
   roger: boolean;
-  /** Same beep on this machine's speakers. Off until chosen. */
+  /** The same cues for this radio's own transmissions. Off until chosen. */
   rogerLocal: boolean;
-  /** Milliseconds the mic stays open after release, before the roger beep. */
+  /** Milliseconds the mic stays open after release, before the local end cue. */
   hangMs: number;
   volume: number;
+  /** Colour applied to received voice, unless a channel overrides it. */
+  radioFilter: RadioFilterPreset;
 }
 
 /**
@@ -37,6 +40,7 @@ export function soundPrefsFrom(raw: {
   soundRogerLocal?: boolean;
   hangMs?: unknown;
   soundVolume?: unknown;
+  radioFilter?: unknown;
 }): SoundPrefs {
   return {
     addChannel: raw.soundsOn !== false,
@@ -46,6 +50,7 @@ export function soundPrefsFrom(raw: {
     rogerLocal: raw.soundRogerLocal === true,
     hangMs: clampHangMs(raw.hangMs),
     volume: clampSoundVolume(raw.soundVolume),
+    radioFilter: parseRadioFilter(raw.radioFilter),
   };
 }
 
@@ -58,6 +63,7 @@ export function soundProfilePatch(sounds: SoundPrefs): {
   soundRogerLocal: boolean;
   hangMs: number;
   soundVolume: number;
+  radioFilter: RadioFilterPreset;
 } {
   return {
     soundsOn: sounds.addChannel,
@@ -67,6 +73,7 @@ export function soundProfilePatch(sounds: SoundPrefs): {
     soundRogerLocal: sounds.rogerLocal,
     hangMs: sounds.hangMs,
     soundVolume: sounds.volume,
+    radioFilter: sounds.radioFilter,
   };
 }
 

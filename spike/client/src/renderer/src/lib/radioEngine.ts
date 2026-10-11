@@ -7,8 +7,10 @@ import { pickTransmitId } from '../../../shared/transmit';
 import { isReconnectError, type Api, type ChannelInfo } from './api';
 import { clientLog } from './clientLog';
 import { resolveLivekitUrl } from './livekitUrl';
+import { effectiveFilter, parseChannelFilter, parseRadioFilter, transmissionCueEdges, type RadioFilterPreset } from '../../../shared/radioFilter';
 import { ReleaseTail } from '../../../shared/roger';
-import { playPttEdge, playRogerLocal, playTxChange } from './uiSounds';
+import { RADIO_WORKLET, codec2Bytes, radioWorkletUrl } from '../audio/radioVoice';
+import { playPttEdge, playTransmissionCue, playTxChange } from './uiSounds';
 
 /**
  * The radio: one LiveKit Room per tuned channel.
@@ -23,6 +25,8 @@ export interface TunedChannel {
   volume: number; // 0..1.5
   pan: number; // -1 (left) .. 1 (right)
   muted: boolean;
+  /** Null follows this person's default radio filter. */
+  filter: RadioFilterPreset | null;
   speakers: string[]; // display names talking now
   listeners: number;
   /** Remote all-call name heard in this room, if the server marked one. */
@@ -43,6 +47,10 @@ export interface RadioControl {
   setVolume(id: string, v: number): void;
   setMuted(id: string, m: boolean): void;
   setPan(id: string, p: number): void;
+  /** Profile default for received voice. Clean bypasses the filter. */
+  setRadioFilter(preset: RadioFilterPreset): void;
+  /** Null clears the override and follows the profile default. */
+  setChannelFilter(id: string, preset: RadioFilterPreset | null): void;
   setTx(id: string): void;
   /** A tuned channel that can transmit becomes the talk channel when none is chosen. */
   ensureTx(): void;
@@ -59,7 +67,10 @@ export interface RadioControl {
    * The API has to accept the all-call before the UI calls this.
    */
   holdAllCall(on: boolean): Promise<boolean>;
-  /** Hang and roger beep applied the next time push-to-talk releases. */
+  /**
+   * Hang applied the next time push-to-talk releases.
+   * `roger` plays other people's transmission cues. `rogerLocal` plays this radio's own.
+   */
   setRelease(opts: { hangMs: number; roger: boolean; rogerLocal: boolean }): void;
   /** Resume audio and open the mic on a user gesture. The track stays published and muted until PTT. */
   unlock(): Promise<void>;
@@ -75,6 +86,14 @@ interface OutgoingMix {
 /** Voice grants last two minutes. Refresh earlier so a tuned channel does not drop, and a ban fails the next mint. */
 const GRANT_REFRESH_MS = 60_000;
 
+interface RemoteVoice {
+  identity: string;
+  source: MediaStreamAudioSourceNode;
+  el: HTMLAudioElement;
+  tap: GainNode | null;
+  node: AudioWorkletNode | null;
+}
+
 interface Slot {
   info: TunedChannel;
   room: Room;
@@ -82,6 +101,10 @@ interface Slot {
   panner: StereoPannerNode;
   mic?: LocalTrackPublication;
   sinks: HTMLAudioElement[];
+  voices: RemoteVoice[];
+  /** Remote identities LiveKit currently marks as speaking in this room. */
+  activeIds: string[];
+  filterGen: number;
   /** Ignore the disconnect this refresh causes. */
   refreshing: boolean;
   refreshTimer?: ReturnType<typeof setTimeout>;
@@ -101,7 +124,11 @@ export class RadioEngine implements RadioControl {
   version = 0;
   onChannelDeleted?: (channelId: string) => void;
   private mix: OutgoingMix | null = null;
-  private release = { hangMs: 200, roger: true, rogerLocal: false };
+  private release = { hangMs: 150, roger: true, rogerLocal: false };
+  private radioFilter: RadioFilterPreset = 'clean';
+  private workletReady: Promise<void> | null = null;
+  /** Identities we have already played a start cue for. */
+  private heard: string[] = [];
   private tail = new ReleaseTail((ms) => new Promise((resolve) => { setTimeout(resolve, ms); }));
   /** Bumped on every press and release so a release during unmute can win. */
   private talkSerial = 0;
@@ -110,6 +137,25 @@ export class RadioEngine implements RadioControl {
 
   setRelease(opts: { hangMs: number; roger: boolean; rogerLocal: boolean }) {
     this.release = { ...opts };
+  }
+
+  setRadioFilter(preset: RadioFilterPreset) {
+    const next = parseRadioFilter(preset);
+    if (next === this.radioFilter) return;
+    this.radioFilter = next;
+    for (const slot of this.slots.values()) {
+      if (!slot.info.filter) this.applyFilter(slot);
+    }
+  }
+
+  setChannelFilter(id: string, preset: RadioFilterPreset | null) {
+    const slot = this.slots.get(id);
+    if (!slot) return;
+    const next = preset ? parseChannelFilter(preset) : null;
+    if (slot.info.filter === next) return;
+    slot.info.filter = next;
+    this.applyFilter(slot);
+    this.changed();
   }
 
   constructor(private api: Api, private communityId: string) {}
@@ -173,8 +219,8 @@ export class RadioEngine implements RadioControl {
     const panner = this.ctx.createStereoPanner();
     gain.connect(panner).connect(this.ctx.destination);
     const slot: Slot = {
-      room, gain, panner, sinks: [], refreshing: false,
-      info: { channel, status: 'connecting', canTransmit: grant.canTransmit, volume: 1, pan: 0, muted: false, speakers: [], listeners: 0, allCallFrom: null },
+      room, gain, panner, sinks: [], voices: [], activeIds: [], filterGen: 0, refreshing: false,
+      info: { channel, status: 'connecting', canTransmit: grant.canTransmit, volume: 1, pan: 0, muted: false, filter: null, speakers: [], listeners: 0, allCallFrom: null },
     };
     this.slots.set(channel.id, slot);
     this.ensureTx();
@@ -191,12 +237,33 @@ export class RadioEngine implements RadioControl {
         el.muted = true;
         void el.play().catch(() => undefined);
         slot.sinks.push(el);
-        this.ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack])).connect(gain);
+        const source = this.ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+        const voice: RemoteVoice = { identity: participant.identity, source, el, tap: null, node: null };
+        slot.voices.push(voice);
+        source.connect(gain);
+        void this.wireVoice(slot, voice);
         this.noteAllCall();
+      })
+      .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _publication, participant) => {
+        if (track.kind !== Track.Kind.Audio) return;
+        const index = slot.voices.findIndex((voice) => voice.identity === participant.identity && voice.el.srcObject);
+        const voice = index >= 0 ? slot.voices[index] : undefined;
+        if (!voice) return;
+        slot.voices.splice(index, 1);
+        this.detachVoice(voice);
+        voice.el.srcObject = null;
+        const sink = slot.sinks.indexOf(voice.el);
+        if (sink >= 0) slot.sinks.splice(sink, 1);
       })
       .on(RoomEvent.ParticipantAttributesChanged, () => { this.noteAllCall(); })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-        slot.info.speakers = speakers.filter((p) => p !== room.localParticipant).map((p) => p.name || p.identity);
+        const remote = speakers.filter((p) => p !== room.localParticipant);
+        slot.activeIds = remote.map((p) => p.identity);
+        slot.info.speakers = remote.map((p) => p.name || p.identity);
+        for (const voice of slot.voices) {
+          voice.node?.port.postMessage({ type: 'carrier', on: slot.activeIds.includes(voice.identity) });
+        }
+        this.syncCues();
         this.changed();
       })
       .on(RoomEvent.ParticipantConnected, () => { slot.info.listeners = room.numParticipants; this.noteAllCall(); })
@@ -257,11 +324,7 @@ export class RadioEngine implements RadioControl {
     this.changed();
   }
 
-  /**
-   * Mic plus a tone, captured as the track we publish. The roger beep is mixed here so
-   * everyone tuned to the channel hears it. The raw mic still has echo cancellation;
-   * the beep is added after that, so noise suppression does not eat it.
-   */
+  /** The published voice is the treated mic only. Transmission cues stay on each listener's machine. */
   private async outgoingTrack(): Promise<MediaStreamTrack> {
     const track = await this.mic();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
@@ -275,25 +338,83 @@ export class RadioEngine implements RadioControl {
     return out.clone();
   }
 
-  /** Two short tones on the still-open carrier. Listeners hear this in the voice room. */
-  private playRogerIntoMix() {
-    if (!this.mix || this.ctx.state === 'closed') return;
-    const now = this.ctx.currentTime;
-    const o = this.ctx.createOscillator();
-    const g = this.ctx.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(1046, now);
-    o.frequency.setValueAtTime(1568, now + 0.09);
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(0.2, now + 0.012);
-    g.gain.setValueAtTime(0.2, now + 0.075);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
-    g.gain.exponentialRampToValueAtTime(0.2, now + 0.102);
-    g.gain.setValueAtTime(0.2, now + 0.15);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-    o.connect(g).connect(this.mix.dest);
-    o.start(now);
-    o.stop(now + 0.18);
+  private ensureWorklet(): Promise<void> {
+    if (!this.workletReady) this.workletReady = this.ctx.audioWorklet.addModule(radioWorkletUrl());
+    return this.workletReady;
+  }
+
+  private applyFilter(slot: Slot) {
+    slot.filterGen += 1;
+    for (const voice of slot.voices) void this.wireVoice(slot, voice);
+  }
+
+  private detachVoice(voice: RemoteVoice) {
+    try { voice.source.disconnect(); } catch { /* already disconnected */ }
+    try { voice.tap?.disconnect(); } catch { /* already disconnected */ }
+    try { voice.node?.disconnect(); } catch { /* already disconnected */ }
+    voice.node?.port.postMessage({ type: 'carrier', on: false });
+    voice.tap = null;
+    voice.node = null;
+  }
+
+  /** Insert or remove the listener filter without touching the published mic. */
+  private async wireVoice(slot: Slot, voice: RemoteVoice) {
+    const preset = effectiveFilter(slot.info.filter, this.radioFilter);
+    const gen = slot.filterGen;
+    this.detachVoice(voice);
+    if (preset === 'clean' || this.ctx.state === 'closed') {
+      try { voice.source.connect(slot.gain); } catch { /* the source can already be closed */ }
+      return;
+    }
+    try {
+      await this.ensureWorklet();
+    } catch (err) {
+      clientLog('livekit', `filter ${(err as Error).message}`);
+      try { voice.source.connect(slot.gain); } catch { /* closed */ }
+      return;
+    }
+    if (gen !== slot.filterGen || !this.slots.has(slot.info.channel.id)) return;
+    const tap = this.ctx.createGain();
+    tap.channelCount = 1;
+    tap.channelCountMode = 'explicit';
+    const node = new AudioWorkletNode(this.ctx, RADIO_WORKLET, {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      channelCount: 1,
+      channelCountMode: 'explicit',
+    });
+    voice.tap = tap;
+    voice.node = node;
+    voice.source.connect(tap);
+    tap.connect(node);
+    node.connect(slot.gain);
+    node.port.postMessage({ type: 'preset', preset });
+    node.port.postMessage({ type: 'carrier', on: slot.activeIds.includes(voice.identity) });
+    if (preset === 'digital') {
+      void codec2Bytes().then((bytes) => {
+        if (voice.node === node) node.port.postMessage({ type: 'wasm', bytes: bytes.slice(0) });
+      }).catch((err) => clientLog('livekit', `codec2 ${(err as Error).message}`));
+    }
+  }
+
+  /** One start or end cue per change in who is talking, across every tuned channel. */
+  private syncCues() {
+    const seen = new Set<string>();
+    const next: string[] = [];
+    for (const slot of this.slots.values()) {
+      for (const id of slot.activeIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        next.push(id);
+      }
+    }
+    if (this.release.roger) {
+      const edges = transmissionCueEdges(this.heard, next);
+      if (edges.start.length) playTransmissionCue('start');
+      if (edges.end.length) playTransmissionCue('end');
+    }
+    this.heard = next;
   }
 
   private async publishMutedMic(slot: Slot): Promise<LocalTrackPublication> {
@@ -368,7 +489,9 @@ export class RadioEngine implements RadioControl {
     if (!slot) return;
     if (slot.refreshTimer) clearTimeout(slot.refreshTimer);
     this.slots.delete(channelId);
+    slot.voices.forEach((voice) => this.detachVoice(voice));
     slot.sinks.forEach((e) => { e.srcObject = null; });
+    this.syncCues();
     try { slot.gain.disconnect(); } catch { /* already torn down */ }
     const wasTx = this.txId === channelId;
     if (wasTx) {
@@ -455,7 +578,10 @@ export class RadioEngine implements RadioControl {
       }
       this.micHeldByTalk = true;
       this.transmittingOn = id;
-      if (!already) playPttEdge('down');
+      if (!already) {
+        playPttEdge('down');
+        if (this.release.rogerLocal) playTransmissionCue('start', { own: true });
+      }
       this.changed();
       return true;
     }
@@ -469,11 +595,9 @@ export class RadioEngine implements RadioControl {
     if (this.transmittingOn !== id || this.tail.running) return false;
     this.micHeldByTalk = false;
     playPttEdge('up');
-    const result = await this.tail.run(this.release, () => {
-      this.playRogerIntoMix();
-      if (this.release.rogerLocal) playRogerLocal();
-    });
+    const result = await this.tail.run(this.release.hangMs);
     if (result !== 'done') return false;
+    if (this.release.rogerLocal) playTransmissionCue('end', { own: true });
     const live = id ? this.slots.get(id) : undefined;
     if (live?.mic) await live.mic.mute().catch(() => undefined);
     if (this.transmittingOn === id) this.transmittingOn = null;
@@ -491,14 +615,21 @@ export class RadioEngine implements RadioControl {
       }
       const id = this.transmittingOn;
       const slot = id ? this.slots.get(id) : undefined;
-      if (slot?.mic) await slot.mic.mute().catch(() => undefined);
-      if (this.transmittingOn) {
-        this.transmittingOn = null;
-        playPttEdge('up');
+      if (!slot?.mic) {
+        if (this.transmittingOn) this.transmittingOn = null;
+        this.changed();
+        return false;
       }
+      playPttEdge('up');
+      const result = await this.tail.run(this.release.hangMs);
+      if (result !== 'done') return false;
+      if (this.release.rogerLocal) playTransmissionCue('end', { own: true });
+      await slot.mic.mute().catch(() => undefined);
+      if (this.transmittingOn === id) this.transmittingOn = null;
       this.changed();
       return false;
     }
+    this.tail.cancel();
     const id = this.txId;
     const slot = id ? this.slots.get(id) : undefined;
     if (!slot?.mic || slot.info.status === 'gone') return false;
@@ -512,7 +643,10 @@ export class RadioEngine implements RadioControl {
     }
     this.allCalling = true;
     this.transmittingOn = id;
-    if (!already) playPttEdge('down');
+    if (!already) {
+      playPttEdge('down');
+      if (this.release.rogerLocal) playTransmissionCue('start', { own: true });
+    }
     this.changed();
     return true;
   }

@@ -23,7 +23,8 @@ describe('UI sound level', () => {
     expect(older.soundTx).toBe(true);
     expect(older.soundRoger).toBe(true);
     expect(older.soundRogerLocal).toBe(false);
-    expect(older.hangMs).toBe(200);
+    expect(older.hangMs).toBe(150);
+    expect(older.radioFilter).toBe('clean');
     expect(older.soundVolume).toBe(DEFAULT_SOUND_VOLUME);
     const saved = normaliseProfile({ ...older, soundsOn: false, soundVolume: 0.15 });
     expect(saved.soundsOn).toBe(false);
@@ -35,7 +36,11 @@ describe('UI sound level', () => {
 
   it('keeps an explicit push-to-talk cue and a silenced channel-change cue', () => {
     const prefs = soundPrefsFrom(normaliseProfile({ soundPtt: true, soundTx: false, soundRoger: false, soundRogerLocal: true, hangMs: 150, soundVolume: 0.2 }));
-    expect(prefs).toEqual({ addChannel: true, ptt: true, txChange: false, roger: false, rogerLocal: true, hangMs: 150, volume: 0.2 });
+    expect(prefs).toEqual({ addChannel: true, ptt: true, txChange: false, roger: false, rogerLocal: true, hangMs: 150, volume: 0.2, radioFilter: 'clean' });
+    const coloured = soundPrefsFrom(normaliseProfile({ radioFilter: 'degraded', hangMs: 200 }));
+    expect(coloured.radioFilter).toBe('degraded');
+    expect(coloured.hangMs).toBe(200);
+    expect(soundPrefsFrom(normaliseProfile({ radioFilter: 'vehicle' })).radioFilter).toBe('clean');
     expect(playsAddSquelch('add')).toBe(true);
     expect(playsAddSquelch('create')).toBe(false);
   });

@@ -1,3 +1,4 @@
+import type { RadioFilterPreset } from './radioFilter';
 import type { Keybinds } from './types';
 import { bindLabel } from './keybinds';
 import { redactSecrets } from './redact';
@@ -18,6 +19,7 @@ export interface DiagnosticsInput {
   soundRoger: boolean;
   soundRogerLocal: boolean;
   hangMs: number;
+  radioFilter: RadioFilterPreset;
   simpleOn: boolean;
   serverCount: number;
   binds: Keybinds;
@@ -36,8 +38,9 @@ export function diagnosticsText(input: DiagnosticsInput): string {
     `Add-channel sound ${input.soundsOn ? 'on' : 'off'}`,
     `Push-to-talk sound ${input.soundPtt ? 'on' : 'off'}`,
     `Transmit-change sound ${input.soundTx ? 'on' : 'off'}`,
-    `Roger beep ${input.soundRoger ? 'on' : 'off'}`,
-    `Own roger beep ${input.soundRogerLocal ? 'on' : 'off'}`,
+    `Transmission beeps ${input.soundRoger ? 'on' : 'off'}`,
+    `Own transmission beeps ${input.soundRogerLocal ? 'on' : 'off'}`,
+    `Radio filter ${input.radioFilter}`,
     `Release delay ${input.hangMs} ms`,
     `Simple mode ${input.simpleOn ? 'on' : 'off'}`,
     `Communities saved ${input.serverCount}`,

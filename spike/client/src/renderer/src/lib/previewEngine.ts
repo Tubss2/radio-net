@@ -1,3 +1,4 @@
+import { parseChannelFilter, type RadioFilterPreset } from '../../../shared/radioFilter';
 import type { ChannelInfo } from './api';
 import { PREVIEW_CHANNELS } from './previewApi';
 import type { RadioControl, TunedChannel } from './radioEngine';
@@ -45,7 +46,7 @@ export class PreviewEngine implements RadioControl {
   async tune(channel: ChannelInfo) {
     if (this.slots.has(channel.id)) return;
     this.slots.set(channel.id, {
-      channel, status: 'live', canTransmit: true, volume: 1, pan: 0, muted: false, speakers: [], listeners: 4, allCallFrom: null,
+      channel, status: 'live', canTransmit: true, volume: 1, pan: 0, muted: false, filter: null, speakers: [], listeners: 4, allCallFrom: null,
     });
     if (!this.txId) this.txId = channel.id;
     this.changed();
@@ -83,6 +84,17 @@ export class PreviewEngine implements RadioControl {
   }
 
   setRelease(_opts: { hangMs: number; roger: boolean; rogerLocal: boolean }) { /* preview keys drop immediately */ }
+
+  setRadioFilter(_preset: RadioFilterPreset) { /* the preview does not play remote voice */ }
+
+  setChannelFilter(id: string, preset: RadioFilterPreset | null) {
+    const slot = this.slots.get(id);
+    if (!slot) return;
+    const next = preset ? parseChannelFilter(preset) : null;
+    if (slot.filter === next) return;
+    slot.filter = next;
+    this.changed();
+  }
 
   async ptt(down: boolean, channelId?: string): Promise<boolean> {
     const id = channelId ?? this.txId;

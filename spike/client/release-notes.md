@@ -1,4 +1,4 @@
-Letting go of talk keeps the microphone open for a short moment, so the end of a word is not cut off. A roger beep plays at the end. Options, under Sounds, can turn that beep off, and can play a copy on your own speakers. That copy stays off until you turn it on.
+Letting go of talk keeps the microphone open for a short moment, so the end of a word is not cut off. A short rising beep plays on your speakers when someone else starts, and a short falling beep plays when they let go. Options, under Sounds, can turn those beeps off. Hearing them for your own transmissions stays off until you turn it on. Sounds can also colour voice you receive: Clean, Handheld, Degraded, or Digital. Clean leaves the voice as it is. A channel can use a different colour. That choice stays on this machine.
 
 The corner overlay keeps the last person who talked for a few seconds and fades them out, so you can still see who it was after they stop.
 
