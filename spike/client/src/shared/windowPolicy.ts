@@ -2,10 +2,12 @@
  * Renderer lockdown shared by the main process and the HTML CSP.
  * connect-src still allows any https/wss host: each community names its own server.
  * Scripts, frames, and objects stay on this app.
+ * 'wasm-unsafe-eval' lets the Digital preset compile the separate Codec2 module.
+ * It does not allow JavaScript eval.
  */
 export const RENDERER_CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "media-src 'self' blob: mediastream:",

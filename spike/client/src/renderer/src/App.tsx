@@ -29,6 +29,7 @@ import { TalkSetup } from './TalkSetup';
 import { RadialWheel } from './RadialWheel';
 import { OptionsMenu } from './OptionsMenu';
 import { Settings } from './Settings';
+import { RadioFilterSelect } from './SoundsSettings';
 import { SimpleRadio } from './SimpleRadio';
 import { AllCallBanner, AllCallButton } from './AllCall';
 import { SpeakerChips } from './SpeakerFade';
@@ -595,7 +596,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   useSyncExternalStore(engine.subscribe, () => engine.version);
   useEffect(() => {
     engine.setRelease({ hangMs: boot.hangMs, roger: boot.soundRoger, rogerLocal: boot.soundRogerLocal });
-  }, [engine, boot.hangMs, boot.soundRoger, boot.soundRogerLocal]);
+    engine.setRadioFilter(boot.radioFilter);
+  }, [engine, boot.hangMs, boot.soundRoger, boot.soundRogerLocal, boot.radioFilter]);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [listReady, setListReady] = useState(false);
   const [query, setQuery] = useState('');
@@ -752,6 +754,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
             if (saved.volume[id] != null) engine.setVolume(id, saved.volume[id]);
             if (saved.muted[id]) engine.setMuted(id, true);
             if (saved.pan[id] != null) engine.setPan(id, saved.pan[id]);
+            if (saved.filter?.[id]) engine.setChannelFilter(id, saved.filter[id]);
           }
           if (alive && gen === loadGen.current && saved.tx) engine.setTx(saved.tx);
           if (alive) setRestored(true);
@@ -827,12 +830,15 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
 
   useEffect(() => {
     if (!restored) return;
+    const filter: RadioPrefs['filter'] = {};
+    for (const t of engine.tuned) if (t.filter) filter[t.channel.id] = t.filter;
     const prefs: RadioPrefs = {
       tuned: engine.tuned.map((t) => t.channel.id),
       tx: engine.txId,
       volume: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.volume])),
       muted: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.muted])),
       pan: Object.fromEntries(engine.tuned.map((t) => [t.channel.id, t.pan])),
+      filter,
     };
     const prev = profileRef.current.radios[server.id];
     if (JSON.stringify(prev) === JSON.stringify(prefs) && profileRef.current.overlayOn === overlayOn && profileRef.current.wheelOn === wheelOn) return;
@@ -1336,6 +1342,15 @@ function Card({ t, engine, lines }: { t: TunedChannel; engine: RadioControl; lin
       <div className="row"><span className="k">🔊</span>
         <input type="range" min={0} max={1.5} step={0.05} value={t.muted ? 0 : t.volume} onChange={(e) => engine.setVolume(t.channel.id, Number(e.target.value))} />
         <button className="btn sm ghost" onClick={() => engine.setMuted(t.channel.id, !t.muted)}>{t.muted ? 'Unmute' : 'Mute'}</button>
+      </div>
+      <div className="row">
+        <span className="sub">Filter</span>
+        <RadioFilterSelect
+          allowDefault
+          label={`${t.channel.name} radio filter`}
+          value={t.filter}
+          onChange={(preset) => engine.setChannelFilter(t.channel.id, preset)}
+        />
       </div>
       <div className="bottom">
         <div className="seg">

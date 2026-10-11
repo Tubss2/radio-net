@@ -19,7 +19,7 @@ Other keystrokes are dropped in the main process. They are not written to `radio
 
 **Microphone.** The first time you tune a channel you are allowed to talk on, the app calls the system for a microphone track and publishes it to that voice room in a muted state. Holding push-to-talk unmutes it. Letting go mutes it. Windows can show the microphone as in use for the whole time you are tuned in. The app asks Electron only for media, and the page's permission handler allows that request. It does not ask for the camera, the screen, or your files.
 
-**Speakers.** Remote voice is played locally. UI sounds play on this machine: static when you add a channel (on unless you turn it off), a tone when you change transmit channel, and a press/release cue only if you turn that one on. A roger beep is part of the voice sent to the channel when that option is on, so other people hear it. The copy on your own speakers plays only if you turn that on.
+**Speakers.** Remote voice is played locally. UI sounds play on this machine: static when you add a channel (on unless you turn it off), a tone when you change transmit channel, and a press/release cue only if you turn that one on. Transmission beeps play only on this machine when someone else starts or stops talking, and for your own transmissions only if you turn that on. They are not part of the voice sent to the channel. A radio filter can colour voice you receive. That choice stays in the local profile and is not sent to the server.
 
 **Nothing else.** No contacts, no game memory, no screenshots, no window titles.
 

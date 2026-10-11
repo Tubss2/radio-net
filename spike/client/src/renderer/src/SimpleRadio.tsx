@@ -1,5 +1,6 @@
 import { linesForChannel, type SpeakerLine } from '../../shared/lastSpeaker';
 import type { RadioControl } from './lib/radioEngine';
+import { RadioFilterSelect } from './SoundsSettings';
 import { SpeakerChips } from './SpeakerFade';
 
 export function SimpleRadio({ engine, lines, onDown, onUp, label }: {
@@ -24,7 +25,15 @@ export function SimpleRadio({ engine, lines, onDown, onUp, label }: {
                 {tx && <span className="txmark">TX</span>}
                 <span className={`who ${who.some((line) => line.live) ? 'live' : ''}`}>{who.length ? <SpeakerChips lines={who} /> : ' '}</span>
               </button>
-              <button className="btn sm ghost" onClick={() => engine.setMuted(t.channel.id, !t.muted)}>{t.muted ? 'Unmute' : 'Mute'}</button>
+              <div className="simple-tools">
+                <RadioFilterSelect
+                  allowDefault
+                  label={`${t.channel.name} radio filter`}
+                  value={t.filter}
+                  onChange={(preset) => engine.setChannelFilter(t.channel.id, preset)}
+                />
+                <button className="btn sm ghost" onClick={() => engine.setMuted(t.channel.id, !t.muted)}>{t.muted ? 'Unmute' : 'Mute'}</button>
+              </div>
               <input aria-label={`${t.channel.name} volume`} type="range" min={0} max={1.5} step={0.05} value={t.muted ? 0 : t.volume} onChange={(e) => engine.setVolume(t.channel.id, Number(e.target.value))} />
             </li>
           );

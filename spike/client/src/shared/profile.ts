@@ -1,3 +1,4 @@
+import { parseChannelFilter, parseRadioFilter, type RadioFilterPreset } from './radioFilter';
 import { clampHangMs, DEFAULT_HANG_MS } from './roger';
 import { clampSoundVolume, DEFAULT_SOUND_VOLUME } from './sounds';
 import type { Keybinds } from './types';
@@ -27,6 +28,8 @@ export interface RadioPrefs {
   volume: Record<string, number>;
   muted: Record<string, boolean>;
   pan: Record<string, number>;
+  /** Per-channel radio colour. A missing id uses the profile default. */
+  filter: Record<string, RadioFilterPreset>;
 }
 
 /** Everything that belongs to this PC. The server does not keep a copy. */
@@ -48,12 +51,14 @@ export interface Profile {
   soundPtt: boolean;
   /** Tone when the transmit channel changes. */
   soundTx: boolean;
-  /** Roger beep mixed into the transmission for listeners. */
+  /** Start and end cues when someone else transmits. Stored under the old roger switch. */
   soundRoger: boolean;
-  /** Roger beep on this machine's speakers. */
+  /** Those cues for this radio's own transmissions. Off until chosen. */
   soundRogerLocal: boolean;
-  /** Mic stays open this long after release, before the roger beep. */
+  /** Mic stays open this long after release. The end cue follows it and is not transmitted. */
   hangMs: number;
+  /** Default colour for received voice. A channel can override it. */
+  radioFilter: RadioFilterPreset;
   /** Master level for those cues, 0 to 1. */
   soundVolume: number;
   /** In-page push-to-talk key (`KeyboardEvent.code`). The desktop app uses the global bind. */
@@ -75,7 +80,7 @@ export interface Profile {
 export function emptyProfile(): Profile {
   return {
     callsign: '', servers: [], keybinds: null, keybindsVersion: 0, overlayOn: true, wheelOn: true,
-    soundsOn: true, soundPtt: false, soundTx: true, soundRoger: true, soundRogerLocal: false, hangMs: DEFAULT_HANG_MS, soundVolume: DEFAULT_SOUND_VOLUME,
+    soundsOn: true, soundPtt: false, soundTx: true, soundRoger: true, soundRogerLocal: false, hangMs: DEFAULT_HANG_MS, soundVolume: DEFAULT_SOUND_VOLUME, radioFilter: 'clean',
     talkKey: 'Space', talkMode: 'hold', voiceSensitivity: 0.45, voiceReleaseMs: 300, simpleOn: false, simpleOnTop: false, radios: {},
     privacyAccepted: false, hotkeysEnabled: true,
   };
@@ -104,7 +109,27 @@ function cleanServer(s: ServerEntry): ServerEntry {
 }
 
 export function emptyRadio(): RadioPrefs {
-  return { tuned: [], tx: null, volume: {}, muted: {}, pan: {} };
+  return { tuned: [], tx: null, volume: {}, muted: {}, pan: {}, filter: {} };
+}
+
+function cleanFilterMap(raw: unknown): Record<string, RadioFilterPreset> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, RadioFilterPreset> = {};
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const preset = parseChannelFilter(value);
+    if (preset && id.length > 0 && id.length <= 64) out[id] = preset;
+  }
+  return out;
+}
+
+function cleanRadios(raw: unknown): Record<string, RadioPrefs> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, RadioPrefs> = {};
+  for (const [id, prefs] of Object.entries(raw as Record<string, RadioPrefs>)) {
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs) || id.length > 64) continue;
+    out[id] = { ...prefs, filter: cleanFilterMap(prefs.filter) };
+  }
+  return out;
 }
 
 export function normaliseProfile(raw: unknown): Profile {
@@ -128,6 +153,7 @@ export function normaliseProfile(raw: unknown): Profile {
     soundRoger: p.soundRoger !== false,
     soundRogerLocal: p.soundRogerLocal === true,
     hangMs: clampHangMs(p.hangMs),
+    radioFilter: parseRadioFilter(p.radioFilter),
     soundVolume: clampSoundVolume(p.soundVolume),
     talkKey: typeof p.talkKey === 'string' && p.talkKey ? p.talkKey : 'Space',
     talkMode: p.talkMode === 'voice' ? 'voice' : 'hold',
@@ -135,7 +161,7 @@ export function normaliseProfile(raw: unknown): Profile {
     voiceReleaseMs: typeof p.voiceReleaseMs === 'number' && p.voiceReleaseMs >= 50 && p.voiceReleaseMs <= 2000 ? p.voiceReleaseMs : 300,
     simpleOn: p.simpleOn === true,
     simpleOnTop: p.simpleOnTop === true,
-    radios: p.radios && typeof p.radios === 'object' ? p.radios : {},
+    radios: cleanRadios(p.radios),
     privacyAccepted: p.privacyAccepted === true,
     hotkeysEnabled: p.hotkeysEnabled !== false,
   };
