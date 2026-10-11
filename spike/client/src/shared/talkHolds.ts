@@ -47,6 +47,22 @@ export interface TalkHolds {
   dismiss(): void;
 }
 
+/**
+ * Open the mic, then read the hold set again. A release that arrives while unmute
+ * is in flight leaves the set empty, so this closes the mic instead of staying on air.
+ */
+export async function openTalk(opts: {
+  held: () => boolean;
+  channelId?: string;
+  unlock: () => Promise<void>;
+  ptt: (down: boolean, channelId?: string) => Promise<boolean>;
+}): Promise<void> {
+  await opts.unlock();
+  if (!opts.held()) return;
+  await opts.ptt(true, opts.channelId);
+  if (!opts.held()) await opts.ptt(false, opts.channelId);
+}
+
 export function talkChannel(state: TalkHoldState): string | null {
   for (let i = state.holds.length - 1; i >= 0; i--) {
     const id = state.holds[i].channelId;

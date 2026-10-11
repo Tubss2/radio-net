@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from 'react-dom';
 import { bindLabel, cloneBinds, KEYBINDS_VERSION, migrateDesktopKeybinds, pageKeybinds } from '../../shared/keybinds';
 import { emptyRadio, normaliseProfile, type Profile, type RadioPrefs, type ServerEntry } from '../../shared/profile';
-import { DEFAULT_SOUND_VOLUME, soundPrefsFrom, type SoundPrefs } from '../../shared/sounds';
+import { DEFAULT_SOUND_VOLUME, soundPrefsFrom, soundProfilePatch, type SoundPrefs } from '../../shared/sounds';
 import { APP_VERSION } from '../../shared/version';
 import type { Keybinds } from '../../shared/types';
 import { acceptChannelList, removedTunedIds } from '../../shared/channelList';
+import { linesForChannel, liveTalkers, type SpeakerLine } from '../../shared/lastSpeaker';
 import { matchChannel } from '../../shared/radialWheel';
 import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
@@ -29,6 +30,8 @@ import { RadialWheel } from './RadialWheel';
 import { OptionsMenu } from './OptionsMenu';
 import { Settings } from './Settings';
 import { SimpleRadio } from './SimpleRadio';
+import { SpeakerChips } from './SpeakerFade';
+import { useLastSpeakers } from './useLastSpeakers';
 import { PrivacyConsent, PrivacyNotes } from './Privacy';
 import { useChannelWheel } from './useChannelWheel';
 import { useTalk } from './useTalk';
@@ -248,7 +251,7 @@ export function App() {
         onSounds={(sounds) => {
           const cur = profileRef.current;
           if (!cur) return;
-          void save({ ...cur, soundsOn: sounds.addChannel, soundPtt: sounds.ptt, soundTx: sounds.txChange, soundVolume: sounds.volume });
+          void save({ ...cur, ...soundProfilePatch(sounds) });
         }}
         onChange={changeBinds}
       />
@@ -589,6 +592,9 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     [api, server.id],
   );
   useSyncExternalStore(engine.subscribe, () => engine.version);
+  useEffect(() => {
+    engine.setRelease({ hangMs: boot.hangMs, roger: boot.soundRoger, rogerLocal: boot.soundRogerLocal });
+  }, [engine, boot.hangMs, boot.soundRoger, boot.soundRogerLocal]);
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
   const [listReady, setListReady] = useState(false);
   const [query, setQuery] = useState('');
@@ -801,16 +807,12 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const tuned = engine.tuned;
   const tx = tuned.find((t) => t.channel.id === engine.txId) ?? null;
   const keyed = engine.transmittingOn !== null;
-  const overlaySpeakers = tuned.flatMap((t) => {
-    const names = [...t.speakers];
-    if (engine.transmittingOn === t.channel.id && !names.includes(callsign)) names.unshift(callsign);
-    return names.map((name) => ({ name, channel: t.channel.name, freq: t.channel.freq }));
-  });
+  const speakerLines = useLastSpeakers(liveTalkers(tuned, engine.transmittingOn, callsign));
 
   useEffect(() => {
     bridge.setOverlay({
-      visible: overlayOn && overlaySpeakers.length > 0,
-      speakers: overlaySpeakers,
+      visible: overlayOn && speakerLines.length > 0,
+      speakers: speakerLines.map(({ name, channel, freq, opacity }) => ({ name, channel, freq, opacity })),
       wheel: wheel.view,
     });
   });
@@ -926,7 +928,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       onWheel={(on) => { setWheelOn(on); patchProfile({ wheelOn: on }); if (!on) wheel.close(); }}
       onSimple={(on) => { setSimpleOn(on); patchProfile({ simpleOn: on }); }}
       onHotkeys={onHotkeys}
-      onSounds={(sounds) => patchProfile({ soundsOn: sounds.addChannel, soundPtt: sounds.ptt, soundTx: sounds.txChange, soundVolume: sounds.volume })}
+      onSounds={(sounds) => patchProfile(soundProfilePatch(sounds))}
       onServer={onServer}
       onKeybinds={() => { setOptionsOpen(false); openSettings(); }}
       onPhone={() => { setOptionsOpen(false); setPhoneOpen(true); }}
@@ -1090,7 +1092,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
             {channelList}
           </>
         ) : (
-          <SimpleRadio engine={engine} onDown={talk.pointerDown} onUp={talk.pointerUp} label={talkLabel} />
+          <SimpleRadio engine={engine} lines={speakerLines} onDown={talk.pointerDown} onUp={talk.pointerUp} label={talkLabel} />
         )}
         {newCh && <NewChannel onClose={() => setNewCh(false)} onCreate={async (f, n) => {
           const kHz = parseFreqInput(f);
@@ -1118,7 +1120,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           <span className="foot-ver">v{APP_VERSION}</span>
           <label className="sub"><input type="checkbox" checked={onTop} onChange={(e) => { setOnTop(e.target.checked); patchProfile({ simpleOnTop: e.target.checked }); }} /> Always on top</label>
         </div>
-        <SimpleRadio engine={engine} onDown={() => holds.down('pointer')} onUp={() => holds.up('pointer')} label={bindLabel(binds.ptt)} />
+        <SimpleRadio engine={engine} lines={speakerLines} onDown={() => holds.down('pointer')} onUp={() => holds.up('pointer')} label={bindLabel(binds.ptt)} />
         {phoneLink}
         {optionsMenu}
         {people}
@@ -1184,7 +1186,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           </div>
         </div>
         <div className="grid">
-          {tuned.map((t) => <Card key={t.channel.id} t={t} engine={engine} />)}
+          {tuned.map((t) => <Card key={t.channel.id} t={t} engine={engine} lines={linesForChannel(speakerLines, t.channel.id)} />)}
           <div className="empty">
             <div><div style={{ fontSize: 28 }}>＋</div>Tune more channels from the list,<br />or type a frequency or name.</div>
           </div>
@@ -1229,9 +1231,10 @@ function OnAirBanner({ engine }: { engine: RadioControl }) {
   );
 }
 
-function Card({ t, engine }: { t: TunedChannel; engine: RadioControl }) {
+function Card({ t, engine, lines }: { t: TunedChannel; engine: RadioControl; lines: readonly SpeakerLine[] }) {
   const isTx = engine.txId === t.channel.id;
   const keyed = engine.transmittingOn === t.channel.id;
+  const lead = lines[0];
   return (
     <div className={`card ${isTx ? 'tx' : ''} ${keyed ? 'keyed' : ''} ${t.status === 'gone' ? 'gone' : ''}`}>
       <div className="top">
@@ -1243,7 +1246,7 @@ function Card({ t, engine }: { t: TunedChannel; engine: RadioControl }) {
       </div>
       <div className="who">
         {t.status === 'gone' ? 'Channel was deleted' : t.status === 'reconnecting' ? RECONNECTING : t.status !== 'live' ? `${t.status}…`
-          : t.speakers.length ? <><span className="avatar talk">{initials(t.speakers[0])}</span><span className="talking">{t.speakers.join(', ')}</span></>
+          : lead ? <><span className={`avatar ${lead.live ? 'talk' : 'last'}`} style={{ opacity: lead.opacity }}>{initials(lead.name)}</span><SpeakerChips lines={lines} /></>
           : <span>{Math.max(t.listeners - 1, 0)} others tuned</span>}
       </div>
       <div className="row"><span className="k">🔊</span>

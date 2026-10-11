@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { emptyTalkHolds, reduceTalk, talkChannel, type TalkHolds, type TalkInput, type TalkSource } from '../../shared/talkHolds';
+import { emptyTalkHolds, openTalk, reduceTalk, talkChannel, type TalkHolds, type TalkInput, type TalkSource } from '../../shared/talkHolds';
 import type { RadioControl } from './lib/radioEngine';
 
 /** Applies the shared hold set to the radio. The mic opens when the set becomes non-empty and closes when it empties. */
@@ -16,7 +16,12 @@ export function useTalkHolds(engine: RadioControl): TalkHolds {
     if (decision.state.notice !== prev.notice) setNotice(decision.state.notice);
     if (decision.mic === true) {
       const channel = decision.channelId ?? undefined;
-      void engineRef.current.unlock().then(() => engineRef.current.ptt(true, channel));
+      void openTalk({
+        held: () => state.current.holds.length > 0,
+        channelId: channel,
+        unlock: () => engineRef.current.unlock(),
+        ptt: (down, channelId) => engineRef.current.ptt(down, channelId),
+      });
     } else if (decision.mic === false) {
       void engineRef.current.ptt(false, talkChannel(prev) ?? undefined);
     }

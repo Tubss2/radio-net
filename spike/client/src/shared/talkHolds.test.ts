@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyTalkHolds, reduceTalk, STUCK_TALK_MS, STUCK_TALK_NOTICE, type TalkHoldState, type TalkSource } from './talkHolds';
+import { emptyTalkHolds, openTalk, reduceTalk, STUCK_TALK_MS, STUCK_TALK_NOTICE, type TalkHoldState, type TalkSource } from './talkHolds';
 
 function down(state: TalkHoldState, source: TalkSource, now: number, channelId?: string) {
   return reduceTalk(state, { type: 'down', source, now, channelId });
@@ -86,6 +86,47 @@ describe('talk holds', () => {
     expect(released.mic).toBe(true);
     expect(released.channelId).toBeNull();
     expect(down(emptyTalkHolds(), 'direct', 3, 'bravo').channelId).toBe('bravo');
+  });
+
+  it('mutes when a release wins the race with an in-flight unmute', async () => {
+    let held = true;
+    let transmitting = false;
+    let muted = false;
+    let releaseUnmute: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { releaseUnmute = resolve; });
+    const pending = openTalk({
+      held: () => held,
+      unlock: async () => undefined,
+      ptt: async (down) => {
+        if (down) {
+          held = false;
+          await gate;
+          transmitting = true;
+          muted = false;
+          return true;
+        }
+        transmitting = false;
+        muted = true;
+        return false;
+      },
+    });
+    releaseUnmute();
+    await pending;
+    expect(transmitting).toBe(false);
+    expect(muted).toBe(true);
+  });
+
+  it('leaves the mic open when a hold is still down after unmute', async () => {
+    let muted = false;
+    await openTalk({
+      held: () => true,
+      unlock: async () => undefined,
+      ptt: async (down) => {
+        if (!down) muted = true;
+        return down;
+      },
+    });
+    expect(muted).toBe(false);
   });
 
   it('clears the stuck notice on the next hold', () => {
