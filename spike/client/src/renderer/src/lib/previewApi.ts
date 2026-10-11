@@ -39,7 +39,7 @@ export class PreviewApi extends Api {
   }
 
   rotateInvite() {
-    return Promise.resolve({ inviteCode: community().inviteCode });
+    return Promise.resolve({ inviteCode: 'K7QM-2XPA' });
   }
 
   rotateAdminKey() {
@@ -83,4 +83,13 @@ export class PreviewApi extends Api {
   tokens() {
     return Promise.resolve({ livekitUrl: 'ws://preview.invalid', grants: [] });
   }
+
+  devices() { return Promise.resolve([]); }
+  invites() { return Promise.resolve([]); }
+  claimAdmin() { return Promise.resolve({ role: 'admin' as const, deviceId: 'preview' }); }
+  revokeDevice() { return Promise.resolve({ deviceId: 'preview', revokedAt: new Date().toISOString() }); }
+  restoreDevice() { return Promise.resolve({ deviceId: 'preview', revokedAt: null }); }
+  setDeviceRole(_cid: string, deviceId: string, role: 'admin' | 'member') { return Promise.resolve({ deviceId, role }); }
+  createInvite() { return Promise.resolve({ id: 'preview', code: 'K7QM-2XPA', label: null, createdAt: '', createdBy: 'admin-key', maxUses: null, uses: 0, expiresAt: null, revokedAt: null }); }
+  revokeInvite() { return Promise.resolve({ id: 'preview', code: 'K7QM-2XPA', label: null, createdAt: '', createdBy: 'admin-key', maxUses: null, uses: 0, expiresAt: null, revokedAt: new Date().toISOString() }); }
 }

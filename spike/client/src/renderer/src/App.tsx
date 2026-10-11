@@ -10,7 +10,12 @@ import { matchChannel } from '../../shared/radialWheel';
 import { playSquelch, setUiSounds } from './lib/uiSounds';
 import { bridge, domEventMatchesBind, inElectron, isCapturingBind } from './bridge';
 import { RECONNECTING } from '../../shared/net';
-import { API_URL, Api, ApiError, isReconnectError, type ChannelInfo } from './lib/api';
+import { API_URL, Api, ApiError, isReconnectError, type ChannelInfo, type JoinResult } from './lib/api';
+import { commitDevice, createExtractable, loadDevice, type HeldDevice, type PendingDevice } from './lib/deviceKey';
+import { openSession } from './lib/session';
+import { openDeviceSession } from './lib/deviceSession';
+import { unwrapIdentity, wrapIdentity, type IdentityBackup } from '../../shared/identity';
+import { Members } from './Members';
 import { parseFreqInput, validateFrequency } from './lib/freq';
 import { isPreview } from './lib/previewMode';
 import { PreviewApi } from './lib/previewApi';
@@ -49,9 +54,69 @@ function UpdateBar() {
   );
 }
 
+class JoinCancelled extends Error {
+  constructor() { super('cancelled'); this.name = 'JoinCancelled'; }
+}
+
+function sessionEntry(base: Partial<ServerEntry>, url: string, result: JoinResult, inviteFallback: string): ServerEntry {
+  return {
+    id: result.community.id,
+    name: result.community.name,
+    url,
+    inviteCode: result.community.inviteCode || inviteFallback || base.inviteCode || '',
+    adminKey: base.adminKey,
+    rememberAdmin: base.rememberAdmin,
+    token: result.token,
+    tokenExp: Date.parse(result.expiresAt),
+    lastUsed: new Date().toISOString(),
+    deviceId: result.deviceId ?? base.deviceId,
+    deviceRole: result.role ?? base.deviceRole,
+  };
+}
+
+function downloadBackup(file: IdentityBackup) {
+  const blob = new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'radionet-identity.json';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function clientFor(server: { url?: string; token?: string | null; adminKey?: string | null } | null): Api {
   if (isPreview) return new PreviewApi();
   return new Api(server?.url || API_URL, server?.token ?? null, server?.adminKey ?? null);
+}
+
+/** Desktop signs in the main process. The web app signs with the IndexedDB key. Preview keeps the invite join. */
+async function signIn(api: Api, input: {
+  callsign: string;
+  inviteCode?: string;
+  communityId?: string;
+  legacyToken?: string | null;
+  device?: HeldDevice | null;
+}): Promise<JoinResult> {
+  if (isPreview) return api.join(input.inviteCode || '', input.callsign);
+  if (inElectron) {
+    const device = await bridge.deviceEnsure();
+    return openDeviceSession(api, {
+      callsign: input.callsign,
+      device,
+      sign: (message) => bridge.deviceSign(message),
+      inviteCode: input.inviteCode,
+      communityId: input.communityId,
+      legacyToken: input.legacyToken,
+    });
+  }
+  const device = input.device === undefined ? await loadDevice() : input.device;
+  return openSession(api, {
+    callsign: input.callsign,
+    device,
+    inviteCode: input.inviteCode,
+    communityId: input.communityId,
+    legacyToken: input.legacyToken,
+  });
 }
 
 export function App() {
@@ -230,7 +295,9 @@ function Callsign({ onSave }: { onSave: (callsign: string) => void }) {
       <div className="titlebar" />
       <div className="box">
         <h1>Your callsign</h1>
-        <p>Stored {isWeb ? 'in this browser' : 'on this PC'}. There is no account and nothing to sign in to.</p>
+        <p>{inElectron
+          ? 'Stored on this PC. This app keeps a device key here and signs in with it.'
+          : 'Stored in this browser. This radio is a device key, not a password account.'}</p>
         <label className="field">Callsign<input placeholder="Toby" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} /></label>
         {err && <div className="err">{err}</div>}
         <button className="btn primary" onClick={go}>Continue</button>
@@ -256,6 +323,25 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
   const [callsign, setCallsign] = useState(profile.callsign);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [backup, setBackup] = useState<null | { pending: PendingDevice; resolve: (end: 'skip' | 'cancel' | 'saved') => void }>(null);
+  const [importing, setImporting] = useState(false);
+  const [importPass, setImportPass] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
+
+  const ensureDevice = async () => {
+    if (isPreview || inElectron) return null;
+    const existing = await loadDevice();
+    if (existing) return existing;
+    const pending = await createExtractable();
+    try {
+      const end = await new Promise<'skip' | 'cancel' | 'saved'>((resolve) => setBackup({ pending, resolve }));
+      setBackup(null);
+      if (end === 'cancel') throw new JoinCancelled();
+      return await commitDevice(pending);
+    } finally {
+      pending.pkcs8.fill(0);
+    }
+  };
 
   const joinExisting = async (server: ServerEntry) => {
     setErr('');
@@ -263,20 +349,20 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
     try {
       const name = callsign.trim().replace(/\s+/g, ' ');
       if (!name) throw new Error('Pick a callsign (1-32 characters)');
+      const device = await ensureDevice();
       const api = clientFor({ url: server.url, token: null, adminKey: server.adminKey ?? null });
-      const r = await api.join(server.inviteCode, name);
-      const entry: ServerEntry = {
-        ...server,
-        name: r.community.name,
-        inviteCode: r.community.inviteCode,
-        token: r.token,
-        tokenExp: Date.parse(r.expiresAt),
-        lastUsed: new Date().toISOString(),
-      };
+      const r = await signIn(api, {
+        callsign: name,
+        device,
+        communityId: server.id,
+        inviteCode: server.inviteCode || undefined,
+        legacyToken: server.token,
+      });
+      const entry = sessionEntry(server, server.url, r, server.inviteCode);
       const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
       onProfile({ ...profile, callsign: name, servers });
       onOpen(entry);
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) { if (!(e instanceof JoinCancelled)) setErr((e as Error).message); }
     finally { setBusy(false); }
   };
 
@@ -287,39 +373,60 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
       const name = callsign.trim().replace(/\s+/g, ' ');
       if (!name) throw new Error('Pick a callsign (1-32 characters)');
       const api = clientFor({ url, token: null, adminKey: null });
+      const device = await ensureDevice();
       if (mode === 'join') {
-        const r = await api.join(code, name);
+        const r = await signIn(api, { callsign: name, device, inviteCode: code });
         const prev = profile.servers.find((s) => s.id === r.community.id);
-        const entry: ServerEntry = {
-          id: r.community.id,
-          name: r.community.name,
-          url,
-          inviteCode: r.community.inviteCode,
+        const entry = sessionEntry({
           adminKey: prev?.adminKey,
-          token: r.token,
-          tokenExp: Date.parse(r.expiresAt),
-          lastUsed: new Date().toISOString(),
-        };
+          rememberAdmin: prev?.rememberAdmin,
+          deviceId: prev?.deviceId,
+          deviceRole: prev?.deviceRole,
+        }, url, r, code);
         const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
         onProfile({ ...profile, callsign: name, servers });
         onOpen(entry);
       } else {
         const created = await api.createCommunity(community, setup || undefined);
-        const joined = await api.join(created.community.inviteCode, name);
-        const entry: ServerEntry = {
-          id: created.community.id,
-          name: created.community.name,
-          url,
+        const joined = await signIn(api, {
+          callsign: name,
+          device,
+          communityId: created.community.id,
           inviteCode: created.community.inviteCode,
-          adminKey: created.adminKey,
-          token: joined.token,
-          tokenExp: Date.parse(joined.expiresAt),
-          lastUsed: new Date().toISOString(),
-        };
+        });
+        let role = joined.role;
+        if (joined.deviceId && created.adminKey) {
+          try {
+            const authed = new Api(url, joined.token, created.adminKey);
+            await authed.claimAdmin(created.community.id);
+            role = 'admin';
+          } catch (e) {
+            if (!(e instanceof ApiError && e.routeMissing)) throw e;
+          }
+        }
+        const entry = sessionEntry({ adminKey: created.adminKey }, url, { ...joined, role }, created.community.inviteCode || '');
         const servers = [entry, ...profile.servers.filter((s) => s.id !== entry.id)];
         onProfile({ ...profile, callsign: name, servers });
         onCreated(entry, created.adminKey);
       }
+    } catch (e) { if (!(e instanceof JoinCancelled)) setErr((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const importBackup = async () => {
+    setErr('');
+    if (!importFile) { setErr('Choose the backup file'); return; }
+    if (importPass.length < 8) { setErr('Enter the backup passphrase'); return; }
+    setBusy(true);
+    try {
+      const parsed = JSON.parse(await importFile.text()) as IdentityBackup;
+      const pending = await unwrapIdentity(parsed, importPass);
+      try { await commitDevice(pending); }
+      finally { pending.pkcs8.fill(0); }
+      setImportPass('');
+      setImportFile(null);
+      setImporting(false);
+      setErr('');
     } catch (e) { setErr((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -339,7 +446,7 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
               <div key={s.id} className="server">
                 <div>
                   <div>{s.name}</div>
-                  <div className="sub" style={{ margin: 0 }}>Invite {s.inviteCode}</div>
+                  <div className="sub" style={{ margin: 0 }}>{s.deviceId ? `${inElectron ? 'This PC' : 'This browser'} ${s.deviceId.slice(-8)}` : 'Saved on this radio'}</div>
                 </div>
                 <button className="btn sm" disabled={busy} onClick={() => void joinExisting(s)}>Rejoin</button>
               </div>
@@ -358,6 +465,17 @@ function Home({ profile, hotkeysOn, onHotkeys, onPrivacy, onProfile, onOpen, onC
         <button className="btn ghost" onClick={() => { setMode(mode === 'join' ? 'create' : 'join'); setErr(''); }}>
           {mode === 'join' ? 'Running a group? Create a community' : 'Have an invite? Join instead'}
         </button>
+        {isWeb && !isPreview && (
+          <button className="btn ghost" type="button" onClick={() => setImporting((v) => !v)}>Import a backup</button>
+        )}
+        {importing && (
+          <>
+            <label className="field">Backup file<input type="file" accept="application/json,.json" onChange={(e) => setImportFile(e.target.files?.[0] ?? null)} /></label>
+            <label className="field">Passphrase<input type="password" value={importPass} onChange={(e) => setImportPass(e.target.value)} /></label>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => void importBackup()}>Import</button>
+          </>
+        )}
+        {backup && <BackupDialog pending={backup.pending} onDone={backup.resolve} />}
         <div className="row">
           <button className="btn sm ghost" type="button" onClick={() => onHotkeys(!hotkeysOn)}>{hotkeysOn ? 'Keybinds on' : 'Keybinds paused'}</button>
           <button className="btn sm ghost" type="button" onClick={onPrivacy}>Privacy notes</button>
@@ -381,14 +499,59 @@ function AdminKeyReveal({ adminKey, inviteCode, onClose }: { adminKey: string; i
         <div className="keybox invite-code">{inviteCode}</div>
         <div className="lbl">Admin key</div>
         <p className="sub" style={{ margin: 0 }}>{isWeb
-          ? 'This is shown once. This browser forgets it when you close the tab, unless you tick “Keep the admin key in this browser” on the radio. A script on this site can read a key you choose to keep. Copy it if another admin needs it. There is no account to recover it; the server setup code can mint a new one.'
-          : 'This is shown once. It is saved on this PC. Copy it if another admin should be able to create channels. There is no account to recover it; the server setup code can mint a new one.'}</p>
+          ? 'This browser is an admin. The key is shown once. You can hide it on the radio after this. It still works until someone rotates it with the server setup code. A script on this site can read a key you choose to keep.'
+          : 'This PC is an admin. The key is shown once and saved here. It still works until someone rotates it with the server setup code. Copy it if another admin should have it.'}</p>
         <div className="keybox">{adminKey}</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <button className="btn ghost" type="button" onClick={() => void copy('invite', inviteCode)}>{copied === 'invite' ? 'Invite copied' : 'Copy invite'}</button>
           <button className="btn ghost" type="button" onClick={() => void copy('admin', adminKey)}>{copied === 'admin' ? 'Admin key copied' : 'Copy admin key'}</button>
           <button className="btn primary" type="button" onClick={onClose}>Done</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BackupDialog({ pending, onDone }: { pending: PendingDevice; onDone: (end: 'skip' | 'cancel' | 'saved') => void }) {
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
+  const [json, setJson] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const save = async () => {
+    if (pass.length < 8) { setErr('Use 8 or more characters, or skip'); return; }
+    setErr('');
+    try {
+      const file = await wrapIdentity(pending.pkcs8, pass, pending.deviceId, pending.publicKeySpki);
+      const text = JSON.stringify(file, null, 2);
+      setJson(text);
+      setPass('');
+      downloadBackup(file);
+    } catch (e) { setErr((e as Error).message); }
+  };
+  return (
+    <div className="modal-bg">
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3 style={{ margin: 0 }}>Save a backup of this radio?</h3>
+        <p className="sub" style={{ margin: 0 }}>You can join without one. If you skip, clearing this browser makes a new device, and a ban on the old one does not follow it. A copied file is the same device: revoking it hits every copy.</p>
+        {json ? (
+          <>
+            <textarea className="field" readOnly value={json} rows={6} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button className="btn ghost" type="button" onClick={() => { void navigator.clipboard.writeText(json).then(() => setCopied(true)).catch(() => setCopied(false)); }}>{copied ? 'Copied' : 'Copy backup'}</button>
+              <button className="btn primary" type="button" onClick={() => onDone('saved')}>Continue</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <label className="field">Passphrase (8 or more characters)<input type="password" value={pass} onChange={(e) => setPass(e.target.value)} /></label>
+            {err && <div className="err">{err}</div>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button className="btn ghost" type="button" onClick={() => onDone('cancel')}>Cancel</button>
+              <button className="btn ghost" type="button" onClick={() => onDone('skip')}>Skip</button>
+              <button className="btn primary" type="button" onClick={() => void save()}>Save backup</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -416,8 +579,9 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
 }) {
   const api = useMemo(
     () => clientFor(server),
-    [server.id, server.url, server.token, server.adminKey],
+    [server.id, server.url, server.adminKey],
   );
+  api.token = server.token ?? null;
   const engine: RadioControl = useMemo(
     () => (isPreview ? new PreviewEngine() : new RadioEngine(api, server.id)),
     [api, server.id],
@@ -434,7 +598,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const [restored, setRestored] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [deleteSupported, setDeleteSupported] = useState(true);
-  const isAdmin = Boolean(server.adminKey);
+  const isAdmin = Boolean(server.adminKey) || server.deviceRole === 'admin';
+  const [peopleOpen, setPeopleOpen] = useState(false);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [talkOpen, setTalkOpen] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
@@ -463,6 +628,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const profileRef = useRef(boot);
   profileRef.current = boot;
   const loadGen = useRef(0);
+  const sessionRenewed = useRef(false);
 
   const load = useCallback(() => {
     const gen = ++loadGen.current;
@@ -522,11 +688,18 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
         } catch (e) {
           if (!alive) return;
           const msg = (e as Error).message ?? '';
-          if (!isPreview && /session expired|not signed in/i.test(msg)) {
+          if (!sessionRenewed.current && !isPreview && /session expired|not signed in|invite was rotated|device was removed/i.test(msg)) {
             try {
-              const again = await new Api(server.url, null, server.adminKey ?? null).join(server.inviteCode, callsign);
-              onServer({ ...server, token: again.token, tokenExp: Date.parse(again.expiresAt), lastUsed: new Date().toISOString() });
-              return;
+              const again = await signIn(new Api(server.url, null, null), {
+                callsign,
+                communityId: server.id,
+                inviteCode: server.inviteCode || undefined,
+                legacyToken: server.token,
+              });
+              sessionRenewed.current = true;
+              api.token = again.token;
+              onServer(sessionEntry(server, server.url, again, server.inviteCode));
+              continue;
             } catch (err) {
               if (isReconnectError(err)) { setErr(RECONNECTING); await wait(2000); continue; }
               setErr((err as Error).message);
@@ -672,7 +845,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   };
 
   const rotateInvite = async () => {
-    if (!confirm('Replace the invite code? Anyone with the old code has to join again.')) return;
+    if (!confirm('Replace the invite code? People who already joined stay on. The old code stops working for a new radio.')) return;
     try {
       const r = await api.rotateInvite(server.id);
       onServer({ ...server, inviteCode: r.inviteCode });
@@ -791,6 +964,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   const tunedIds = new Set(tuned.map((t) => t.channel.id));
   const filtered = channels.filter((c) => !query || c.freq.startsWith(query) || c.name.toLowerCase().includes(query.toLowerCase()));
   const talkLabel = talk.hardwareMuted ? 'Mic muted' : boot.talkMode === 'voice' ? 'Voice' : talkKeyLabel(boot.talkKey);
+  const people = peopleOpen ? <Members api={api} communityId={server.id} onClose={() => setPeopleOpen(false)} /> : null;
   const wheelPortal = !inElectron && wheel.open ? createPortal(
     <RadialWheel segments={wheel.segments} adding={wheel.adding} addError={wheel.addError} available={wheel.available} canCreate={wheel.canCreate} onInput={wheel.onInput} />,
     document.body,
@@ -819,25 +993,34 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       <div className={`web-main${keyed ? ' on-air' : ''}`}>
         <OnAirBanner engine={engine} />
         <section className="invite-card">
-          <div>
-            <div className="lbl">Invite code</div>
-            <p className="sub" style={{ margin: 0 }}>Share this so other people can join {server.name}.</p>
-          </div>
-          <div className="invite-code">{server.inviteCode || 'None saved in this browser'}</div>
-          <div className="invite-actions">
-            {server.inviteCode ? <button className="btn sm" type="button" onClick={() => void copyInvite()}>{copiedInvite ? 'Copied' : 'Copy invite'}</button> : null}
-            {isAdmin ? <button className="btn sm" type="button" onClick={() => void rotateInvite()}>New invite</button> : null}
-          </div>
           {isAdmin ? (
-            <p className="sub" style={{ margin: 0 }}>
-              <label>
-                <input type="checkbox" checked={server.rememberAdmin === true} onChange={(e) => onServer({ ...server, rememberAdmin: e.target.checked })} />
-                {' '}Keep the admin key in this browser. A script on this site can read it.
-              </label>
-              {server.rememberAdmin ? <> <button className="link" type="button" onClick={() => onServer({ ...server, rememberAdmin: false, adminKey: undefined })}>Forget admin key</button></> : null}
-            </p>
+            <>
+              <div>
+                <div className="lbl">Invite code</div>
+                <p className="sub" style={{ margin: 0 }}>Share this so a new radio can join {server.name}. People already enrolled stay if you replace it.</p>
+              </div>
+              <div className="invite-code">{server.inviteCode || 'None saved in this browser'}</div>
+              <div className="invite-actions">
+                {server.inviteCode ? <button className="btn sm" type="button" onClick={() => void copyInvite()}>{copiedInvite ? 'Copied' : 'Copy invite'}</button> : null}
+                <button className="btn sm" type="button" onClick={() => void rotateInvite()}>New invite</button>
+                <button className="btn sm" type="button" onClick={() => setPeopleOpen(true)}>People</button>
+              </div>
+              <p className="sub" style={{ margin: 0 }}>
+                <label>
+                  <input type="checkbox" checked={server.rememberAdmin === true} onChange={(e) => onServer({ ...server, rememberAdmin: e.target.checked })} />
+                  {' '}Keep the admin key in this browser. A script on this site can read it.
+                </label>
+                {server.rememberAdmin ? <> <button className="link" type="button" onClick={() => onServer({ ...server, rememberAdmin: false, adminKey: undefined })}>Forget admin key</button></> : null}
+                {' '}Forgetting it here does not turn it off. It works until someone rotates it with the server setup code.
+              </p>
+            </>
           ) : (
-            <p className="sub" style={{ margin: 0 }}>A new invite needs the admin key from the person who created this community.</p>
+            <>
+              <div className="lbl">This browser</div>
+              <p className="sub" style={{ margin: 0 }}>
+                Signed in as {callsign}{server.deviceId ? ` · device ${server.deviceId.slice(-8)}` : ''}. An admin can remove this device. A ban stays on this browser. A new browser needs an invite.
+              </p>
+            </>
           )}
         </section>
         <TalkSetup
@@ -917,6 +1100,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           setNewCh(false);
         }} />}
         {wheelPortal}
+        {people}
       </div>
     );
   }
@@ -935,6 +1119,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
         <SimpleRadio engine={engine} onDown={() => { void engine.ptt(true); }} onUp={() => { void engine.ptt(false); }} label={bindLabel(binds.ptt)} />
         {phoneLink}
         {optionsMenu}
+        {people}
       </div>
     );
   }
@@ -945,8 +1130,9 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
         <h2>{server.name}</h2>
         <div className="sub">
           {callsign}
-          {server.inviteCode ? <> · invite <kbd>{server.inviteCode}</kbd></> : null}
-          {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button>{deleteSupported ? <> · <button className="link" onClick={() => void removeCommunity()}>delete community</button></> : null}</> : null}
+          {isAdmin && server.inviteCode ? <> · invite <kbd>{server.inviteCode}</kbd></> : null}
+          {!isAdmin && server.deviceId ? <> · device <kbd>{server.deviceId.slice(-8)}</kbd></> : null}
+          {isAdmin ? <> · <button className="link" onClick={() => void rotateInvite()}>new invite</button> · <button className="link" onClick={() => setPeopleOpen(true)}>people</button> · <button className="link" onClick={() => void copyAdmin()}>{copiedKey ? 'admin key copied' : 'copy admin key'}</button>{deleteSupported ? <> · <button className="link" onClick={() => void removeCommunity()}>delete community</button></> : null}</> : null}
         </div>
         <div className="tunebox">
           <span>📻</span>
@@ -1012,6 +1198,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       {wheelPortal}
       {phoneLink}
       {optionsMenu}
+      {people}
     </>
   );
 }

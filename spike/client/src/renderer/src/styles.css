@@ -167,6 +167,9 @@ html.web .titlebar { display: none; }
 .app.web .rail, .app.simple .rail, .app.web .titlebar, .app.simple .titlebar { display: none; }
 .web-main, .simple-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; }
 .notice { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--card); color: var(--muted); font-size: 13px; }
+.modal.wide { width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 720px); overflow: auto; }
+.people { display: flex; flex-direction: column; gap: 8px; }
+.person { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
 .invite-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
 .invite-card .lbl { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
 .invite-code { font-family: var(--mono); font-size: 28px; letter-spacing: .08em; font-weight: 700; user-select: text; }
