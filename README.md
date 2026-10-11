@@ -21,6 +21,7 @@ The full notes are in [`docs/PRIVACY.md`](docs/PRIVACY.md). An outside-style ass
 | [`docs/TESTING.md`](docs/TESTING.md) | Tester guide: web app, phone, helper, and desktop |
 | [`docs/PLAN.md`](docs/PLAN.md) | Scope and plan (v0.2) |
 | [`docs/SCOPE-transmission-queue.md`](docs/SCOPE-transmission-queue.md) | One-at-a-time transmissions: floor control or a playback queue (planning only) |
+| [`docs/SCOPE-radio-filter.md`](docs/SCOPE-radio-filter.md) | Listener-side radio voice filter and the missing incoming squelch (planning only) |
 | [`docs/UI.md`](docs/UI.md), [`docs/mockup.html`](docs/mockup.html), [`docs/mockup.png`](docs/mockup.png) | UI direction and static mockup |
 | [`docs/providers.md`](docs/providers.md) | Voice-provider comparison |
 | [`docs/naming.md`](docs/naming.md) | Name and domain shortlist (nothing bought) |
