@@ -218,3 +218,9 @@ These rows are the product branch (`cursor/local-callsign-keybinds-3d59`), not t
 `npm audit` on the client production tree is clean. The high and critical counts are in dev tooling (the installer toolchain). Dependabot is the ongoing watch for those. The server tree is clean.
 
 The product direction after this installer is a GitHub Pages site, a phone used as the push-to-talk button, and a localhost Raw Input helper. That is a different set of worries (plaintext `localStorage`, Pages CSP, a socket any website might try to open). It is written up in [`SECURITY-WEB.md`](SECURITY-WEB.md). It does not change the ratings in the table above, which are about the v0.4.3 Windows build.
+
+## Who can publish a release
+
+[#64](https://github.com/Tubss2/radio-net/pull/64) publishes the next helper tag and a new desktop version when a reviewed pull request is merged to `main`. The publish job accepts a comment or review only when the body starts with `Security review: approved`, the match is case-sensitive, and the author is `Tubss2` or `cursor[bot]` posting through the Cursor GitHub App (`performed_via_github_app.slug` is `cursor`). A review whose state is `CHANGES_REQUESTED` is ignored. If the job cannot read the comments, it stops and does not publish. `contents: write` stays on the publish job. The workflows do not use `pull_request_target`.
+
+Accepted limit: every Cursor cloud agent on this repo posts as `cursor[bot]` through that same app. GitHub cannot tell the security reviewer apart from the helper, desktop, or web agent. Another of those agents can post the same sentence on its own pull request, and the publish job will treat it as this review. A person who is not `Tubss2` and not that app cannot. Tobias accepted this until the reviewer has an identity of its own.
