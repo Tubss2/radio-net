@@ -204,7 +204,7 @@ See [`spike/README.md`](../spike/README.md) for how to run it.
 - [ ] Sync radio state across PCs
 - [ ] Code signing if SmartScreen puts people off
 - [ ] Mac/Linux builds; phone listen-only
-- [ ] **Radio voice filters** (backlog, user-toggleable, off unless the user turns them on): band-pass radio EQ, light distortion/compression, optional static/crackle bed, a squelch tail when someone else keys up, and maybe a signal-strength flavour. Issue [#6](https://github.com/Tubss2/radio-net/issues/6). Not part of 0.4.x.
+- [ ] **Radio voice filters** (backlog, user-toggleable, off unless the user turns them on): band-pass radio EQ, light distortion/compression, optional static/crackle bed, a squelch tail when someone else keys up, and maybe a signal-strength flavour. Issue [#6](https://github.com/Tubss2/radio-net/issues/6). Not part of 0.4.x. [`SCOPE-radio-filter.md`](SCOPE-radio-filter.md).
 - [x] **Web app and Simple mode.** The Pages client is the primary product ([#7](https://github.com/Tubss2/radio-net/issues/7)). Simple mode is the web playing screen and an optional compact desktop window ([#8](https://github.com/Tubss2/radio-net/issues/8)). [`SCOPE-web-and-simple-mode.md`](SCOPE-web-and-simple-mode.md).
 - [ ] **Phone as a push-to-talk remote** (next). The phone page sends LiveKit data messages so a PC in a game can key up. Not in this version.
 - [ ] **Optional native push-to-talk helper** (later). A small Rust or Go tray app, a localhost link to the page, and Windows Raw Input. Not a Chrome extension. Not in this version.
