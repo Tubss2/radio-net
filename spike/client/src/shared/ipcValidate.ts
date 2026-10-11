@@ -38,14 +38,16 @@ export function parseKeybinds(raw: unknown): Keybinds | null {
   if (!direct || !select) return null;
   const slot = (value: unknown): Bind | null | undefined => (value === undefined ? null : parseBind(value));
   const next = b.next !== undefined ? b.next : b.cycle;
+  const allCall = b.allCall === undefined ? null : parseBind(b.allCall);
   const named = [b.ptt, b.prev, next, b.overlay, b.wheel].map(slot);
-  if (named.some((x) => x === undefined)) return null;
+  if (allCall === undefined || named.some((x) => x === undefined)) return null;
   return withBindDefaults({
     ptt: named[0] ?? null,
     prev: named[1] ?? null,
     next: named[2] ?? null,
     overlay: named[3] ?? null,
     wheel: named[4] ?? null,
+    allCall,
     direct,
     select,
   });

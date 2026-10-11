@@ -84,6 +84,9 @@ export class PreviewApi extends Api {
     return Promise.resolve({ livekitUrl: 'ws://preview.invalid', grants: [] });
   }
 
+  allCall() {
+    return Promise.resolve({ ok: true as const });
+  }
   devices() { return Promise.resolve([]); }
   invites() { return Promise.resolve([]); }
   claimAdmin() { return Promise.resolve({ role: 'admin' as const, deviceId: 'preview' }); }

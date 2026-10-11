@@ -171,6 +171,10 @@ export class Api {
   tokens(cid: string, channelIds: string[]) {
     return this.req<{ livekitUrl: string; grants: Grant[] }>(`/api/communities/${cid}/radio/tokens`, { method: 'POST', body: JSON.stringify({ channelIds }) });
   }
+  /** Admin broadcast. The server checks the session and the admin key before it forwards the mic. */
+  allCall(cid: string, body: { active: boolean; sourceChannelId: string; channelIds: string[] }) {
+    return this.req<{ ok: true }>(`/api/communities/${cid}/radio/all-call`, { method: 'POST', body: JSON.stringify(body) });
+  }
   phoneHost(cid: string) {
     return this.req<PhoneHostResult>(`/api/communities/${cid}/radio/phone-host`, { method: 'POST' });
   }

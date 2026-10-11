@@ -15,10 +15,11 @@ const CORE: BindRow[] = [
   { id: 'prev', label: 'Previous transmit channel' },
   { id: 'next', label: 'Next transmit channel' },
   { id: 'wheel', label: 'Channel wheel' },
+  { id: 'allCall', label: 'All call' },
 ];
 
 function current(binds: Keybinds, id: string): Bind | null {
-  if (id === 'ptt' || id === 'prev' || id === 'next' || id === 'wheel' || id === 'overlay') return binds[id];
+  if (id === 'ptt' || id === 'prev' || id === 'next' || id === 'wheel' || id === 'overlay' || id === 'allCall') return binds[id];
   if (id.startsWith('select:')) return binds.select[id.slice('select:'.length)] ?? null;
   return null;
 }
@@ -64,6 +65,7 @@ export function Settings({ binds, quick, hotkeysOn, onHotkeys, onPrivacy, sounds
         <p className="sub" style={{ margin: 0 }}>
           Click a slot, then press a key. Left, right and middle click are left alone. Escape cancels. Only these binds are watched.
           {inElectron ? ' Defaults are F1 to talk (hold), F2 for the channel wheel, F3 and F4 for the previous and next transmit channel, and F5 to show or hide the overlay.' : ''}
+          {' '}All call has no default key.
         </p>
         <label className="row">
           <input type="checkbox" checked={hotkeysOn} onChange={(e) => onHotkeys(e.target.checked)} />

@@ -30,6 +30,7 @@ import { RadialWheel } from './RadialWheel';
 import { OptionsMenu } from './OptionsMenu';
 import { Settings } from './Settings';
 import { SimpleRadio } from './SimpleRadio';
+import { AllCallBanner, AllCallButton } from './AllCall';
 import { SpeakerChips } from './SpeakerFade';
 import { useLastSpeakers } from './useLastSpeakers';
 import { PrivacyConsent, PrivacyNotes } from './Privacy';
@@ -632,6 +633,68 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     releaseMs: boot.voiceReleaseMs,
     holds,
   });
+  const allCallWanted = useRef(false);
+  const allCallGen = useRef(0);
+  const allCallTarget = useRef<{ sourceChannelId: string; channelIds: string[] } | null>(null);
+  const stopAllCall = useCallback(() => {
+    if (!allCallWanted.current && !engine.allCalling) return;
+    allCallWanted.current = false;
+    allCallGen.current += 1;
+    const target = allCallTarget.current;
+    allCallTarget.current = null;
+    void (async () => {
+      await engine.holdAllCall(false);
+      if (!target) return;
+      try {
+        await api.allCall(server.id, { active: false, ...target });
+      } catch (e) {
+        setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+      }
+    })();
+  }, [api, engine, server.id]);
+  const startAllCall = useCallback(() => {
+    if (allCallWanted.current || engine.allCalling) return;
+    const txId = engine.txId;
+    const channelIds = engine.tuned.filter((t) => t.canTransmit && t.status !== 'gone').map((t) => t.channel.id);
+    if (!txId || !channelIds.includes(txId)) {
+      setErr('Tune a channel before all-call.');
+      return;
+    }
+    const gen = ++allCallGen.current;
+    const target = { sourceChannelId: txId, channelIds };
+    allCallTarget.current = target;
+    allCallWanted.current = true;
+    setErr('');
+    void (async () => {
+      try {
+        await api.allCall(server.id, { active: true, ...target });
+      } catch (e) {
+        if (allCallGen.current === gen) {
+          allCallWanted.current = false;
+          allCallTarget.current = null;
+        }
+        setErr(isReconnectError(e) ? RECONNECTING : (e as Error).message);
+        return;
+      }
+      if (allCallGen.current !== gen || !allCallWanted.current) {
+        await engine.holdAllCall(false);
+        await api.allCall(server.id, { active: false, ...target }).catch(() => undefined);
+        return;
+      }
+      const opened = await engine.holdAllCall(true);
+      if (allCallGen.current !== gen || !allCallWanted.current || !opened) {
+        await engine.holdAllCall(false);
+        await api.allCall(server.id, { active: false, ...target }).catch(() => undefined);
+        if (allCallGen.current === gen) {
+          allCallWanted.current = false;
+          allCallTarget.current = null;
+          if (!opened) setErr('All-call did not open the microphone.');
+        }
+      }
+    })();
+  }, [api, engine, server.id]);
+  const allCallLabel = engine.allCalling ? 'ALL CALL' : (binds.allCall ? `All call (${bindLabel(binds.allCall)})` : 'All call');
+  const allCallButton = isAdmin ? <AllCallButton active={engine.allCalling} label={allCallLabel} onDown={startAllCall} onUp={stopAllCall} /> : null;
   const bootRef = useRef(boot);
   const profileRef = useRef(boot);
   profileRef.current = boot;
@@ -781,6 +844,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   useEffect(() => {
     const off = bridge.onHotkey((e) => {
       if (e.type === 'ptt') { if (e.down) holds.down('desktop'); else holds.up('desktop'); }
+      if (e.type === 'allcall') { if (e.down) startAllCall(); else stopAllCall(); }
       if (e.type === 'cycle') engine.cycle(e.step === -1 ? -1 : 1);
       if (e.type === 'overlay') setOverlayOn((v) => !v);
       if (e.type === 'direct') { if (e.down) holds.down('direct', e.channelId); else holds.up('direct'); }
@@ -795,14 +859,28 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     const kd = (e: KeyboardEvent) => {
       if (inElectron || isCapturingBind() || typing(e)) return;
+      if (hotkeysOn && !e.repeat && domEventMatchesBind(e, bindsRef.current.allCall)) { e.preventDefault(); startAllCall(); }
       if (domEventMatchesBind(e, bindsRef.current.overlay)) { e.preventDefault(); setOverlayOn((v) => !v); }
       for (const [id, b] of Object.entries(bindsRef.current.select)) {
         if (domEventMatchesBind(e, b)) engine.setTx(id);
       }
     };
-    window.addEventListener('keydown', kd, true);
-    return () => { off(); offWheel(); window.removeEventListener('keydown', kd, true); };
-  }, [engine, holds.down, holds.up, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close, wheelOn]);
+    const ku = (e: KeyboardEvent) => {
+      if (inElectron) return;
+      if (domEventMatchesBind(e, bindsRef.current.allCall)) stopAllCall();
+    };
+    const releaseAllCall = () => { if (!inElectron) stopAllCall(); };
+    const vis = () => { if (document.hidden) releaseAllCall(); };
+    window.addEventListener('keydown', kd, true); window.addEventListener('keyup', ku, true);
+    window.addEventListener('blur', releaseAllCall);
+    document.addEventListener('visibilitychange', vis);
+    return () => {
+      off(); offWheel();
+      window.removeEventListener('keydown', kd, true); window.removeEventListener('keyup', ku, true);
+      window.removeEventListener('blur', releaseAllCall);
+      document.removeEventListener('visibilitychange', vis);
+    };
+  }, [engine, holds.down, holds.up, wheel.onKey, wheel.onInput, wheel.onFallbackScroll, wheel.onNumber, wheel.close, wheelOn, hotkeysOn, startAllCall, stopAllCall]);
 
   const tuned = engine.tuned;
   const tx = tuned.find((t) => t.channel.id === engine.txId) ?? null;
@@ -993,6 +1071,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   if (isWeb) {
     return (
       <div className={`web-main${keyed ? ' on-air' : ''}`}>
+        <AllCallBanner calling={engine.allCalling} from={engine.allCallFrom} />
         <OnAirBanner engine={engine} />
         <TalkNotice holds={holds} />
         <section className="invite-card">
@@ -1044,6 +1123,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
           <button className="btn sm" type="button" onClick={() => setChannelsOpen((v) => !v)}>{channelsOpen ? 'Radio' : 'Channels'}</button>
           <button className="btn sm" type="button" onClick={openSettings}>Sounds</button>
           {isAdmin && <button className="btn sm" type="button" onClick={() => setNewCh(true)}>+ New</button>}
+          {allCallButton}
           {!isPreview && (
             <PhoneLink
               api={api}
@@ -1111,10 +1191,12 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
   if (!isWeb && simpleOn) {
     return (
       <div className={`simple-screen${keyed ? ' on-air' : ''}`}>
+        <AllCallBanner calling={engine.allCalling} from={engine.allCallFrom} />
         <OnAirBanner engine={engine} />
         <TalkNotice holds={holds} />
         <div className="web-bar">
           <strong>{server.name}</strong>
+          {allCallButton}
           <button className="btn sm" onClick={() => { setSimpleOn(false); patchProfile({ simpleOn: false }); }}>Full radio</button>
           <button className="btn sm" type="button" onClick={() => setOptionsOpen(true)}>Options</button>
           <span className="foot-ver">v{APP_VERSION}</span>
@@ -1169,6 +1251,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       </aside>
 
       <main className={`radio${keyed ? ' on-air' : ''}`}>
+        <AllCallBanner calling={engine.allCalling} from={engine.allCallFrom} />
         <OnAirBanner engine={engine} />
         <TalkNotice holds={holds} />
         <div className={`txbar ${keyed ? 'keyed' : ''}`}>
@@ -1184,6 +1267,7 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
             Wheel <kbd>{bindLabel(binds.wheel)}</kbd>
             Overlay <kbd>{bindLabel(binds.overlay)}</kbd>
           </div>
+          {allCallButton}
         </div>
         <div className="grid">
           {tuned.map((t) => <Card key={t.channel.id} t={t} engine={engine} lines={linesForChannel(speakerLines, t.channel.id)} />)}
