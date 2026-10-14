@@ -6,7 +6,7 @@ This repository holds the v0.2 plan, the M1 spike, and a Sydney VPS deploy kit. 
 
 ## Privacy
 
-Radio Net has no account and no telemetry. A callsign, the servers you join, keybinds, and (on the PC that created a community) an admin key stay in an OS-encrypted profile on that computer when Windows DPAPI is available. The app sends the callsign and invite code to the community server you type in, and it sends voice to that server's LiveKit while push-to-talk is held. The microphone device is opened earlier, when you tune a channel you can talk on, with the track muted until you hold the talk key.
+Radio Net has no account. A callsign, the servers you join, keybinds, and (on the PC that created a community) an admin key stay in an OS-encrypted profile on that computer when Windows DPAPI is available. The app sends the callsign and invite code to the community server you type in, and it sends voice to that server's LiveKit while push-to-talk is held. The microphone device is opened earlier, when you tune a channel you can talk on, with the track muted until you hold the talk key. A script error sends a short redacted report to that same server. Voice-quality numbers (delay, loss, jitter, reconnects, talk counts) are sent only when you click Send diagnostics in Options. There is no third-party analytics SDK.
 
 A global keyboard and mouse hook runs so push-to-talk works while the game is in front. The hook can see other keys. This version keeps only the keys and mouse buttons you bind, plus Escape, digits, and the scroll wheel while the channel wheel is open. Those other keystrokes are not written to the log and are not sent to the server. Quit the app when you are done; the hook stops with the process.
 
@@ -34,6 +34,7 @@ The full notes are in [`docs/PRIVACY.md`](docs/PRIVACY.md). An outside-style ass
 | [`docs/PRIVACY.md`](docs/PRIVACY.md) | What the app reads, what leaves the PC, and what stays |
 | [`spike/`](spike/README.md) | M1 spike: API server, Electron client, LiveKit dev runner, tests, screenshots |
 | [`deploy/`](deploy/README.md) | Vultr Sydney deploy kit: cloud-init, setup, pack/deploy scripts, systemd units |
+| [`docs/SCALE-TEST-RUNBOOK.md`](docs/SCALE-TEST-RUNBOOK.md) | First group-op checklist: what to watch, how to collect logs, load-test commands |
 
 ## Run the spike
 

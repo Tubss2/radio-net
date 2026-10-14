@@ -11,6 +11,16 @@ import { effectiveFilter, parseChannelFilter, parseRadioFilter, transmissionCueE
 import { ReleaseTail } from '../../../shared/roger';
 import { RADIO_WORKLET, codec2Bytes, radioWorkletUrl } from '../audio/radioVoice';
 import { playPttEdge, playTransmissionCue, playTxChange } from './uiSounds';
+import { sampleFromStats, type RtcSample } from '../../../shared/voiceDiag';
+import { collectAudioStats } from './roomStats';
+
+/** Counts the radio keeps for the Send diagnostics button. No audio leaves through this. */
+export interface RadioDiag {
+  noteReconnect(freq: string): void;
+  noteDisconnect(freq: string): void;
+  notePtt(ok: boolean): void;
+  noteSample(freq: string, sample: RtcSample): void;
+}
 
 /**
  * The radio: one LiveKit Room per tuned channel.
@@ -158,7 +168,12 @@ export class RadioEngine implements RadioControl {
     this.changed();
   }
 
-  constructor(private api: Api, private communityId: string) {}
+  private diagTimer?: ReturnType<typeof setInterval>;
+
+  constructor(private api: Api, private communityId: string, private diag?: RadioDiag) {
+    if (!diag) return;
+    this.diagTimer = setInterval(() => { void this.sampleDiag(); }, 15_000);
+  }
 
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => this.listeners.delete(fn); };
   private changed() { this.version++; this.listeners.forEach((f) => f()); }
@@ -270,6 +285,7 @@ export class RadioEngine implements RadioControl {
       .on(RoomEvent.ParticipantDisconnected, () => { slot.info.listeners = room.numParticipants; this.noteAllCall(); })
       .on(RoomEvent.Reconnecting, () => {
         slot.info.status = 'reconnecting';
+        this.diag?.noteReconnect(channel.freq);
         clientLog('livekit', `reconnecting ${channel.freq}`);
         this.changed();
       })
@@ -288,6 +304,7 @@ export class RadioEngine implements RadioControl {
           this.onChannelDeleted?.(channel.id);
           return;
         }
+        this.diag?.noteDisconnect(channel.freq);
         slot.info.status = 'gone';
         this.changed();
       });
@@ -469,6 +486,7 @@ export class RadioEngine implements RadioControl {
     } catch (err) {
       if (isReconnectError(err)) {
         slot.info.status = 'reconnecting';
+        this.diag?.noteReconnect(slot.info.channel.freq);
         this.changed();
         this.scheduleRefresh(channelId, 5_000);
         return;
@@ -555,7 +573,10 @@ export class RadioEngine implements RadioControl {
     const slot = id ? this.slots.get(id) : undefined;
     if (down) {
       this.tail.cancel();
-      if (!slot?.mic) return false;
+      if (!slot?.mic) {
+        this.diag?.notePtt(false);
+        return false;
+      }
       if (this.transmittingOn && this.transmittingOn !== id) await this.ptt(false, this.transmittingOn);
       const serial = ++this.talkSerial;
       this.talkWantsOpen = true;
@@ -564,6 +585,7 @@ export class RadioEngine implements RadioControl {
         await slot.mic.unmute();
       } catch (err) {
         clientLog('livekit', `unmute ${slot.info.channel.freq} ${(err as Error).message}`);
+        this.diag?.notePtt(false);
         if (this.transmittingOn === id) this.transmittingOn = null;
         this.changed();
         return false;
@@ -579,6 +601,7 @@ export class RadioEngine implements RadioControl {
       this.micHeldByTalk = true;
       this.transmittingOn = id;
       if (!already) {
+        this.diag?.notePtt(true);
         playPttEdge('down');
         if (this.release.rogerLocal) playTransmissionCue('start', { own: true });
       }
@@ -639,16 +662,30 @@ export class RadioEngine implements RadioControl {
       await slot.mic.unmute();
     } catch (err) {
       clientLog('livekit', `all-call unmute ${slot.info.channel.freq} ${(err as Error).message}`);
+      this.diag?.notePtt(false);
       return false;
     }
     this.allCalling = true;
     this.transmittingOn = id;
     if (!already) {
+      this.diag?.notePtt(true);
       playPttEdge('down');
       if (this.release.rogerLocal) playTransmissionCue('start', { own: true });
     }
     this.changed();
     return true;
+  }
+
+  private async sampleDiag() {
+    if (!this.diag) return;
+    for (const slot of this.slots.values()) {
+      try {
+        const sample = sampleFromStats(await collectAudioStats(slot.room));
+        this.diag.noteSample(slot.info.channel.freq, sample);
+      } catch {
+        // The room can close while the stats call is in flight.
+      }
+    }
   }
 
   /** Banner name for a remote all-call. The local participant is skipped so the sender does not cue on their own forward. */
@@ -669,5 +706,10 @@ export class RadioEngine implements RadioControl {
     this.changed();
   }
 
-  async dispose() { await Promise.all([...this.slots.keys()].map((id) => this.untune(id))); this.micTrack?.stop(); await this.ctx.close(); }
+  async dispose() {
+    if (this.diagTimer) clearInterval(this.diagTimer);
+    await Promise.all([...this.slots.keys()].map((id) => this.untune(id)));
+    this.micTrack?.stop();
+    await this.ctx.close();
+  }
 }

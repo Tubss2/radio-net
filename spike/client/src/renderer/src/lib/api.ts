@@ -1,4 +1,5 @@
 import { RECONNECTING, isNetworkFailure, isRouteMissing } from '../../../shared/net';
+import type { VoiceReport } from '../../../shared/voiceDiag';
 
 /** Thin client for the Radio Net API (see spike/server). */
 export interface ChannelInfo { id: string; freq: string; freqKHz: number; name: string; restricted: boolean }
@@ -183,5 +184,9 @@ export class Api {
   }
   phoneRedeem(code: string) {
     return this.req<PhoneRedeemResult>('/api/phone/redeem', { method: 'POST', body: JSON.stringify({ code }) });
+  }
+  /** Opt-in voice-quality summary. The server drops any field that is not in the summary. */
+  sendVoiceDiagnostics(report: VoiceReport) {
+    return this.req<{ ok: true }>('/api/diagnostics/voice', { method: 'POST', body: JSON.stringify(report) });
   }
 }

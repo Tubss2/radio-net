@@ -1,0 +1,38 @@
+[Unit]
+Description=Node exporter (Radio Net host metrics)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=radionet
+Group=radionet
+ExecStart=/opt/radionet/bin/node_exporter \
+  --web.listen-address=127.0.0.1:9100 \
+  --collector.disable-defaults \
+  --collector.cpu \
+  --collector.meminfo \
+  --collector.netdev \
+  --collector.loadavg \
+  --collector.filesystem
+Restart=always
+RestartSec=3
+MemoryHigh=40M
+MemoryMax=64M
+NoNewPrivileges=true
+UMask=0077
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

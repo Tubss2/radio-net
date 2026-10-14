@@ -72,6 +72,22 @@ That should print `passwordauthentication no`, `kbdinteractiveauthentication no`
 
 The Sydney box that ran main `9bcc940` was hot-fixed in place: a LiveKit drop-in adds `AF_NETLINK`, and the SSH file was renamed to `00-radionet.conf`. The next `setup.sh` applies those same two changes from this tree. It restarts LiveKit, the API, and Caddy.
 
+## Monitor, logs, and the scale test
+
+`setup.sh` turns on LiveKit's Prometheus endpoint (localhost port 6789, password `METRICS_PASSWORD`), scrapes it with Prometheus plus a small node exporter, and serves a dashboard at `https://<API_HOST>/monitor/` behind HTTP basic auth. The user is `operator`. The password is `MONITOR_PASSWORD` in `/etc/radionet/secrets.env`. Prometheus and the node exporter listen on localhost only. UFW does not open 6789, 9090, or 9100.
+
+The dashboard is a static page, not Grafana. On a measurement box, Prometheus sat at about 80 MB and the node exporter at about 20 MB. Grafana is commonly another 200 MB, which is the wrong trade on a 2 GB VPS. See [`docs/SCALE-TEST-RUNBOOK.md`](../docs/SCALE-TEST-RUNBOOK.md).
+
+Journald is set to persistent storage (200 MB, 7 days), so LiveKit and API logs survive a restart. After the op, on the server:
+
+```bash
+radionet-collect-logs 6
+```
+
+That writes `/var/lib/radionet/bundles/scale-<utc>.tgz` and prints the path. The archive has journals, a metrics snapshot, client diagnostics, and the Caddy access log. It does not include `secrets.env`.
+
+Room size is 100 participants. Join limit is 60 per minute per IP. Other API calls are 600 per minute per IP so a squad behind one NAT can refresh voice tokens.
+
 ## Known limits
 
 - Communities and channels persist in `/var/lib/radionet/store.json` (`RN_DATA_FILE` in `api.env`, writable under systemd `ProtectSystem=strict`). A restart keeps them. Re-run `setup.sh` on a box that was installed before this file existed so the directory and env line are created. There are still no user accounts.

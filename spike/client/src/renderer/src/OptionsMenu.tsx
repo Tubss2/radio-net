@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { diagnosticsText } from '../../shared/diagnostics';
+import { VOICE_DIAG_AUTO } from './lib/diagClient';
 import { soundPrefsFrom, type SoundPrefs } from '../../shared/sounds';
 import { APP_VERSION } from '../../shared/version';
 import type { Profile, ServerEntry } from '../../shared/profile';
@@ -8,7 +9,7 @@ import { updateStatusText, type UpdateCheckState } from '../../shared/updates';
 import { bridge } from './bridge';
 import { SoundsSettings } from './SoundsSettings';
 
-export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simpleOn, hotkeysOn, onOverlay, onWheel, onSimple, onHotkeys, onSounds, onServer, onKeybinds, onPhone, onPrivacy, onReset, onClose }: {
+export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simpleOn, hotkeysOn, canSendDiagnostics, onSendDiagnostics, onOverlay, onWheel, onSimple, onHotkeys, onSounds, onServer, onKeybinds, onPhone, onPrivacy, onReset, onClose }: {
   profile: Profile;
   server: ServerEntry;
   binds: Keybinds;
@@ -16,6 +17,8 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
   wheelOn: boolean;
   simpleOn: boolean;
   hotkeysOn: boolean;
+  canSendDiagnostics: boolean;
+  onSendDiagnostics: () => Promise<void>;
   onOverlay: (on: boolean) => void;
   onWheel: (on: boolean) => void;
   onSimple: (on: boolean) => void;
@@ -33,6 +36,13 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
   const [update, setUpdate] = useState<UpdateCheckState | null>(null);
   const [diag, setDiag] = useState('');
   const [copied, setCopied] = useState(false);
+  const [sent, setSent] = useState('');
+  const [sending, setSending] = useState(false);
+  const [autoSend, setAutoSend] = useState(false);
+
+  useEffect(() => {
+    try { setAutoSend(sessionStorage.getItem(VOICE_DIAG_AUTO) === '1'); } catch { setAutoSend(false); }
+  }, []);
 
   useEffect(() => {
     const offReady = bridge.onUpdateReady((info) => setUpdate({ state: 'ready', version: info.version }));
@@ -62,6 +72,27 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
     } catch {
       setUpdate({ state: 'error', message: 'Could not check for updates.' });
     }
+  };
+
+  const sendDiagnostics = async () => {
+    setSending(true);
+    setSent('');
+    try {
+      await onSendDiagnostics();
+      setSent('Sent. It has delay, loss, jitter, reconnects, and talk counts. No audio and no callsign.');
+    } catch {
+      setSent('Could not send. You need to be joined, and the server has to be the new build.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const setAuto = (on: boolean) => {
+    setAutoSend(on);
+    try {
+      if (on) sessionStorage.setItem(VOICE_DIAG_AUTO, '1');
+      else sessionStorage.removeItem(VOICE_DIAG_AUTO);
+    } catch { /* private mode */ }
   };
 
   const copyDiagnostics = async () => {
@@ -159,9 +190,22 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
 
         <div className="opt-section">
           <div className="lbl">Testing</div>
+          <p className="sub" style={{ margin: 0 }}>
+            Send diagnostics uploads voice-quality numbers for this tab. It does not upload audio or your callsign.
+          </p>
+          <div className="opt-row">
+            <button className="btn sm" type="button" onClick={() => void sendDiagnostics()} disabled={!canSendDiagnostics || sending}>
+              {sending ? 'Sending…' : 'Send diagnostics'}
+            </button>
+            <button className="btn sm ghost" type="button" onClick={() => void copyDiagnostics()}>{copied ? 'Copied' : 'Copy diagnostics'}</button>
+          </div>
+          <label className="opt-row">
+            <span>Also send that summary when I leave</span>
+            <input type="checkbox" checked={autoSend} disabled={!canSendDiagnostics} onChange={(e) => setAuto(e.target.checked)} />
+          </label>
+          {sent && <p className="sub" style={{ margin: 0 }} role="status">{sent}</p>}
           <div className="opt-row">
             <button className="btn sm ghost" type="button" onClick={() => void bridge.showLogs()}>Show logs folder</button>
-            <button className="btn sm ghost" type="button" onClick={() => void copyDiagnostics()}>{copied ? 'Copied' : 'Copy diagnostics'}</button>
           </div>
           {diag && <pre className="keybox">{diag}</pre>}
           <button className="btn sm ghost" type="button" onClick={onReset}>Reset settings</button>

@@ -10,7 +10,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/radionet-src/deploy"
 cp -r "$HERE/../spike/server" "$TMP/radionet-src/server"
 rm -rf "$TMP/radionet-src/server/node_modules" "$TMP"/radionet-src/server/*.log
-cp -r "$HERE/setup.sh" "$HERE/systemd" "$TMP/radionet-src/deploy/"
+cp -r "$HERE/setup.sh" "$HERE/systemd" "$HERE/monitor" "$HERE/collect-scale-logs.sh" "$TMP/radionet-src/deploy/"
 if [[ -f "$PREVIEW_DIST/index.html" ]]; then
   if grep -q 'src="/' "$PREVIEW_DIST/index.html"; then
     echo "Preview build uses absolute asset paths; rebuild with base './' (npm run preview:build)" >&2; exit 1

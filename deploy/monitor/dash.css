@@ -1,0 +1,45 @@
+:root {
+  color-scheme: dark;
+  --bg: #0e1014;
+  --card: #1a1e26;
+  --line: #262b36;
+  --text: #e8ebf1;
+  --muted: #8f98a8;
+  --live: #3ddc97;
+  --warn: #ffb020;
+  --bad: #ff5a4e;
+  --font: "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.4 var(--font);
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 20px 24px 8px;
+}
+h1 { font-size: 18px; margin: 0; font-weight: 650; }
+#status { margin: 0; color: var(--muted); font-size: 13px; }
+main {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 12px 24px 28px;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.card .k { color: var(--muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.card .v { font-size: 28px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.card.warn .v { color: var(--warn); }
+.card.bad .v { color: var(--bad); }
+.card.ok .v { color: var(--live); }

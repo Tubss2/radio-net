@@ -18,6 +18,8 @@ This is the model the hardening work is written against. The user-facing assessm
 | Player IP address | VPS connection tables and Caddy logs | Ties a person to a callsign. |
 | GitHub release artifacts | Public Releases, consumed by electron-updater | The next version of the app, running as the user. |
 | `store.json` | `/var/lib/radionet/store.json` | Every community, invite, channel, and admin-key hash. |
+| Diagnostics files | `/var/lib/radionet/diagnostics/*.jsonl` | Redacted error text and opt-in voice-quality numbers. No audio and no callsign. |
+| Monitor password | `/etc/radionet/secrets.env` (`MONITOR_PASSWORD`) | Opens the localhost metrics dashboard through Caddy basic auth. |
 
 ## Attackers
 
