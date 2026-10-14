@@ -4,7 +4,7 @@ import { pageKeybinds } from '../../shared/keybinds';
 import { emptyProfile, normaliseProfile, type Profile } from '../../shared/profile';
 import type { Bind, Keybinds, OverlayState, WheelInput } from '../../shared/types';
 import type { UpdateCheckState } from '../../shared/updates';
-import { emitPreviewWheel, onPreviewHotkey, onPreviewOverlay, onPreviewUpdate, onPreviewWheel, publishOverlay } from './lib/previewBus';
+import { emitPreviewWheel, onPreviewHotkey, onPreviewOverlay, onPreviewUpdate, onPreviewUpdateAvailable, onPreviewUpdateError, onPreviewUpdateProgress, onPreviewWheel, publishOverlay, startPreviewDownload } from './lib/previewBus';
 import { isPreview } from './lib/previewMode';
 
 /** window.radionet in Electron; a browser fallback (localStorage + in-page keys) for UI dev. */
@@ -123,9 +123,11 @@ function previewBridge(): RadioNetBridge {
     setIgnoreMouse: () => undefined,
     sendWheelInput: (input: WheelInput) => emitPreviewWheel(input),
     onWheelInput: (cb) => onPreviewWheel(cb),
-    onUpdateAvailable: () => () => undefined,
+    onUpdateAvailable: (cb) => onPreviewUpdateAvailable(cb),
     onUpdateReady: (cb) => onPreviewUpdate(cb),
-    downloadUpdate: () => undefined,
+    onUpdateProgress: (cb) => onPreviewUpdateProgress(cb),
+    onUpdateError: (cb) => onPreviewUpdateError(cb),
+    downloadUpdate: () => { startPreviewDownload(); },
     installUpdate: () => { document.documentElement.dataset.updateInstall = '1'; },
     checkForUpdates: async (): Promise<UpdateCheckState> => ({ state: 'dev' }),
     showLogs: async () => undefined,
@@ -152,6 +154,8 @@ const browserFallback: RadioNetBridge = {
   onWheelInput: () => () => undefined,
   onUpdateAvailable: () => () => undefined,
   onUpdateReady: () => () => undefined,
+  onUpdateProgress: () => () => undefined,
+  onUpdateError: () => () => undefined,
   downloadUpdate: () => undefined,
   installUpdate: () => undefined,
   checkForUpdates: async (): Promise<UpdateCheckState> => ({ state: 'dev' }),

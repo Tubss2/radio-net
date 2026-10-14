@@ -7,7 +7,9 @@ import type { Profile, ServerEntry } from '../../shared/profile';
 import type { Keybinds } from '../../shared/types';
 import { updateStatusText, type UpdateCheckState } from '../../shared/updates';
 import { bridge } from './bridge';
+import { noteUpdateAvailable, useUpdateSession } from './lib/updateSession';
 import { SoundsSettings } from './SoundsSettings';
+import { UpdateCard } from './UpdateCard';
 
 export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simpleOn, hotkeysOn, canSendDiagnostics, onSendDiagnostics, onOverlay, onWheel, onSimple, onHotkeys, onSounds, onServer, onKeybinds, onPhone, onPrivacy, onReset, onClose }: {
   profile: Profile;
@@ -34,6 +36,7 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
   const [adminDraft, setAdminDraft] = useState('');
   const [adminMsg, setAdminMsg] = useState('');
   const [update, setUpdate] = useState<UpdateCheckState | null>(null);
+  const session = useUpdateSession();
   const [diag, setDiag] = useState('');
   const [copied, setCopied] = useState(false);
   const [sent, setSent] = useState('');
@@ -42,12 +45,6 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
 
   useEffect(() => {
     try { setAutoSend(sessionStorage.getItem(VOICE_DIAG_AUTO) === '1'); } catch { setAutoSend(false); }
-  }, []);
-
-  useEffect(() => {
-    const offReady = bridge.onUpdateReady((info) => setUpdate({ state: 'ready', version: info.version }));
-    const offAvail = bridge.onUpdateAvailable((info) => setUpdate((cur) => (cur?.state === 'ready' ? cur : { state: 'available', version: info.version })));
-    return () => { offReady(); offAvail(); };
   }, []);
 
   const saveAdmin = () => {
@@ -68,7 +65,9 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
   const checkUpdates = async () => {
     setUpdate({ state: 'checking' });
     try {
-      setUpdate(await bridge.checkForUpdates());
+      const result = await bridge.checkForUpdates();
+      setUpdate(result);
+      if (result.state === 'available') noteUpdateAvailable(result.version);
     } catch {
       setUpdate({ state: 'error', message: 'Could not check for updates.' });
     }
@@ -181,11 +180,14 @@ export function OptionsMenu({ profile, server, binds, overlayOn, wheelOn, simple
         <div className="opt-section">
           <div className="opt-row">
             <span>Updates</span>
-            <button className="btn sm" type="button" onClick={() => void checkUpdates()} disabled={update?.state === 'checking'}>Check for updates</button>
+            <button className="btn sm" type="button" onClick={() => void checkUpdates()} disabled={update?.state === 'checking' || session.flow.phase === 'downloading' || session.flow.phase === 'installing'}>Check for updates</button>
           </div>
-          {update && <p className="sub" style={{ margin: 0 }} role="status">{updateStatusText(update)}</p>}
-          {update?.state === 'available' && <button className="btn sm primary" type="button" onClick={() => bridge.downloadUpdate()}>Download</button>}
-          {update?.state === 'ready' && <button className="btn sm primary" type="button" onClick={() => bridge.installUpdate()}>Restart now</button>}
+          {session.flow.phase !== 'hidden' ? <UpdateCard flow={session.flow} /> : (
+            update && <p className="sub" style={{ margin: 0 }} role="status">{updateStatusText(update)}</p>
+          )}
+          {session.flow.phase === 'hidden' && update?.state === 'error' && (
+            <button className="btn sm" type="button" onClick={() => void checkUpdates()}>Retry</button>
+          )}
         </div>
 
         <div className="opt-section">

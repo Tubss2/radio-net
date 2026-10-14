@@ -22,6 +22,8 @@ html, body, #root { height: 100%; background: #1c2418; }
   border: 1px solid rgba(255,255,255,.08);
 }
 .preview-window .app { height: 100%; }
+/* The update bar is fixed to the viewport. Lift it above this page's preview toolbar. */
+.preview-window .update-ready { bottom: 84px; }
 .preview-dev {
   position: fixed;
   left: 12px;

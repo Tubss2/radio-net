@@ -70,6 +70,9 @@ describe('update status', () => {
     expect(updateStatusText({ state: 'none', version: '0.4.5' })).toContain('latest');
     expect(updateStatusText({ state: 'available', version: '0.4.6' })).toContain('0.4.6');
     expect(updateStatusText({ state: 'ready', version: '0.4.6' })).toContain('downloaded');
+    expect(updateStatusText({ state: 'ready', version: '0.4.6' })).toContain('does not report progress');
+    expect(updateStatusText({ state: 'installing', version: '0.4.6' })).toContain('does not receive progress');
+    expect(updateStatusText({ state: 'downloading', version: '0.4.6', progress: null })).toContain('not reported');
     expect(updateStatusText({ state: 'error', message: 'Offline' })).toBe('Offline');
   });
 });
