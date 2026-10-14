@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isPinnedUpdateFeed, UPDATE_CHECK_INTERVAL_MS, UPDATE_OWNER, UPDATE_REPO } from './updates';
+import { cleanUpdateError, cleanUpdateVersion, formatUpdateBytes, formatUpdateProgressLine, formatUpdateSpeed, initialUpdateSession, isPinnedUpdateFeed, parseUpdateProgress, reduceUpdateSession, UPDATE_CHECK_INTERVAL_MS, UPDATE_INSTALLER_NOTE, UPDATE_INSTALLING_NOTE, UPDATE_OWNER, UPDATE_REPO, updateFlowCopy } from './updates';
 
 const repoRoot = join(import.meta.dirname, '../../../..');
 
@@ -21,9 +21,10 @@ describe('GitHub Releases updates', () => {
       build: {
         publish: { provider: string; owner: string; repo: string; releaseType?: string; private?: boolean };
         win: { verifyUpdateCodeSignature?: boolean };
+        nsis: { artifactName?: string };
       };
     };
-    expect(pkg.version).toBe('0.4.9');
+    expect(pkg.version).toBe('0.4.10');
     expect(pkg.build.publish).toEqual({
       provider: 'github',
       owner: UPDATE_OWNER,
@@ -32,6 +33,7 @@ describe('GitHub Releases updates', () => {
       private: false,
     });
     expect(pkg.build.win.verifyUpdateCodeSignature).toBe(false);
+    expect(pkg.build.nsis.artifactName).toBe('RadioNet-Setup-${version}.${ext}');
     const fuses = JSON.parse(readFileSync(join(repoRoot, 'spike/client/package.json'), 'utf8')) as {
       build: { electronFuses: Record<string, boolean> };
     };
@@ -154,5 +156,86 @@ describe('GitHub Releases updates', () => {
     expect(yml).not.toContain('electron-builder');
     expect(yml).not.toContain('latest.yml');
     expect(yml).not.toContain('/releases/latest');
+  });
+
+  it('sends download progress and update errors to the window', () => {
+    const updater = readFileSync(join(repoRoot, 'spike/client/src/main/updater.ts'), 'utf8');
+    const preload = readFileSync(join(repoRoot, 'spike/client/src/preload/index.ts'), 'utf8');
+    expect(updater).toContain("autoUpdater.on('download-progress'");
+    expect(updater).toContain("'update:progress'");
+    expect(updater).toContain("'update:error'");
+    expect(updater).toContain('parseUpdateProgress');
+    expect(updater).toContain('cleanUpdateError');
+    expect(preload).toContain("'update:progress'");
+    expect(preload).toContain("'update:error'");
+  });
+});
+
+describe('update progress', () => {
+  const total = 30 * 1024 * 1024;
+  const transferred = Math.round(12.4 * 1024 * 1024);
+  const progress = { percent: 42.2, transferred, total, bytesPerSecond: 2.5 * 1024 * 1024 };
+
+  it('keeps a progress payload that is only finite byte counts', () => {
+    expect(cleanUpdateVersion('0.4.10')).toBe('0.4.10');
+    expect(cleanUpdateVersion('0.4.10\n<script>')).toBeNull();
+    expect(cleanUpdateVersion('latest')).toBeNull();
+    expect(parseUpdateProgress(progress)?.percent).toBe(42.2);
+    expect(parseUpdateProgress({ ...progress, percent: 140 })?.percent).toBe(100);
+    expect(parseUpdateProgress({ percent: 10, transferred: 1, total: 2 })).toMatchObject({ bytesPerSecond: 0 });
+    expect(parseUpdateProgress({ percent: Number.NaN, transferred: 1, total: 2, bytesPerSecond: 1 })).toBeNull();
+    expect(parseUpdateProgress({ percent: -1, transferred: 1, total: 2, bytesPerSecond: 1 })).toBeNull();
+    expect(parseUpdateProgress(null)).toBeNull();
+    expect(cleanUpdateError(new Error('token ghp_abcdefghijklmnopqrstuvwxyz'))).toBe('token [redacted]');
+    expect(formatUpdateBytes(1.5 * 1024 * 1024)).toBe('1.5 MB');
+    expect(formatUpdateSpeed(2.5 * 1024 * 1024)).toBe('2.5 MB/s');
+    expect(formatUpdateSpeed(500 * 1024)).toBe('500 KB/s');
+    expect(formatUpdateProgressLine(progress)).toBe(`42% · ${formatUpdateBytes(transferred)} / ${formatUpdateBytes(total)} · 2.5 MB/s`);
+  });
+
+  it('shows percent and size while downloading, then an indeterminate installer step', () => {
+    let session = reduceUpdateSession(initialUpdateSession, { type: 'available', version: '0.4.10' });
+    expect(session.banner).toBe(true);
+    expect(updateFlowCopy(session.flow)?.showDownload).toBe(true);
+    expect(updateFlowCopy(session.flow)?.version).toBe('0.4.10');
+
+    session = reduceUpdateSession(session, { type: 'download' });
+    expect(session.flow).toMatchObject({ phase: 'downloading', progress: null });
+    expect(updateFlowCopy(session.flow)?.indeterminate).toBe(true);
+
+    session = reduceUpdateSession(session, { type: 'progress', version: '0.4.10', progress });
+    const copying = updateFlowCopy(session.flow);
+    expect(copying?.indeterminate).toBe(false);
+    expect(copying?.percent).toBe(42.2);
+    expect(copying?.detail).toContain('42%');
+    expect(copying?.detail).toContain('MB');
+    expect(copying?.detail).toContain('2.5 MB/s');
+
+    session = reduceUpdateSession(session, { type: 'later' });
+    expect(session.banner).toBe(false);
+    session = reduceUpdateSession(session, { type: 'progress', version: '0.4.10', progress: { ...progress, percent: 80 } });
+    expect(session.banner).toBe(false);
+
+    session = reduceUpdateSession(session, { type: 'error', message: 'offline' });
+    expect(session.banner).toBe(true);
+    expect(updateFlowCopy(session.flow)?.showRetry).toBe(true);
+    expect(updateFlowCopy(session.flow)?.detail).toBe('offline');
+
+    session = reduceUpdateSession(session, { type: 'retry' });
+    expect(session.flow.phase).toBe('downloading');
+    session = reduceUpdateSession(session, { type: 'ready', version: '0.4.10' });
+    expect(updateFlowCopy(session.flow)?.showInstall).toBe(true);
+    expect(updateFlowCopy(session.flow)?.detail).toBe(UPDATE_INSTALLER_NOTE);
+    expect(updateFlowCopy(session.flow)?.percent).toBe(100);
+
+    session = reduceUpdateSession(session, { type: 'install' });
+    expect(updateFlowCopy(session.flow)?.indeterminate).toBe(true);
+    expect(updateFlowCopy(session.flow)?.detail).toBe(UPDATE_INSTALLING_NOTE);
+    expect(reduceUpdateSession(session, { type: 'available', version: '0.4.11' }).flow.phase).toBe('installing');
+  });
+
+  it('ignores a progress event that arrives before a version is known', () => {
+    const session = reduceUpdateSession(initialUpdateSession, { type: 'progress', version: 'not-a-version', progress });
+    expect(session.flow.phase).toBe('hidden');
   });
 });

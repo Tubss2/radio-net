@@ -94,7 +94,7 @@ We haven't had confirmation yet from WARDOGS' anti-cheat team (Bulkhead) that th
 
 The site labels this "Still heavily WIP". It adds an in-game overlay and the channel wheel. Only use it if you know and trust the developer personally.
 
-1. Go to the [v0.4.9 release page](https://github.com/Tubss2/radio-net/releases/tag/v0.4.9) and download `RadioNet-Setup-0.4.9.exe`. That release is the desktop app. The helper is a different file: [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-6/RadioNetHelper.exe).
+1. Go to the [v0.4.10 release page](https://github.com/Tubss2/radio-net/releases/tag/v0.4.10) and download `RadioNet-Setup-0.4.10.exe`. That release is the desktop app. The helper is a different file: [RadioNetHelper.exe](https://github.com/Tubss2/radio-net/releases/download/helper-6/RadioNetHelper.exe).
 2. Run it. On the blue SmartScreen box, click **More info**, then **Run anyway**.
 3. Enter your callsign, then the invite code.
 4. Accept the privacy note. The keyboard listener stays off until you do.
@@ -113,7 +113,7 @@ Default keys (the same talk and channel keys as the helper, plus the wheel and t
 If you already changed your keys, those stay. If you never changed the keys that came with an older build, they switch to this table the next time you open the app.
 
 - On the wheel: hold or press F2. Hover a channel and left-click to transmit there, right-click to mute it, scroll to change frequency, Shift+scroll for volume, and **+** to add a channel you haven't tuned yet. Hold F2 and press 1–9 if the game keeps keyboard focus.
-- Updates: the app asks before it downloads an update. Then click **Restart now** or **Later**.
+- Updates: the app asks before it downloads. The bar shows the new version, then percent, megabytes downloaded and total, and speed. If the download fails, click **Retry**. When it finishes, click **Restart to install**. Windows then runs the installer; the app cannot see that step, so the bar says so and shows an indeterminate progress state. **Later** keeps the current version.
 - **Set up push to talk** (the four choices) is on the website. This installer does not include that chooser. While you are talking, the app shows a red transmitting banner with the channel.
 - Quit the app when you're done playing. Its keyboard listener stops when the app closes.
 

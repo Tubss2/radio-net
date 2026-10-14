@@ -168,8 +168,17 @@ html.overlay-root, html.overlay-root body, html.overlay-root #root { background:
 .sounds input[type="range"] { width: 140px; }
 .radio-filter { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; max-width: 140px; }
 .sounds a { color: var(--accent); }
-.update-ready { position: fixed; z-index: 40; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.45); }
-.update-ready .ver { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.update-ready { position: fixed; z-index: 40; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: min(440px, calc(100vw - 32px)); padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+.update-card { display: flex; flex-direction: column; gap: 8px; }
+.update-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.update-ready .ver, .update-card .ver { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.update-meter { height: 8px; border-radius: 99px; background: #0e1014; overflow: hidden; border: 1px solid var(--line); }
+.update-meter > span { display: block; height: 100%; width: 0; background: var(--accent); }
+.update-meter.indeterminate > span { width: 40%; animation: update-indet 1.1s ease-in-out infinite; }
+.update-stats { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@keyframes update-indet { 0% { transform: translateX(-120%); } 100% { transform: translateX(280%); } }
+@media (prefers-reduced-motion: reduce) { .update-meter.indeterminate > span { animation: none; width: 100%; opacity: .45; } }
 
 /* Web app and the desktop Simple window. One column, the radio list, a large hold button. */
 html.web .titlebar { display: none; }

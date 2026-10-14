@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Profile } from '../shared/profile';
 import type { Bind, HotkeyEvent, Keybinds, OverlayState, UpdateReady, WheelInput } from '../shared/types';
-import type { UpdateCheckState } from '../shared/updates';
+import type { UpdateCheckState, UpdateProgress } from '../shared/updates';
 
 const api = {
   getProfile: (): Promise<Profile> => ipcRenderer.invoke('profile:get'),
@@ -40,6 +40,16 @@ const api = {
     const h = (_: unknown, info: UpdateReady) => cb(info);
     ipcRenderer.on('update:ready', h);
     return () => { ipcRenderer.removeListener('update:ready', h); };
+  },
+  onUpdateProgress: (cb: (info: { version: string; progress: UpdateProgress | null }) => void): (() => void) => {
+    const h = (_: unknown, info: { version: string; progress: UpdateProgress | null }) => cb(info);
+    ipcRenderer.on('update:progress', h);
+    return () => { ipcRenderer.removeListener('update:progress', h); };
+  },
+  onUpdateError: (cb: (info: { message: string }) => void): (() => void) => {
+    const h = (_: unknown, info: { message: string }) => cb(info);
+    ipcRenderer.on('update:error', h);
+    return () => { ipcRenderer.removeListener('update:error', h); };
   },
   downloadUpdate: () => ipcRenderer.send('update:download'),
   installUpdate: () => ipcRenderer.send('update:install'),

@@ -31,6 +31,8 @@ import { HelperLink } from './HelperLink';
 import { TalkSetup } from './TalkSetup';
 import { RadialWheel } from './RadialWheel';
 import { OptionsMenu } from './OptionsMenu';
+import { UpdateCard } from './UpdateCard';
+import { dismissUpdateBanner, useUpdateSession } from './lib/updateSession';
 import { Settings } from './Settings';
 import { RadioFilterSelect } from './SoundsSettings';
 import { SimpleRadio } from './SimpleRadio';
@@ -45,21 +47,13 @@ import type { TalkHolds } from '../../shared/talkHolds';
 
 const initials = (s: string) => s.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
 
-/** Shown after electron-updater has downloaded a build. Later hides it until the next check. */
+/** Download progress for a GitHub release. Later hides the bar until the download finishes or fails. */
 function UpdateBar() {
-  const [phase, setPhase] = useState<'available' | 'ready' | null>(null);
-  const [version, setVersion] = useState<string | null>(null);
-  useEffect(() => bridge.onUpdateAvailable((info) => { setVersion(info.version); setPhase('available'); }), []);
-  useEffect(() => bridge.onUpdateReady((info) => { setVersion(info.version); setPhase('ready'); }), []);
-  if (!version || !phase) return null;
+  const session = useUpdateSession();
+  if (!session.banner || session.flow.phase === 'hidden') return null;
   return (
-    <div className="update-ready" role="status">
-      <span>{phase === 'ready' ? 'Update downloaded' : 'Update available'}</span>
-      <span className="ver">Radio Net {version} · unsigned</span>
-      {phase === 'available'
-        ? <button className="btn sm primary" type="button" onClick={() => bridge.downloadUpdate()}>Download</button>
-        : <button className="btn sm primary" type="button" onClick={() => bridge.installUpdate()}>Restart now</button>}
-      <button className="btn sm ghost" type="button" onClick={() => setPhase(null)}>Later</button>
+    <div className="update-ready" role="region" aria-label="App update">
+      <UpdateCard flow={session.flow} onLater={dismissUpdateBanner} />
     </div>
   );
 }
