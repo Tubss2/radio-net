@@ -1,0 +1,41 @@
+[Unit]
+Description=Prometheus (Radio Net metrics)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=radionet
+Group=radionet
+Environment=GOMAXPROCS=1
+Environment=GOMEMLIMIT=160MiB
+ExecStart=/opt/radionet/bin/prometheus \
+  --config.file=/etc/radionet/prometheus.yml \
+  --web.listen-address=127.0.0.1:9090 \
+  --storage.tsdb.path=/var/lib/radionet/prometheus \
+  --storage.tsdb.retention.time=12h \
+  --storage.tsdb.retention.size=200MB \
+  --no-auto-gomaxprocs \
+  --no-auto-gomemlimit
+Restart=always
+RestartSec=3
+MemoryHigh=160M
+MemoryMax=256M
+NoNewPrivileges=true
+UMask=0077
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/radionet/prometheus
+
+[Install]
+WantedBy=multi-user.target

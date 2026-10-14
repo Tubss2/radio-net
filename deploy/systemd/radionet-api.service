@@ -13,6 +13,7 @@ Environment=PATH=/opt/radionet/node/bin:/usr/bin:/bin
 ExecStart=/opt/radionet/node/bin/node --import tsx src/index.ts
 Restart=always
 RestartSec=3
+LimitNOFILE=65536
 NoNewPrivileges=true
 UMask=0077
 ProtectSystem=strict

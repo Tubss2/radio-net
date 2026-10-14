@@ -13,7 +13,9 @@ const app = buildApp(store, {
   apiSecret: env('LIVEKIT_API_SECRET', 'secret'),
   communitySetupCode: process.env.COMMUNITY_SETUP_CODE,
   joinRateLimit: Number(env('JOIN_RATE_LIMIT', '30')),
+  globalRateLimit: Number(env('GLOBAL_RATE_LIMIT', '120')),
   trustProxy: env('TRUST_PROXY', '0') === '1',
+  diagnosticsDir: process.env.RN_DIAGNOSTICS_DIR,
 });
 
 const port = Number(env('PORT', '8787'));

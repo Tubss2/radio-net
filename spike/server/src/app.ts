@@ -17,6 +17,8 @@ import { mintPhoneToken, phoneIdentity, phoneRoomName, PhonePairs } from './phon
 import { dropCommunityRooms, type RoomAdmin } from './rooms.js';
 import { type RadioUser, mintChannelGrants } from './tokens.js';
 import { type AllCallControl, allCallUnavailable, liveKitAllCall, planAllCall } from './allCall.js';
+import { cleanError, cleanVoice } from './diagnostics.js';
+import { appendJsonLine } from './diagnosticsLog.js';
 
 export interface AppConfig {
   livekitUrl: string; // ws(s)://... handed to clients
@@ -37,6 +39,11 @@ export interface AppConfig {
   log?: (line: string) => void;
   /** LiveKit room admin. Tests pass a fake. Production uses the Room Service client. */
   roomAdmin?: RoomAdmin;
+  /**
+   * Directory for opt-in voice summaries and redacted browser errors.
+   * Unset means the endpoints refuse the report instead of dropping it on the floor.
+   */
+  diagnosticsDir?: string;
   /**
    * Forwards an admin's mic into every other tuned channel room.
    * Tests pass a fake. Production uses Room Service, which is the only holder of the LiveKit secret.
@@ -268,6 +275,47 @@ export function buildApp(store: ChannelStore, cfg: AppConfig): FastifyInstance {
   });
 
   app.get('/health', async () => ({ ok: true, identity: 1 }));
+
+  const voiceDiagLimit = makeLimiter(6);
+  const errorDiagLimit = makeLimiter(30);
+  const storeDiagnostic = (file: string, record: unknown) => {
+    if (!cfg.diagnosticsDir) throw new HttpError(503, 'Diagnostics are not enabled on this server');
+    appendJsonLine(cfg.diagnosticsDir, file, { receivedAt: new Date().toISOString(), ...record as object });
+  };
+
+  /** Voice-quality summary. Requires a session so the public internet cannot fill the disk. The session itself is not stored. */
+  app.post('/api/diagnostics/voice', async (req) => {
+    voiceDiagLimit(req);
+    sessionFor(req);
+    let report;
+    try {
+      report = cleanVoice(req.body);
+    } catch (err) {
+      if (err instanceof z.ZodError) throw new HttpError(400, 'Bad request');
+      throw err;
+    }
+    storeDiagnostic('voice.jsonl', report);
+    return { ok: true };
+  });
+
+  /**
+   * Redacted browser error. No session required, so a failure during join is still visible.
+   * A presented bearer token must still be valid. The token is not written.
+   */
+  app.post('/api/diagnostics/error', async (req) => {
+    errorDiagLimit(req);
+    const token = bearer(req);
+    if (token && !verifySession(token, cfg.apiSecret)) throw new HttpError(401, 'Session expired, rejoin this server');
+    let report;
+    try {
+      report = cleanError(req.body);
+    } catch (err) {
+      if (err instanceof z.ZodError) throw new HttpError(400, 'Bad request');
+      throw err;
+    }
+    storeDiagnostic('errors.jsonl', report);
+    return { ok: true };
+  });
 
   app.get('/api/join/policy', async () => ({ powBits: POW_BITS }));
 

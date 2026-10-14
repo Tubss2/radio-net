@@ -22,6 +22,9 @@ import { isPreview } from './lib/previewMode';
 import { PreviewApi } from './lib/previewApi';
 import { PreviewEngine } from './lib/previewEngine';
 import { RadioEngine, type RadioControl, type TunedChannel } from './lib/radioEngine';
+import { browserLabel, VoiceSession } from '../../shared/voiceDiag';
+import { diagClientId, VOICE_DIAG_AUTO } from './lib/diagClient';
+import { setErrorReportTarget } from './lib/errorCapture';
 import { isWeb } from './platform';
 import { PhoneLink } from './PhoneLink';
 import { HelperLink } from './HelperLink';
@@ -589,10 +592,31 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
     [server.id, server.url, server.adminKey],
   );
   api.token = server.token ?? null;
+  const voiceDiag = useRef(new VoiceSession());
+  const diagClient = useRef(diagClientId());
   const engine: RadioControl = useMemo(
-    () => (isPreview ? new PreviewEngine() : new RadioEngine(api, server.id)),
+    () => (isPreview ? new PreviewEngine() : new RadioEngine(api, server.id, voiceDiag.current)),
     [api, server.id],
   );
+  useEffect(() => { setErrorReportTarget(server.url || API_URL); }, [server.url]);
+  useEffect(() => {
+    if (isPreview) return;
+    const send = () => {
+      try { if (sessionStorage.getItem(VOICE_DIAG_AUTO) !== '1') return; } catch { return; }
+      const report = voiceDiag.current.report(diagMeta());
+      void fetch(`${api.baseUrl}/api/diagnostics/voice`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(api.token ? { authorization: `Bearer ${api.token}` } : {}),
+        },
+        body: JSON.stringify(report),
+        keepalive: true,
+      }).catch(() => undefined);
+    };
+    window.addEventListener('pagehide', send);
+    return () => window.removeEventListener('pagehide', send);
+  }, [api]);
   useSyncExternalStore(engine.subscribe, () => engine.version);
   useEffect(() => {
     engine.setRelease({ hangMs: boot.hangMs, roger: boot.soundRoger, rogerLocal: boot.soundRogerLocal });
@@ -999,6 +1023,18 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       hotkeysEnabled: true,
     });
   };
+  const diagMeta = () => ({
+    clientId: diagClient.current,
+    appVersion: APP_VERSION,
+    surface: (isWeb ? 'web' : 'electron') as 'web' | 'electron',
+    browser: browserLabel(navigator.userAgent),
+    platform: navigator.platform.slice(0, 40),
+    mobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent),
+    tuned: engine.tuned.length,
+  });
+  const sendVoiceDiagnostics = async () => {
+    await api.sendVoiceDiagnostics(voiceDiag.current.report(diagMeta()));
+  };
   const optionsMenu = optionsOpen ? (
     <OptionsMenu
       profile={boot}
@@ -1008,6 +1044,8 @@ function Radio({ server, callsign, binds, boot, hotkeysOn, onHotkeys, onProfile,
       wheelOn={wheelOn}
       simpleOn={simpleOn}
       hotkeysOn={hotkeysOn}
+      canSendDiagnostics={!isPreview}
+      onSendDiagnostics={sendVoiceDiagnostics}
       onOverlay={(on) => { setOverlayOn(on); patchProfile({ overlayOn: on }); }}
       onWheel={(on) => { setWheelOn(on); patchProfile({ wheelOn: on }); if (!on) wheel.close(); }}
       onSimple={(on) => { setSimpleOn(on); patchProfile({ simpleOn: on }); }}

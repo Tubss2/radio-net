@@ -4,7 +4,7 @@ This describes the v0.4.3 client and the server the deploy kit installs. The in-
 
 ## Short version
 
-Radio Net stores your callsign on this PC. It has no account, no analytics, and no crash uploader. It watches the keys and mouse buttons you bind so push-to-talk works while the game is in front. It opens the microphone when you tune a channel you can talk on, and it sends audio while you hold the talk key. Voice and the join request go to the community server you choose. The person who runs that server can see your IP and your callsign, and can hear the radio.
+Radio Net stores your callsign on this PC. It has no account and no third-party analytics. It watches the keys and mouse buttons you bind so push-to-talk works while the game is in front. It opens the microphone when you tune a channel you can talk on, and it sends audio while you hold the talk key. Voice and the join request go to the community server you choose. A script error also sends a short redacted report to that server. Voice-quality numbers are sent only when you click **Send diagnostics** in Options. The person who runs that server can see your IP and your callsign, and can hear the radio.
 
 ## What the app reads on this PC
 
@@ -29,7 +29,10 @@ The profile file is `profile.bin` in the Electron user-data directory. It holds 
 
 `radio-net.log` in the same folder is a rotating text log (three files, 256 KB each). Lines that contain a bearer token or an `rnk_` admin key are redacted. Keystrokes are not logged.
 
-There is no telemetry switch because there is no telemetry.
+There is no analytics switch. Two reports can leave the machine, and both go to the community server rather than to an analytics company:
+
+- **Script errors** are sent automatically, up to 20 per page load. The report is the error text, a stack with secrets removed, the browser family, and the page path. It does not include audio, the callsign, the invite, or the admin key.
+- **Send diagnostics** in Options uploads delay, packet loss, jitter, reconnect counts, and whether talk presses opened the microphone. A checkbox on that same row can also send the summary when the tab closes. The checkbox starts off. The report uses a random id for the tab, not your callsign.
 
 ## What leaves this PC
 
@@ -41,6 +44,8 @@ There is no telemetry switch because there is no telemetry.
 | Microphone audio | The LiveKit URL that API returns (the public installer uses `wss://lk-149-28-170-200.sslip.io`) | While push-to-talk is held. A muted track is published when you tune. |
 | Your IP address | That server | Any connection |
 | "Is there a new version?" | GitHub Releases for `github.com/Tubss2/radio-net` | Packaged app, at startup and every four hours |
+| Redacted script error | The community server (`POST /api/diagnostics/error`) | When the page hits an error, up to 20 times |
+| Voice-quality summary | That same server (`POST /api/diagnostics/voice`) | When you click Send diagnostics, or when you leave if you ticked the box |
 
 The session token comes back from the API and is stored locally. Later requests send it as `Authorization: Bearer`. It expires after 12 hours. The server does not keep a copy.
 

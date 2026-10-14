@@ -1,9 +1,11 @@
 import { createRoot } from 'react-dom/client';
+import { installErrorCapture } from '../src/renderer/src/lib/errorCapture';
 import { App } from '../src/renderer/src/App';
 import { PhoneRemote } from '../src/renderer/src/PhoneRemote';
 import { parsePhoneHash } from '../src/shared/phonePage';
 import '../src/renderer/src/styles.css';
 
+installErrorCapture();
 document.documentElement.classList.add('web');
 const phone = parsePhoneHash(location.hash);
 const root = createRoot(document.getElementById('root')!);
