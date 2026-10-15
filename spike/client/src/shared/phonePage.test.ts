@@ -3,6 +3,7 @@ import {
   decodePhone, encodePhone, formatCodeClock, nextPhoneHostSession, parsePhoneHash, phoneChannelNote, phoneExpiryNote,
   phoneHold, phoneHostStatus, phonePageUrl, phoneRedeemError, PHONE_SYNC_ID,
 } from './phonePage';
+import { PUBLIC_API_ORIGIN } from './publicHosts';
 
 describe('phone page link', () => {
   it('builds a Pages URL from the desktop app and a local URL in the browser', () => {
@@ -14,9 +15,9 @@ describe('phone page link', () => {
       code: 'abc12345xyz', api: null, expiresAt: null,
     });
     const sydney = phonePageUrl({
-      code: 'abc12345xyz', apiBase: 'https://radio-149-28-170-200.sslip.io', electron: true, origin: 'file://', base: '/',
+      code: 'abc12345xyz', apiBase: PUBLIC_API_ORIGIN, electron: true, origin: 'file://', base: '/',
     });
-    expect(parsePhoneHash(sydney.slice(sydney.indexOf('#')))?.api).toBe('https://radio-149-28-170-200.sslip.io');
+    expect(parsePhoneHash(sydney.slice(sydney.indexOf('#')))?.api).toBe(PUBLIC_API_ORIGIN);
     const local = phonePageUrl({
       code: 'abc12345xyz', apiBase: 'http://127.0.0.1:8787', electron: false, origin: 'http://127.0.0.1:5175', base: '/',
     });
@@ -29,12 +30,12 @@ describe('phone page link', () => {
       code: 'abc12345xyz', api: null, expiresAt: null,
     });
     const expiring = phonePageUrl({
-      code: 'abc12345xyz', apiBase: 'https://radio-149-28-170-200.sslip.io', electron: false,
+      code: 'abc12345xyz', apiBase: PUBLIC_API_ORIGIN, electron: false,
       origin: 'https://tubss2.github.io', base: '/radio-net/', expiresAt: '2026-10-09T22:30:00.000Z',
     });
     expect(parsePhoneHash(expiring.slice(expiring.indexOf('#')))).toEqual({
       code: 'abc12345xyz',
-      api: 'https://radio-149-28-170-200.sslip.io',
+      api: PUBLIC_API_ORIGIN,
       expiresAt: Date.parse('2026-10-09T22:30:00.000Z'),
     });
   });

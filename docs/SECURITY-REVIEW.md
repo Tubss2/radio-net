@@ -95,10 +95,10 @@ There is no setting in v0.4.3 to open the device only for the length of a transm
 
 | Data | Where it goes | When |
 |---|---|---|
-| Invite code, callsign | The API host you join (the installer default is `https://radio-149-28-170-200.sslip.io`) | Join |
+| Invite code, callsign | The API host you join (the installer default is `https://api.5by5.app`) | Join |
 | Admin key | That same API, in the `X-Admin-Key` header | Create channel, delete, rotate invite, delete community |
 | Channel ids you want tokens for | That API | Tune |
-| Voice, and a muted mic track | LiveKit on the same VPS (`wss://lk-149-28-170-200.sslip.io` in the default build) | While tuned; audio while push-to-talk is held |
+| Voice, and a muted mic track | LiveKit on the same VPS (`wss://voice.5by5.app` in the default build) | While tuned; audio while push-to-talk is held |
 | Your IP address | The VPS, the kernel, and Caddy's access log | Every connection |
 | Update check | `github.com` releases for `Tubss2/radio-net` | Startup and every four hours, packaged app only |
 | Keystrokes other than the binds above | Nowhere | Dropped in the main process |
@@ -108,7 +108,7 @@ The app does not embed a Discord token, a product-analytics key, or a crash-uplo
 
 ## Who runs the server, and what they can see (V1, N1)
 
-The deploy kit is written for one Ubuntu VPS. The copy described in `deploy/README.md` is a Vultr Sydney VM at `149.28.170.200`, operated by the repository owner. Caddy terminates HTTPS. The API and LiveKit listen on localhost. The firewall is intended to allow SSH, HTTP, HTTPS, LiveKit TCP 7881, and LiveKit UDP 7882.
+The deploy kit is written for one Ubuntu VPS. The copy described in `deploy/README.md` is a Vultr Sydney VM operated by the repository owner. Clients use `https://api.5by5.app` and `wss://voice.5by5.app`. The IP changes when that VM is replaced; the names do not. Caddy terminates HTTPS. The API and LiveKit listen on localhost. The firewall is intended to allow SSH, HTTP, HTTPS, LiveKit TCP 7881, and LiveKit UDP 7882.
 
 The operator can see:
 

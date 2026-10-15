@@ -1,4 +1,6 @@
-# Name ideas + domain shortlist (nothing bought)
+# Name ideas + domain shortlist
+
+**In use:** `5by5.app` is the owner's domain. `api.5by5.app` is the API and `voice.5by5.app` is LiveKit. DNS is on Cloudflare, and both A records stay DNS only (grey cloud) so Caddy can complete HTTP-01. Replacing the VM is [`REDEPLOY.md`](REDEPLOY.md). The shortlist below is the 9 Oct 2026 lookup, from before that domain was chosen.
 
 *Checked Fri 9 Oct 2026, ~4:35pm NZT. "Not registered" = the official registry lookup (RDAP: Verisign for .com, Google Registry for .app/.dev) returned no record at that time. That's a good sign but not a guarantee: someone could register it first. I did **not** check trademarks, Steam/app-store names or social handles. .nz and .gg couldn't be checked from here (no public lookup reachable), so they're left out.*
 

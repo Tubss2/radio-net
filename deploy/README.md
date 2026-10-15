@@ -8,14 +8,16 @@ One small Ubuntu 24.04 VPS runs everything:
 | Radio Net API (the spike's Fastify server) | Node 24 LTS + `systemd/radionet-api.service` | 127.0.0.1:8787 (behind Caddy) |
 | Caddy v2.11.7 (automatic HTTPS) | binary + `systemd/radionet-caddy.service` | **80/tcp** (certificate challenge), **443/tcp** |
 
-No domain needed yet: the hostnames are `radio-<ip-with-dashes>.sslip.io` (API) and `lk-<ip-with-dashes>.sslip.io` (LiveKit). sslip.io is a free public DNS service that answers `anything-1-2-3-4.sslip.io` with `1.2.3.4`, so Caddy can get real Let's Encrypt certificates for them. When we buy a domain, re-run setup with `API_HOST=radio.<domain> LK_HOST=lk.<domain>` after pointing two A records at the VPS.
+The live names are `api.5by5.app` (API) and `voice.5by5.app` (LiveKit), on the owner's domain with DNS at Cloudflare. `deploy.ps1`, `deploy.sh`, and `deploy.py` pass those as `API_HOST` and `LK_HOST`. Caddy gets the certificate with an HTTP-01 challenge on port 80, so both A records must be **DNS only** (grey cloud). An orange-cloud proxy answers the challenge itself and the certificate is never issued. Replacing the VM is [`docs/REDEPLOY.md`](../docs/REDEPLOY.md): back up, point the two A records at the new IP, deploy with `-Restore`.
+
+`setup.sh` still defaults to `radio-<ip-with-dashes>.sslip.io` and `lk-<ip-with-dashes>.sslip.io` when those variables are unset. sslip.io answers `anything-1-2-3-4.sslip.io` with `1.2.3.4`, so a throwaway box can get a certificate without the domain. Pass `-ApiHost '' -LkHost ''` for that. The apps built from this repo do not use those names. They stop working when the IP changes, and the next holder of that IP can get a certificate for them.
 
 ## Files
 
 - `cloud-init.yaml`: paste into the provider's "Cloud-Init / User data" box at create time. Baseline only: updates, firewall, auto security patches, and the deploy SSH public key (private half is only on the agent box, `~/.ssh/radio-net-deploy`).
 - `setup.sh`: runs **on the VPS as root**. Installs Node/LiveKit/Caddy (pinned versions), copies the API, generates secrets once (`/etc/radionet/secrets.env`: LiveKit key/secret + community setup code), writes configs, enables systemd units, opens the firewall, health-checks, and prints the URLs + setup code. Idempotent; re-run to update.
 - `deploy.py` (paramiko) / `deploy.sh` (ssh+rsync): upload `spike/server` + this kit and run `setup.sh`. **The agent box can't use them**: its egress only allows web traffic (80/443), so SSH to port 22 times out.
-- `pack.sh` + `deploy.ps1`: the path actually used. `pack.sh` (box) builds `radionet-src.tgz`; `deploy.ps1` runs on Tobias's Windows PC (built-in OpenSSH), waits for cloud-init, uploads and runs `setup.sh`.
+- `pack.sh` + `deploy.ps1`: the path actually used. `pack.sh` (box) builds `radionet-src.tgz`; `deploy.ps1` runs on Tobias's Windows PC (built-in OpenSSH), waits for cloud-init, uploads and runs `setup.sh` with `API_HOST=api.5by5.app` and `LK_HOST=voice.5by5.app`. `-Backup` downloads `rn-backup.tgz` (`/etc/radionet` and `/var/lib/radionet/store.json`) before a VM is deleted. `-Restore` extracts that archive to `/` before `setup.sh`, so an existing `secrets.env` and `store.json` are kept. `backup.sh` is the same pull from a machine with `ssh`.
 - `secrets/` (gitignored, chmod 700/600): copy of the server's `/etc/radionet/secrets.env` per server. Never commit.
 - `systemd/*.service`: hardened units (`ProtectSystem=strict`, non-root `radionet` user, no new privileges, private devices, no extra capabilities except Caddy's `CAP_NET_BIND_SERVICE`).
 
@@ -40,13 +42,14 @@ TURN is off. If a tester can't connect from a strict network, enable LiveKit's b
 ## Steps
 
 1. Tobias: create a provider account (card + email). Create **one** instance: Sydney, Ubuntu 24.04 x64, 2 vCPU / 2-4 GB, public IPv4 on, IPv6 optional, paste `cloud-init.yaml` into User data. Send the agent the **IP address**. (No passwords or API tokens needed.)
-2. Agent: `deploy/pack.sh` on the box, copy `radionet-src.tgz` + the deploy key to the PC, run `deploy.ps1 -Ip <IP>` there (or `deploy.py`/`deploy.sh` from any machine with SSH egress). Takes ~1.5 min. Output ends with:
+2. Agent: `deploy/pack.sh` on the box, copy `radionet-src.tgz` + the deploy key to the PC, run `deploy.ps1 -Ip <IP>` there (or `deploy.py`/`deploy.sh` from any machine with SSH egress). Takes ~1.5 min. With the default hosts the output ends with:
    ```
-   API (put in the client as VITE_API_URL): https://radio-1-2-3-4.sslip.io
-   LiveKit (handed to clients by the API):  wss://lk-1-2-3-4.sslip.io
+   API (put in the client as VITE_API_URL): https://api.5by5.app
+   LiveKit (handed to clients by the API):  wss://voice.5by5.app
    Community setup code (keep private):     XXXX-****-**** (full value in /etc/radionet/secrets.env)
    ```
-3. Build the Windows client with `VITE_API_URL=https://radio-<ip>.sslip.io`, create the community in the app with the setup code, share the invite code with testers.
+   Those names already match the web app and the desktop installer. Point the Cloudflare A records at this IP first, DNS only, or Caddy cannot finish HTTP-01. To keep an existing server's keys and communities, run `deploy.ps1 -Backup` before deleting the old VM and `deploy.ps1 -Ip <new> -Restore <rn-backup.tgz>` on the new one. See [`docs/REDEPLOY.md`](../docs/REDEPLOY.md).
+3. Create the community in the app with the setup code, and share the invite code with testers. A fresh box with an empty restore has a new setup code in `secrets.env`. A `-Restore` keeps the previous one.
 
 ## What was tested (box, 9 Oct 2026)
 
@@ -91,11 +94,13 @@ Room size is 100 participants. Join limit is 60 per minute per IP. Other API cal
 ## Known limits
 
 - Communities and channels persist in `/var/lib/radionet/store.json` (`RN_DATA_FILE` in `api.env`, writable under systemd `ProtectSystem=strict`). A restart keeps them. Re-run `setup.sh` on a box that was installed before this file existed so the directory and env line are created. There are still no user accounts.
-- sslip.io + Let's Encrypt: if Let's Encrypt rate-limits the shared sslip.io domain, Caddy retries and can fall back to its second issuer (ZeroSSL); setting `--email` helps. Buying the domain removes the issue.
+- sslip.io + Let's Encrypt: if Let's Encrypt rate-limits the shared sslip.io domain, Caddy retries and can fall back to its second issuer (ZeroSSL); setting `--email` helps. The live names are on `5by5.app`, which avoids that shared domain. The Cloudflare records for `api` and `voice` must stay DNS only so HTTP-01 reaches Caddy.
 
 ## Live deployment: radio-net (Vultr Sydney, vc2-1c-2gb, 149.28.170.200), 9 Oct 2026 ~5:45pm NZ
 
-- API: `https://radio-149-28-170-200.sslip.io`, voice: `wss://lk-149-28-170-200.sslip.io`
+That VM's addresses were `https://radio-149-28-170-200.sslip.io` and `wss://lk-149-28-170-200.sslip.io`. The apps no longer use them. Current names are `https://api.5by5.app` and `wss://voice.5by5.app`. The IP changes when the VM is replaced; the names do not. See [`docs/REDEPLOY.md`](../docs/REDEPLOY.md).
+
+- API at the time: `https://radio-149-28-170-200.sslip.io`, voice: `wss://lk-149-28-170-200.sslip.io`
 - Secrets on box: `deploy/secrets/radio-net-149.28.170.200.env` (600). On the server: `/etc/radionet/secrets.env`.
 - Passed: cloud-init done, ufw as designed; setup.sh exit 0 in ~90 s; all 3 services active + enabled; Let's Encrypt certs for both hostnames (issuer YE2, valid to 7 Jan 2027, chain verifies); `/health` ok over HTTPS; HTTP -> 308 to HTTPS; LiveKit `OK` and WSS `/rtc` upgrade 101 (from the box); wrong setup code 403; dev invite rejected; community + channel + voice tokens OK.
 - Real voice test from Tobias's PC (`spike/tests/radio-e2e.ts`, now configurable by env: `API_URL`, `SETUP_CODE`, `LIVEKIT_WS`, `LIVEKIT_HTTP`, `LIVEKIT_API_KEY/SECRET`): **14/14** (multi-room, listen-many/talk-one, TX cycling, server-enforced listen-only, admin-only channels, delete drops listeners). Media went over UDP 7882. Key-up to first audio bot->Sydney->bot: 66 ms.

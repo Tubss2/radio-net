@@ -24,7 +24,8 @@ The full notes are in [`docs/PRIVACY.md`](docs/PRIVACY.md). An outside-style ass
 | [`docs/SCOPE-radio-filter.md`](docs/SCOPE-radio-filter.md) | Listener-side radio filter (Clean, Handheld, Degraded, Digital) and local transmission cues |
 | [`docs/UI.md`](docs/UI.md), [`docs/mockup.html`](docs/mockup.html), [`docs/mockup.png`](docs/mockup.png) | UI direction and static mockup |
 | [`docs/providers.md`](docs/providers.md) | Voice-provider comparison |
-| [`docs/naming.md`](docs/naming.md) | Name and domain shortlist (nothing bought) |
+| [`docs/naming.md`](docs/naming.md) | Name notes. Live names are `api.5by5.app` and `voice.5by5.app` |
+| [`docs/REDEPLOY.md`](docs/REDEPLOY.md) | Replace the Sydney VM: backup, DNS, restore |
 | [`docs/discord-setup.md`](docs/discord-setup.md) | Discord login setup, backlog only |
 | [`docs/radio-net-feasibility.md`](docs/radio-net-feasibility.md) | Feasibility study that led to this project |
 | [`docs/anticheat-and-contacts.md`](docs/anticheat-and-contacts.md) | Anti-cheat notes, who to contact, and lower-risk input designs |
@@ -76,7 +77,7 @@ That opens a mocked War Dogs NZ net (five channels). Talkers appear and drop on 
 VITE_API_URL=http://127.0.0.1:8787 npm run web
 ```
 
-That serves the real radio on port 5175 (the API defaults to the Sydney host when `VITE_API_URL` is unset). Callsign, server history, and settings stay in `localStorage`. The join session stays in `sessionStorage` for this tab. Space or the large button holds push-to-talk, and both release when the tab is hidden. `npm run web:build` writes `spike/client/web-dist`.
+That serves the real radio on port 5175 (the API defaults to `https://api.5by5.app` when `VITE_API_URL` is unset). Callsign, server history, and settings stay in `localStorage`. The join session stays in `sessionStorage` for this tab. Space or the large button holds push-to-talk, and both release when the tab is hidden. `npm run web:build` writes `spike/client/web-dist`.
 
 **Set up push to talk**, then **Phone activation**, shows a QR code for a one-time link. The phone page holds the button; this computer's mic goes live. **Helper app** links this page to a small Windows window on `127.0.0.1:47321`. The window has no tray icon. Closing it quits the helper. While it is open, F1 talks, F3 selects the previous channel, and F4 selects the next. Details: [`docs/PHONE-PTT.md`](docs/PHONE-PTT.md) and [`docs/PTT-HELPER.md`](docs/PTT-HELPER.md). The public API needs those phone routes deployed before the QR works against Sydney. The helper needs no server change.
 
@@ -88,12 +89,12 @@ The **Windows installer** workflow builds an unsigned NSIS installer on `windows
 
 | Input | Env | Default |
 |---|---|---|
-| `api_url` | `VITE_API_URL` | `https://radio-149-28-170-200.sslip.io` |
-| `livekit_url` | `VITE_LIVEKIT_URL` | `wss://lk-149-28-170-200.sslip.io` |
+| `api_url` | `VITE_API_URL` | `https://api.5by5.app` |
+| `livekit_url` | `VITE_LIVEKIT_URL` | `wss://voice.5by5.app` |
 
 `RN_FAKE_MEDIA` is not set. The job fails if that variable is present, so a release build cannot ship the fake microphone.
 
-The current client version is **0.4.10**. The release is `RadioNet-Setup-0.4.10.exe` on the public GitHub Release `v0.4.10` (Actions artifact name `RadioNet-Setup`, which holds the exe, `latest.yml`, the blockmap, and `SHA256SUMS.txt`). That publish marks `v0.4.10` as GitHub's Latest release so the installed app can find `latest.yml`. The helper stays on its own tag, [helper-5](https://github.com/Tubss2/radio-net/releases/download/helper-5/RadioNetHelper.exe). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
+The current client version is **0.4.11**. The release is `RadioNet-Setup-0.4.11.exe` on the public GitHub Release `v0.4.11` (Actions artifact name `RadioNet-Setup`, which holds the exe, `latest.yml`, the blockmap, and `SHA256SUMS.txt`). That publish marks `v0.4.11` as GitHub's Latest release so the installed app can find `latest.yml`. It talks to `https://api.5by5.app` and `wss://voice.5by5.app`. The helper stays on its own tag, [helper-6](https://github.com/Tubss2/radio-net/releases/download/helper-6/RadioNetHelper.exe). Windows SmartScreen warns because the installer is unsigned: choose **More info**, then **Run anyway**.
 
 The installed app checks that public release on startup and every four hours. It asks before downloading. **Download** fetches the installer and the bar shows the new version, a percent, megabytes downloaded and total, and speed. If that download fails, **Retry** tries it again. **Later** leaves the current version in place. **Restart to install** runs the Windows installer. That installer step does not report progress back to the app, so the bar explains that and shows an indeterminate progress state until the app closes. Signature checks are off until the installer is code-signed. Anyone who can publish a GitHub Release on this repo can ship a build the client will install. The installer workflow also writes `SHA256SUMS.txt` (SHA-256 of the exe) into the Actions artifact and, when it publishes, attaches that file to the GitHub Release. That checksum matches the file. It does not prove who built it.
 
@@ -114,12 +115,12 @@ git push origin v0.5.0
 
 The tag must be `v` plus the `package.json` version. That workflow run publishes `RadioNet-Setup-<version>.exe`, `RadioNet-Setup-<version>.exe.blockmap`, `latest.yml`, and `SHA256SUMS.txt` to a public GitHub Release with `GITHUB_TOKEN`, then marks that release as Latest. A manual **Windows installer** run does the same when **publish** is left on (it also creates the tag). Every other push only uploads the Actions artifact. The helper workflow does not mark its release as Latest.
 
-| Piece | Name for 0.4.10 |
+| Piece | Name for 0.4.11 |
 |---|---|
-| NSIS file | `RadioNet-Setup-0.4.10.exe` |
-| Blockmap | `RadioNet-Setup-0.4.10.exe.blockmap` |
-| Update feed | `latest.yml` on the `v0.4.10` GitHub Release |
-| Checksum | `SHA256SUMS.txt` on the `v0.4.10` GitHub Release |
+| NSIS file | `RadioNet-Setup-0.4.11.exe` |
+| Blockmap | `RadioNet-Setup-0.4.11.exe.blockmap` |
+| Update feed | `latest.yml` on the `v0.4.11` GitHub Release |
+| Checksum | `SHA256SUMS.txt` on the `v0.4.11` GitHub Release |
 | Actions artifact | `RadioNet-Setup` |
-| Installer and app exe properties | File version and Product version `0.4.10` |
-| In-app keybinds settings | `Radio Net 0.4.10` |
+| Installer and app exe properties | File version and Product version `0.4.11` |
+| In-app keybinds settings | `Radio Net 0.4.11` |

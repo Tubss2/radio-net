@@ -10,11 +10,11 @@ on:
       api_url:
         description: API URL baked into the client (VITE_API_URL)
         required: false
-        default: https://radio-149-28-170-200.sslip.io
+        default: https://api.5by5.app
       livekit_url:
         description: LiveKit URL baked into the client (VITE_LIVEKIT_URL)
         required: false
-        default: wss://lk-149-28-170-200.sslip.io
+        default: wss://voice.5by5.app
       publish:
         description: Publish exe, latest.yml, and blockmap to a public GitHub Release. Uncheck to only build the artifact.
         type: boolean
@@ -31,8 +31,8 @@ jobs:
     permissions:
       contents: read
     env:
-      VITE_API_URL: ${{ github.event.inputs.api_url || 'https://radio-149-28-170-200.sslip.io' }}
-      VITE_LIVEKIT_URL: ${{ github.event.inputs.livekit_url || 'wss://lk-149-28-170-200.sslip.io' }}
+      VITE_API_URL: ${{ github.event.inputs.api_url || 'https://api.5by5.app' }}
+      VITE_LIVEKIT_URL: ${{ github.event.inputs.livekit_url || 'wss://voice.5by5.app' }}
       # Unsigned on purpose. Do not let electron-builder look for a certificate.
       # Resource editing stays on, so the app exe file properties carry the package.json version.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'

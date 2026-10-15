@@ -21,6 +21,7 @@ logs/
 *.env
 deploy/secrets/
 deploy/radionet-src.tgz
+rn-backup.tgz
 
 # Downloaded LiveKit server binary (see spike/livekit/run-dev.sh)
 spike/livekit/bin/

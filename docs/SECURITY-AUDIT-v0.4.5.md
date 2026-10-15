@@ -43,6 +43,8 @@ Severity is the practical risk to people using the apps, not a CVSS score.
 
 **A3. TLS trust rests on sslip.io and on keeping the VPS IP.**
 The API, LiveKit, the Pages CSP, `allowedPhoneApi`, and the URLs baked into the installer are all `radio-149-28-170-200.sslip.io` and `lk-149-28-170-200.sslip.io`. Whoever controls sslip.io's DNS, or whoever is given `149.28.170.200` after the VPS is destroyed, can get a valid Let's Encrypt certificate for those names. That party sees session tokens, admin keys sent in `X-Admin-Key`, and voice. Installers already out there keep trusting those names.
+
+**Status:** the clients, the Pages CSP, `allowedPhoneApi`, and the installer defaults now use `https://api.5by5.app` and `wss://voice.5by5.app`. Those sslip names are no longer baked in. `setup.sh` still falls back to an IP-derived sslip name only when `API_HOST` and `LK_HOST` are unset. Desktop installs older than 0.4.11 keep the old names until they take the update. See [`REDEPLOY.md`](REDEPLOY.md).
 *Fix:* the domain is already on the plan (`naming.md`). Add a CAA record that names Let's Encrypt. Plan the move in the order in the "Moving to a domain" section below.
 
 ### Medium

@@ -6,7 +6,7 @@ import { PreviewEngine } from './previewEngine';
 
 describe('baked LiveKit URL', () => {
   it('uses the build-time URL when one was provided', () => {
-    expect(resolveLivekitUrl('ws://from-api', 'wss://lk-149-28-170-200.sslip.io')).toBe('wss://lk-149-28-170-200.sslip.io');
+    expect(resolveLivekitUrl('ws://from-api', 'wss://voice.5by5.app')).toBe('wss://voice.5by5.app');
     expect(resolveLivekitUrl('ws://from-api', '')).toBe('ws://from-api');
     expect(resolveLivekitUrl('ws://from-api')).toBe('ws://from-api');
   });

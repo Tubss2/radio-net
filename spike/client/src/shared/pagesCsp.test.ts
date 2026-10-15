@@ -3,8 +3,12 @@ import { HELPER_URL } from './helperLink';
 import { HELPER_HTTP, HELPER_WS, PAGES_CSP, PREVIEW_CSP, cspSources } from './pagesCsp';
 
 describe('Pages CSP', () => {
-  it('pins Sydney and the helper port, with no connect wildcard', () => {
+  it('pins the public API and voice hosts, and the helper port, with no connect wildcard', () => {
     const connect = cspSources(PAGES_CSP, 'connect-src');
+    expect(connect).toContain('https://api.5by5.app');
+    expect(connect).toContain('wss://voice.5by5.app');
+    expect(connect).toContain('https://voice.5by5.app');
+    expect(connect.join(' ')).not.toContain('sslip.io');
     expect(connect).toContain(HELPER_WS);
     expect(connect).toContain(HELPER_HTTP);
     expect(HELPER_WS).toBe(HELPER_URL);

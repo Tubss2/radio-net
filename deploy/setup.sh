@@ -6,7 +6,9 @@
 #
 # Optional env overrides:
 #   PUBLIC_IP=1.2.3.4        skip auto-detection
-#   API_HOST=radio.example.nz  LK_HOST=lk.example.nz   (when you own a domain; default *.sslip.io)
+#   API_HOST=api.5by5.app  LK_HOST=voice.5by5.app
+#   Unset both to use radio-<ip-with-dashes>.sslip.io and lk-<ip-with-dashes>.sslip.io.
+#   On 5by5.app, the Cloudflare A records must be DNS only (grey cloud): Caddy uses HTTP-01.
 #   ACME_EMAIL=you@example.com  (Let's Encrypt expiry notices; also enables ZeroSSL fallback)
 #   RENDER_ONLY=/tmp/out     write config files there and exit (used for local testing)
 set -euo pipefail
@@ -50,6 +52,11 @@ PUBLIC_IP="${PUBLIC_IP:-$(detect_ip)}"
 DASHED="${PUBLIC_IP//./-}"
 API_HOST="${API_HOST:-radio-${DASHED}.sslip.io}"
 LK_HOST="${LK_HOST:-lk-${DASHED}.sslip.io}"
+# Hostnames are interpolated into the Caddyfile. Reject anything that is not a DNS name.
+if [[ ! "$API_HOST" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$API_HOST" == *..* || ! "$LK_HOST" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$LK_HOST" == *..* ]]; then
+  echo "API_HOST and LK_HOST must be hostnames (API_HOST=$API_HOST LK_HOST=$LK_HOST)." >&2
+  exit 1
+fi
 
 # ---------- secrets (generated once) ----------
 rand() { head -c "$1" /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c "$2"; }
@@ -272,6 +279,11 @@ mkdir -p "$APP_DIR/bin" "$APP_DIR/server" "$APP_DIR/monitor" "$ETC_DIR" /var/lib
 chown radionet:radionet /var/lib/radionet /var/lib/radionet/diagnostics /var/lib/radionet/prometheus /var/lib/radionet/bundles /var/log/caddy
 chmod 750 /var/log/caddy /var/lib/radionet /var/lib/radionet/diagnostics /var/lib/radionet/prometheus /var/lib/radionet/bundles
 chmod 750 "$ETC_DIR"; chgrp radionet "$ETC_DIR"; chmod 640 "$SECRETS_FILE"; chgrp radionet "$SECRETS_FILE"
+# A restore extracts store.json as root, before this user exists. The API runs as radionet and must be able to rewrite it.
+if [[ -f /var/lib/radionet/store.json ]]; then
+  chown radionet:radionet /var/lib/radionet/store.json
+  chmod 600 /var/lib/radionet/store.json
+fi
 
 log "Node.js v$NODE_VERSION"
 if [[ "$("$APP_DIR/node/bin/node" -v 2>/dev/null || true)" != "v$NODE_VERSION" ]]; then

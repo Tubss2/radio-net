@@ -2,7 +2,7 @@
 # Install lk from https://github.com/livekit/livekit-cli/releases/download/v2.19.0/lk_2.19.0_windows_amd64.zip
 # and put lk.exe on PATH.
 #
-#   $env:LIVEKIT_URL = "wss://lk-149-28-170-200.sslip.io"
+#   $env:LIVEKIT_URL = "wss://voice.5by5.app"
 #   $env:LIVEKIT_API_KEY = "<from /etc/radionet/secrets.env>"
 #   $env:LIVEKIT_API_SECRET = "<from /etc/radionet/secrets.env>"
 #   $env:RN_LOAD_TEST_CONFIRM = "1"
@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 if (-not $Url -or -not $ApiKey -or -not $ApiSecret) {
   throw "Set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET."
 }
-if ($Url -match '149\.28\.170\.200' -and $env:RN_LOAD_TEST_CONFIRM -ne '1') {
+if ($Url -match '149\.28\.170\.200|lk-149-28-170-200|voice\.5by5\.app' -and $env:RN_LOAD_TEST_CONFIRM -ne '1') {
   throw "Refusing the Sydney server. Read docs/SCALE-TEST-RUNBOOK.md and set RN_LOAD_TEST_CONFIRM=1."
 }
 if ($Rooms -lt 1 -or $Rooms -gt 16 -or $Talkers -gt 30 -or $Listeners -gt 200 -or $MultiNet -gt 80) {
