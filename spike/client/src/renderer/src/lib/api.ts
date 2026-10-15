@@ -1,4 +1,5 @@
 import { RECONNECTING, isNetworkFailure, isRouteMissing } from '../../../shared/net';
+import { PUBLIC_API_ORIGIN } from '../../../shared/publicHosts';
 import type { VoiceReport } from '../../../shared/voiceDiag';
 
 /** Thin client for the Radio Net API (see spike/server). */
@@ -40,7 +41,7 @@ export interface PhoneHostResult { livekitUrl: string; room: string; token: stri
 export interface PhoneRedeemResult { livekitUrl: string; room: string; token: string; identity: string; callsign: string; communityId: string; communityName: string }
 
 const bakedApi = import.meta.env.VITE_API_URL;
-const apiFallback = import.meta.env.MODE === 'web' ? 'https://radio-149-28-170-200.sslip.io' : 'http://127.0.0.1:8787';
+const apiFallback = import.meta.env.MODE === 'web' ? PUBLIC_API_ORIGIN : 'http://127.0.0.1:8787';
 export const API_URL = bakedApi && bakedApi.length > 0 ? bakedApi : apiFallback;
 
 export class ApiError extends Error {

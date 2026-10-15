@@ -28,7 +28,7 @@ A phone button is a second session with a smaller scope. The QR code is a bearer
 
 The API does not use cookies. CORS is not the secret. The bearer token is.
 
-LiveKit is a second origin (`wss://lk-149-28-170-200.sslip.io`). A token minted by the API is what lets the browser in. Tightening API CORS does not constrain LiveKit. Do not put the LiveKit API secret in the page.
+LiveKit is a second origin (`wss://voice.5by5.app`). A token minted by the API is what lets the browser in. Tightening API CORS does not constrain LiveKit. Do not put the LiveKit API secret in the page.
 
 ## Phone push-to-talk (QR)
 

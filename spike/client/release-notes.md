@@ -1,3 +1,5 @@
+This version talks to api.5by5.app for the radio and voice.5by5.app for voice. Install it so the app follows the server when that machine gets a new address.
+
 When a newer version is published, the app shows that version and asks before it downloads. The bar then shows a percent, megabytes downloaded and total, and speed. If the download fails, Retry tries again. Restart to install runs the Windows installer. That installer does not report progress back to the app, so the bar says so.
 
 Letting go of talk keeps the microphone open for a short moment, so the end of a word is not cut off. A short rising beep plays on your speakers when someone else starts, and a short falling beep plays when they let go. Options, under Sounds, can turn those beeps off. Hearing them for your own transmissions stays off until you turn it on. Sounds can also colour voice you receive: Clean, Handheld, Degraded, or Digital. Clean leaves the voice as it is. A channel can use a different colour. That choice stays on this machine.

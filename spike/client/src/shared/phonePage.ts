@@ -1,5 +1,7 @@
+import { PUBLIC_API_ORIGIN } from './publicHosts';
+
 const PAGES_ROOT = 'https://tubss2.github.io/radio-net/';
-const SYDNEY_API = 'https://radio-149-28-170-200.sslip.io';
+const SYDNEY_API = PUBLIC_API_ORIGIN;
 
 /** The phone posts the pairing code here. Any other host is ignored so a rewritten link cannot collect it. */
 export function allowedPhoneApi(api: string): string | null {

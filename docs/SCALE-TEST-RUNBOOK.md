@@ -1,6 +1,6 @@
 # Scale-test runbook
 
-First real group op for Radio Net: a milsim with maybe 30–60 people on voice. The web app at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/) is the client. Voice is self-hosted LiveKit on the Vultr Sydney box `149.28.170.200` (plan vc2-1c-2gb: 1 vCPU, 2 GB RAM). API: `https://radio-149-28-170-200.sslip.io`. Voice: `wss://lk-149-28-170-200.sslip.io`.
+First real group op for Radio Net: a milsim with maybe 30–60 people on voice. The web app at [https://tubss2.github.io/radio-net/](https://tubss2.github.io/radio-net/) is the client. Voice is self-hosted LiveKit on a Vultr Sydney box (plan vc2-1c-2gb: 1 vCPU, 2 GB RAM). API: `https://api.5by5.app`. Voice: `wss://voice.5by5.app`. The IP changes when the VM is replaced; the names do not ([`REDEPLOY.md`](REDEPLOY.md)).
 
 This page is the checklist for that night: what to deploy, what to watch, how to collect evidence afterwards, and what the local load test said about a 1 vCPU box.
 
@@ -11,7 +11,7 @@ This page is the checklist for that night: what to deploy, what to watch, how to
 | LiveKit Prometheus | localhost port 6789, user `metrics`, password `METRICS_PASSWORD` | A few MB inside the LiveKit process |
 | Prometheus 3.15.0 | `127.0.0.1:9090`, 12 h / 200 MB retention, memory cap 256 MB | About 80 MB resident while idle |
 | node_exporter 1.12.1 | `127.0.0.1:9100`, cpu/mem/net/load/filesystem only, memory cap 64 MB | About 20 MB resident |
-| Dashboard | `https://radio-149-28-170-200.sslip.io/monitor/` | Static files. No Grafana process |
+| Dashboard | `https://api.5by5.app/monitor/` | Static files. No Grafana process |
 | Persistent journal | `/var/log/journal`, 200 MB, 7 days | Disk, not RAM |
 | Log bundle | `radionet-collect-logs` | One archive after the op |
 | Client voice summary | Options → **Send diagnostics** | Opt-in. No audio, no callsign |
@@ -38,7 +38,7 @@ The web client publishes a muted microphone on each net the player can talk on, 
 1. **Stay on vc2-1c-2gb, or resize for the night.** The op-shaped test fits. A resize to the next Vultr plan (2 vCPU / 4 GB) is the cheap insurance if many people talk at once or a few players are on bad links. Shrink it again after the op. Vultr resizes need a reboot.
 2. **TURN stays off.** Players on cellular or strict NAT may fail to connect. Enabling TURN relays media through the same small CPU. Do that only if the first failures are “cannot connect”, and not on the night if CPU is already high.
 3. **Ask players to click Send diagnostics** if voice sounds bad. The leave-the-page checkbox starts off. Script errors upload on their own.
-4. **The desktop installer stays 0.4.9.** This change does not bump `package.json`. GitHub Pages updates the web app when `main` updates. The Windows app gets the button on the next version cut.
+4. **Desktop installs older than 0.4.11 still call the old sslip names.** 0.4.11 and the web app use `api.5by5.app` and `voice.5by5.app`. GitHub Pages updates the web app when `main` updates.
 
 ## Deploy from the Windows PC
 
@@ -49,7 +49,7 @@ cd C:\path\to\radio-net
 git pull origin main
 bash deploy/pack.sh
 Copy-Item deploy\radionet-src.tgz "$env:USERPROFILE\radio-net-deploy\" -Force
-powershell -ExecutionPolicy Bypass -File .\deploy\deploy.ps1 -Ip 149.28.170.200
+powershell -ExecutionPolicy Bypass -File .\deploy\deploy.ps1 -Ip <sydney-ip>
 ```
 
 If Git Bash is not installed, `wsl bash deploy/pack.sh` does the same pack. The script waits for cloud-init, uploads the tarball, and runs `setup.sh`. That restarts LiveKit, the API, and Caddy, and starts Prometheus and the node exporter. It appends `MONITOR_PASSWORD` and `METRICS_PASSWORD` to `/etc/radionet/secrets.env` if they are missing. It does not print them.
@@ -57,15 +57,15 @@ If Git Bash is not installed, `wsl bash deploy/pack.sh` does the same pack. The 
 Read the dashboard password (do not commit it, and do not paste it into chat):
 
 ```powershell
-ssh -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@149.28.170.200 "grep '^MONITOR_PASSWORD=' /etc/radionet/secrets.env"
+ssh -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@<sydney-ip> "grep '^MONITOR_PASSWORD=' /etc/radionet/secrets.env"
 ```
 
-Open `https://radio-149-28-170-200.sslip.io/monitor/`. User `operator`, password that value. A browser with no password must get 401.
+Open `https://api.5by5.app/monitor/`. User `operator`, password that value. A browser with no password must get 401.
 
 Confirm the stack before players arrive:
 
 ```powershell
-ssh -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@149.28.170.200 "systemctl is-active livekit radionet-api radionet-caddy prometheus node_exporter; curl -fsS https://radio-149-28-170-200.sslip.io/health"
+ssh -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@<sydney-ip> "systemctl is-active livekit radionet-api radionet-caddy prometheus node_exporter; curl -fsS https://api.5by5.app/health"
 ```
 
 `setup.sh` also raises the LiveKit room cap to 100 participants, the join limit to 60 per minute per IP, and the general API limit to 600 per minute per IP. Journald is persistent (200 MB, 7 days). API and Caddy file-descriptor limits are 65536.
@@ -76,7 +76,7 @@ ssh -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@149.28.170.200 "s
 - [ ] `/health` returns ok over HTTPS after the restart.
 - [ ] Monitor page loads with the operator password and shows CPU, RAM, and LiveKit RAM. Participants may be 0.
 - [ ] Decide the Vultr size. If you resize, do it before the deploy, or reboot and re-check health after.
-- [ ] Tell players to use the web app (hard-refresh, or a private window, so they are not on an old cached page). The desktop 0.4.9 build will not have **Send diagnostics**.
+- [ ] Tell players to hard-refresh the web app. Desktop installs need 0.4.11 or newer so they call `api.5by5.app` instead of the old sslip names.
 - [ ] Ask a few people to join one net early and click **Send diagnostics** once, so you know the path works.
 - [ ] Leave TURN off unless you have already decided to turn it on.
 - [ ] Do not run the load test during the op. It fills the server with fake talkers.
@@ -110,13 +110,13 @@ journalctl -u livekit -u radionet-api -u radionet-caddy -u prometheus -f
 On the server, as root. `6` is hours. Use `1` to `168`.
 
 ```powershell
-ssh -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@149.28.170.200 "radionet-collect-logs 6"
+ssh -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@<sydney-ip> "radionet-collect-logs 6"
 ```
 
 The command prints a path like `/var/lib/radionet/bundles/scale-20261014T120000Z.tgz` (mode 600). Copy that file:
 
 ```powershell
-scp -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@149.28.170.200:/var/lib/radionet/bundles/scale-STAMP.tgz .
+scp -i $env:USERPROFILE\radio-net-deploy\radio-net-deploy root@<sydney-ip>:/var/lib/radionet/bundles/scale-STAMP.tgz .
 ```
 
 The archive has host memory and listeners, journals for LiveKit, the API, Caddy, Prometheus, and the node exporter, a LiveKit metrics scrape, a node exporter scrape, a few Prometheus query results, `diagnostics/voice.jsonl` and `diagnostics/errors.jsonl`, and the current Caddy access log. It does not contain `secrets.env`.
@@ -136,7 +136,7 @@ Install LiveKit CLI v2.19.0: [lk_2.19.0_windows_amd64.zip](https://github.com/li
 Keys are `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` in `/etc/radionet/secrets.env`. The script refuses the Sydney host unless `RN_LOAD_TEST_CONFIRM=1`. Set that only for a dress rehearsal on an empty server.
 
 ```powershell
-$env:LIVEKIT_URL = "wss://lk-149-28-170-200.sslip.io"
+$env:LIVEKIT_URL = "wss://voice.5by5.app"
 $env:LIVEKIT_API_KEY = "<from secrets.env>"
 $env:LIVEKIT_API_SECRET = "<from secrets.env>"
 $env:RN_LOAD_TEST_CONFIRM = "1"

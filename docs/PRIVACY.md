@@ -38,10 +38,10 @@ There is no analytics switch. Two reports can leave the machine, and both go to 
 
 | What | Sent to | Trigger |
 |---|---|---|
-| Invite code and callsign | The API URL in the server box (the public installer uses `https://radio-149-28-170-200.sslip.io`) | Join, and rejoin |
+| Invite code and callsign | The API URL in the server box (the public installer uses `https://api.5by5.app`) | Join, and rejoin |
 | Admin key | That API, header `X-Admin-Key` | Channel create/delete, invite rotate, delete community |
 | Which channel ids you want to hear | That API | Tune |
-| Microphone audio | The LiveKit URL that API returns (the public installer uses `wss://lk-149-28-170-200.sslip.io`) | While push-to-talk is held. A muted track is published when you tune. |
+| Microphone audio | The LiveKit URL that API returns (the public installer uses `wss://voice.5by5.app`) | While push-to-talk is held. A muted track is published when you tune. |
 | Your IP address | That server | Any connection |
 | "Is there a new version?" | GitHub Releases for `github.com/Tubss2/radio-net` | Packaged app, at startup and every four hours |
 | Redacted script error | The community server (`POST /api/diagnostics/error`) | When the page hits an error, up to 20 times |

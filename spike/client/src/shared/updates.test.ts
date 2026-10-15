@@ -24,7 +24,7 @@ describe('GitHub Releases updates', () => {
         nsis: { artifactName?: string };
       };
     };
-    expect(pkg.version).toBe('0.4.10');
+    expect(pkg.version).toBe('0.4.11');
     expect(pkg.build.publish).toEqual({
       provider: 'github',
       owner: UPDATE_OWNER,

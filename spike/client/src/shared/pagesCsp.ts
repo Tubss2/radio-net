@@ -1,3 +1,5 @@
+import { PUBLIC_API_ORIGIN, PUBLIC_VOICE_ORIGIN, PUBLIC_VOICE_WSS } from './publicHosts';
+
 /** Must match helper/src/main.rs PORT. A wildcard ws: would let this origin talk to any local port. */
 export const HELPER_HTTP = 'http://127.0.0.1:47321';
 export const HELPER_WS = 'ws://127.0.0.1:47321';
@@ -8,7 +10,7 @@ export const HELPER_WS = 'ws://127.0.0.1:47321';
  */
 export const PAGES_CSP = [
   "default-src 'self'",
-  `connect-src 'self' https://radio-149-28-170-200.sslip.io wss://lk-149-28-170-200.sslip.io https://lk-149-28-170-200.sslip.io ${HELPER_WS} ${HELPER_HTTP}`,
+  `connect-src 'self' ${PUBLIC_API_ORIGIN} ${PUBLIC_VOICE_WSS} ${PUBLIC_VOICE_ORIGIN} ${HELPER_WS} ${HELPER_HTTP}`,
   "img-src 'self' data: blob:",
   "media-src 'self' blob: mediastream:",
   "style-src 'self' 'unsafe-inline'",

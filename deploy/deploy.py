@@ -4,7 +4,7 @@
   python3 deploy.py 203.0.113.10                      # user root, key ~/.ssh/radio-net-deploy
   python3 deploy.py 203.0.113.10 --user ubuntu --sudo --email you@example.com
 """
-import argparse, os, pathlib, posixpath, sys
+import argparse, os, pathlib, posixpath, re, sys
 
 import paramiko
 
@@ -35,8 +35,13 @@ def main():
     ap.add_argument("--key", default=os.path.expanduser("~/.ssh/radio-net-deploy"))
     ap.add_argument("--sudo", action="store_true", help="prefix setup with sudo (non-root user)")
     ap.add_argument("--email", default="", help="ACME email for certificate notices")
+    ap.add_argument("--api-host", default="api.5by5.app", help="API hostname. Empty uses setup.sh's sslip.io default.")
+    ap.add_argument("--lk-host", default="voice.5by5.app", help="LiveKit hostname. Empty uses setup.sh's sslip.io default.")
     ap.add_argument("--server-src", default=str(HERE.parent / "spike" / "server"))
     a = ap.parse_args()
+    for label, value in (("api host", a.api_host), ("LiveKit host", a.lk_host)):
+        if value and not re.fullmatch(r"[A-Za-z0-9.-]+", value):
+            sys.exit(f"{label} must be a hostname")
 
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # first contact with a fresh VPS
@@ -52,7 +57,8 @@ def main():
 
     sudo = "sudo " if a.sudo else ""
     cmd = (f"{sudo}rm -rf /opt/radionet-src && {sudo}mv {stage} /opt/radionet-src && "
-           f"{sudo}env ACME_EMAIL='{a.email}' bash /opt/radionet-src/deploy/setup.sh")
+           f"{sudo}env ACME_EMAIL='{a.email}' API_HOST='{a.api_host}' LK_HOST='{a.lk_host}' "
+           f"bash /opt/radionet-src/deploy/setup.sh")
     _, out, _ = c.exec_command(cmd, get_pty=True)
     for line in iter(out.readline, ""):
         sys.stdout.write(line)

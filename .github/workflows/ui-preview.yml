@@ -28,8 +28,8 @@ jobs:
       - name: Build the web app
         working-directory: spike/client
         env:
-          VITE_API_URL: https://radio-149-28-170-200.sslip.io
-          VITE_LIVEKIT_URL: wss://lk-149-28-170-200.sslip.io
+          VITE_API_URL: https://api.5by5.app
+          VITE_LIVEKIT_URL: wss://voice.5by5.app
         run: npm run web:build
       - name: Build the static preview
         working-directory: spike/client

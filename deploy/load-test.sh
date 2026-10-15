@@ -10,7 +10,7 @@
 #   LIVEKIT_URL=ws://127.0.0.1:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=secret \
 #     bash deploy/load-test.sh
 #
-#   RN_LOAD_TEST_CONFIRM=1 LIVEKIT_URL=wss://lk-149-28-170-200.sslip.io \
+#   RN_LOAD_TEST_CONFIRM=1 LIVEKIT_URL=wss://voice.5by5.app \
 #     LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... \
 #     ROOMS=4 TALKERS=2 LISTENERS=15 MULTI=10 DURATION=5m \
 #     bash deploy/load-test.sh
@@ -32,7 +32,7 @@ if [[ -z "$URL" || -z "$KEY" || -z "$SECRET" ]]; then
   exit 1
 fi
 case "$URL" in
-  *149.28.170.200*|*lk-149-28-170-200*)
+  *149.28.170.200*|*lk-149-28-170-200*|*voice.5by5.app*)
     if [[ "${RN_LOAD_TEST_CONFIRM:-}" != "1" ]]; then
       echo "Refusing the Sydney server. Read docs/SCALE-TEST-RUNBOOK.md and set RN_LOAD_TEST_CONFIRM=1." >&2
       exit 2

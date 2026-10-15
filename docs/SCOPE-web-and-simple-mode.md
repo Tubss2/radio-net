@@ -14,7 +14,7 @@ Radio Net can grow two things that share one playing screen. A **web app** at [h
 
 ## A. Web app on GitHub Pages
 
-The Pages URL is the product site. The mocked UI preview that the preview workflow builds is a different thing: it never calls the API, and its Content-Security-Policy sets `connect-src 'none'`. Shipping that mock at the same URL would look like Radio Net and then fail every join. The real app is a separate static build with the Sydney URLs baked in (`https://radio-149-28-170-200.sslip.io` and `wss://lk-149-28-170-200.sslip.io`). The mock can move to `/preview/` on Pages, matching the path Sydney already serves.
+The Pages URL is the product site. The mocked UI preview that the preview workflow builds is a different thing: it never calls the API, and its Content-Security-Policy sets `connect-src 'none'`. Shipping that mock at the same URL would look like Radio Net and then fail every join. The real app is a separate static build with the stable URLs baked in (`https://api.5by5.app` and `wss://voice.5by5.app`). The mock can move to `/preview/` on Pages, matching the path Sydney already serves.
 
 GitHub Pages for this repo is set to **GitHub Actions** (the Pages API reports `build_type: workflow`). The web workflow still prints the Settings → Pages → Source step if `configure-pages` fails, and it deploys from `main` and from `cursor/local-callsign-keybinds-3d59`.
 
@@ -38,7 +38,7 @@ Leave these on the desktop: the main process, preload, `uiohook` hotkeys, the ov
 - `http://localhost` and `http://127.0.0.1` for local dev
 - a missing or `null` origin so the Electron `file://` build still works
 
-The LiveKit signal connection is the browser talking straight to `wss://lk-149-28-170-200.sslip.io`, not through the API. LiveKit’s default allows that origin. Media stays on UDP 7882, with TCP 7881 as the fallback, same as the desktop client. No new firewall ports.
+The LiveKit signal connection is the browser talking straight to `wss://voice.5by5.app`, not through the API. LiveKit’s default allows that origin. Media stays on UDP 7882, with TCP 7881 as the fallback, same as the desktop client. No new firewall ports.
 
 ### Microphone and WebRTC
 
